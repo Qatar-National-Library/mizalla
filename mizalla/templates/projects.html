@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Projects{% endblock %}
+{% block content %}
+<section class="page-heading heading-row">
+  <div><p class="eyebrow">PORTFOLIO / {{ summaries|length }} VISIBLE</p><h1>Projects</h1></div>
+  {% if current_user.is_admin or current_user.is_pm %}
+  <a class="button button-primary" href="{{ url_for('main.project_new') }}">Create project <span aria-hidden="true">+</span></a>
+  {% endif %}
+</section>
+<form method="get" class="portfolio-filters" role="search" aria-label="Filter projects">
+  <label class="portfolio-search">Search<input type="search" name="q" value="{{ filters.q }}" placeholder="Project, task, or JIRA ID"></label>
+  <label>Status<select name="status"><option value="">Any task status</option>{% for status in task_statuses %}<option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select></label>
+  <label>Task owner<select name="owner_id"><option value="">Anyone</option>{% for member in portfolio_members %}<option value="{{ member.id }}" {% if filters.owner_id == member.id %}selected{% endif %}>{{ member.name }}</option>{% endfor %}</select></label>
+  <label>Due from<input type="date" name="due_from" value="{{ filters.due_from }}"></label>
+  <label>Due to<input type="date" name="due_to" value="{{ filters.due_to }}"></label>
+  <button class="button button-primary button-small" type="submit">Apply filters</button>
+  <button class="button button-quiet button-small" type="submit" formaction="{{ url_for('main.project_export') }}" formmethod="get">Export Excel <span aria-hidden="true">↓</span></button>
+  {% if has_filters %}<a class="text-link clear-filters" href="{{ url_for('main.project_list') }}">Clear</a>{% endif %}
+</form>
+{% if summaries %}
+  <div class="project-list">
+    {% for item in summaries %}
+    <article class="project-row" style="--row-index: {{ loop.index0 }}">
+      <div class="project-identity">
+        <span class="project-code">{{ item.project.project_id }}</span>
+        <h2><a href="{{ url_for('main.project_detail', project_id=item.project.id) }}">{{ item.project.name }}</a></h2>
+        <p>{{ item.project.description|truncate(150) if item.project.description else "No description" }}</p>
+      </div>
+      <div class="project-progress">
+        <div class="progress-label"><span>Completion</span><strong>{{ item.completion }}%</strong></div>
+        <progress value="{{ item.completion }}" max="100" aria-label="{{ item.completion }} percent complete"></progress>
+      </div>
+      <div class="project-work">
+        <p class="column-label">{{ "MATCHING TASKS" if has_filters else "ACTIVE TASKS" }} / {{ item.tasks|length }}</p>
+        {% if item.tasks %}
+          {% for task, step in item.tasks %}
+          <div class="current-task">
+            <div class="current-task-title"><span class="task-type">{{ task.task_type }}</span><a href="{{ url_for('main.project_detail', project_id=item.project.id) }}#task-{{ task.id }}">{{ task.name }}</a></div>
+            <div class="task-meta">
+              <span>{{ step.header if step else "No in-progress step" }}</span>
+              <span>{% if task.owners %}{% for owner in task.owners %}{{ owner.member.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}Unassigned{% endif %}</span>
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}<p class="muted empty-inline">No active tasks</p>{% endif %}
+      </div>
+      <div class="row-actions">
+        <a class="button button-quiet button-small" href="{{ url_for('main.project_summary', project_id=item.project.id) }}">Summary</a>
+        <a class="row-arrow" href="{{ url_for('main.project_detail', project_id=item.project.id) }}" aria-label="Open {{ item.project.name }}">↗</a>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <section class="empty-state"><span class="empty-index">00</span><h2>{{ "No matching projects" if has_filters else "No projects in your view" }}</h2><p>{{ "Adjust or clear the selected filters." if has_filters else "Your accessible projects will appear here." }}</p>{% if has_filters %}<a class="button button-quiet" href="{{ url_for('main.project_list') }}">Clear filters</a>{% else %}{% if current_user.is_admin or current_user.is_pm %}<a class="button button-primary" href="{{ url_for('main.project_new') }}">Create a project</a>{% endif %}{% endif %}</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb, admin_nav %}
+{% block title %}Servers · Administration{% endblock %}
+{% block content %}
+{{ breadcrumb([("Projects", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Servers", None)]) }}
+
+{{ admin_nav('servers') }}
+<section class="detail-grid admin-grid">
+  <div class="detail-section">
+    <div class="section-heading"><div><p class="eyebrow">SERVER INVENTORY / {{ servers|length }}</p><h2>Environments</h2></div></div>
+    <div class="directory-list">{% for server in servers %}<article class="server-row"><div class="server-index">{{ "%02d"|format(loop.index) }}</div><div class="directory-copy"><strong>{{ server.name }}</strong><span>{{ server.ip }} · {{ server.operating_system }}</span><small>{{ server.technology_packages or "No technology / packages listed" }}</small>{% if server.test_projects or server.production_projects %}<small>Assigned to {% for project in server.test_projects %}{{ project.name }} (test){% if not loop.last or server.production_projects %}, {% endif %}{% endfor %}{% for project in server.production_projects %}{{ project.name }} (production){% if not loop.last %}, {% endif %}{% endfor %}</small>{% endif %}</div><a class="button button-quiet button-small" href="{{ url_for('admin.server_edit', server_id=server.id) }}">Edit</a><form method="post" action="{{ url_for('admin.server_delete', server_id=server.id) }}" onsubmit="return confirm('Delete this server?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="text-button danger-text" type="submit">Delete</button></form></article>{% else %}<p class="muted empty-inline">No servers recorded.</p>{% endfor %}</div>
+  </div>
+  <aside class="detail-section create-panel">
+    <div class="section-heading"><div><p class="eyebrow">NEW RECORD</p><h2>Add server</h2></div></div>
+    <form method="post" class="form-stack"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Server name<input name="name" maxlength="160" required></label><label>IP address<input name="ip" maxlength="45" required></label><label>Operating system<input name="operating_system" maxlength="160" required></label><label>Technology / packages<textarea name="technology_packages" rows="4"></textarea></label><button class="button button-primary" type="submit">Create server</button></form>
+  </aside>
+</section>
+{% endblock %}

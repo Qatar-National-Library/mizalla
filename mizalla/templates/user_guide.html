@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb %}
+{% block title %}User guide{% endblock %}
+{% block content %}
+{{ breadcrumb([("About", url_for('main.about')), ("User guide", None)]) }}
+<header class="guide-heading"><p class="eyebrow">MIZALLA / REFERENCE</p><h1>User guide</h1><p>Every screen, every item, explained.</p></header>
+<nav class="guide-index" aria-label="User guide sections">
+  <a href="#access">01 Access</a>
+  <a href="#portfolio">02 Portfolio</a>
+  <a href="#projects">03 Project records</a>
+  <a href="#summary">04 Project summary</a>
+  <a href="#tasks">05 Tasks and progress</a>
+  <a href="#highlights">06 Key marks and milestones</a>
+  <a href="#meetings">07 Meetings and Teams</a>
+  <a href="#admin">08 Members &amp; servers</a>
+  <a href="#services">09 Services</a>
+  <a href="#settings">10 Settings</a>
+  <a href="#security">11 Security &amp; data</a>
+</nav>
+<div class="guide-content">
+
+  <section class="guide-chapter" id="access"><span class="chapter-number">01</span><div>
+    <h2>Sign-in and access</h2>
+    <p>Sign in with an account created by an administrator on the <strong>Members</strong> screen. The first administrator is created with <code>flask --app mizalla create-admin</code>, which prompts interactively for name, email, and a password of at least 12 characters.</p>
+    <p><strong>Roles are per project.</strong> They describe a person's relationship to one project, not to you, so the same person can run one project as Project Manager, build another as a team member, and observe a third as a vendor. A member can also hold several roles on the <em>same</em> project.</p><p><strong>Project visibility</strong> comes only from holding any role on that project. Task ownership, meeting attendance, and administrator status alone do not grant visibility. A project outside your scope returns 404 rather than revealing its existence.</p>
+    <h3>The six roles</h3>
+<table class="guide-table"><thead><tr><th>Role</th><th>What it grants</th></tr></thead><tbody><tr><td><strong>Delegated PM</strong></td><td>Acts for the Project Manager on this project. Same access as a PM, including assigning roles.</td></tr><tr><td><strong>Project team</strong></td><td>Builds the project: adds and edits tasks, steps, meetings, and documents. Adding the &quot;Project Manager&quot; team role makes this member a PM of the project.</td></tr><tr><td><strong>Delegated Backup</strong></td><td>A stand-in for a Delegated PM. Same access as a Developer, but cannot assign roles.</td></tr><tr><td><strong>Client</strong></td><td>Read-only: sees the project and downloads its documents.</td></tr><tr><td><strong>Stakeholder</strong></td><td>Read-only.</td></tr><tr><td><strong>Vendor</strong></td><td>Read-only.</td></tr></tbody></table>
+<h3>Who can manage a project</h3>
+<p>A member manages a project by holding the <strong>Delegated PM</strong> role on it, or by being a Project Team member who also holds the <strong>Project Manager</strong> team role. Administrators can always manage any project. Only those managers — and admins — can assign or remove roles on a project, over both the web form and the REST API. A PM of one project cannot staff another.</p>
+<p>The <strong>Project Manager</strong> flag on the Members screen is a separate, directory-level marker: it lets that member open the <em>New project</em> form and makes them the Project Manager of anything they create. It does not grant authority over projects they did not create. Existing setups are converted on first start, so anyone who relied on the old behaviour keeps it where they were already a team member.</p>
+    <p><strong>Edit boundaries</strong> — Project Team members, Delegated PMs, and Delegated Backups can create and edit project data. Clients, Stakeholders, and Vendors are read-only: they view details, download documents, and open the Project Summary. When your roles are combined, the most permissive one wins, so a Vendor who is also a team member can edit. Project deletion requires both administrator status and edit access to the project.</p>
+  </div></section>
+
+  <section class="guide-chapter" id="portfolio"><span class="chapter-number">02</span><div>
+    <h2>Portfolio</h2>
+    <p>The <strong>Projects</strong> page lists only projects visible to your account. It shows each project's name, project ID, overall completion percentage, and the first in-progress step by ascending step priority with its owners.</p>
+    <p><strong>Search</strong> filters by project name, project ID, task name, or JIRA ticket ID. <strong>Filters</strong> narrow by task status, task owner, and due date. Clear filters to return to the full visible portfolio. Every member picker — task owners, meeting attendees, membership roles — lists only members who already hold a membership on a project you can see, so a user with access to one project cannot enumerate the member directory.</p>
+  </div></section>
+
+  <section class="guide-chapter" id="projects"><span class="chapter-number">03</span><div>
+    <h2>Project records</h2>
+    <p>Create a project with a unique project ID and a name. The creator is added to the Project Team as its Project Manager, so they can staff it straight away. Record the description, scope, estimated completion date, actual start and completion dates, owner departments, development technologies, test and production servers, and any project documents.</p>
+    <p>Use <strong>Project roles</strong> to add a member, tick one or more roles, and record a responsibility. Several roles can be assigned in a single submission, which is how someone ends up as, say, both Developer and Delegated PM. Each role is a separate entry, shown as a tag on the project detail page and removable on its own — removing one role leaves the member's other roles intact. Adding a role they already hold is skipped rather than duplicated.</p>
+    <p>The <strong>activity history</strong> shows who created, changed, or deleted project data and when, with actor and project name snapshots preserved so the history stays understandable if an account or project is later removed.</p>
+  </div></section>
+
+  <section class="guide-chapter" id="summary"><span class="chapter-number">04</span><div>
+    <h2>Project Summary</h2>
+    <p>The <strong>Project Summary</strong> page (<code>/projects/&lt;id&gt;/summary</code>) is the clean landing screen — the first thing you see after clicking a project from the portfolio or detail view. It is available to every project role, including Delegated PM and Delegated Backup. It is 404 for everyone else.</p>
+    <h3>Always-visible pulse row</h3>
+    <p>Four tiles answer the question "is this project OK?" without opening any section:</p>
+    <ul>
+      <li><strong>Completion</strong> — the step-weighted percentage, matching the figure on the project detail page and in the Project Manager status digest.</li>
+      <li><strong>Next milestone</strong> — the name of the soonest upcoming milestone, or "None scheduled".</li>
+      <li><strong>Needs attention</strong> — count of tasks that are blocked, overdue, or otherwise at risk.</li>
+      <li><strong>Next meeting</strong> — the date and agenda of the next upcoming meeting, or how many meetings have been held.</li>
+    </ul>
+    <h3>Nine accordions</h3>
+    <p>Every section is collapsed under a native <code>&lt;details&gt;</code> accordion by default. Click any heading to expand. No JavaScript is required.</p>
+    <ul>
+      <li><strong>Scope and timeline</strong> — project description, scope, estimated completion, actual start/completion dates, and overall completion percentage.</li>
+      <li><strong>Milestones</strong> — achieved milestones with their achievement date, and upcoming milestones ordered by due date (undated milestones last). Each links to its owning task.</li>
+      <li><strong>Key highlights</strong> — every key mark recorded on any task, grouped by label (Key Amendment, Key Finding, Key Decision, and any labels an administrator configured). Each shows the date it was recorded and links to the owning task. Marks survive the administrator removing a label from the picker.</li>
+      <li><strong>Current tasks</strong> — active tasks showing status, completion percentage, the first in-progress step, the responsible member, milestone flag, and any highlight badges.</li>
+      <li><strong>Blocked, overdue and at risk</strong> — tasks that are blocked, past their due date, or flagged as needing attention.</li>
+      <li><strong>Meetings</strong> — every meeting with its agenda, date, attendee count, external guest count, location, and a <strong>Join in Teams</strong> button for future meetings that have a start time.</li>
+      <li><strong>Documents</strong> — every uploaded file with its name and description.</li>
+      <li><strong>Project team and responsibilities</strong> — every person on the project with their role, responsibility, team roles, and a <code>mailto:</code> link.</li>
+    </ul>
+    <p>A <strong>Full project details</strong> link opens the full detail view where project-team members can create and edit tasks, steps, meetings, and memberships.</p>
+    <p><strong>Breadcrumbs</strong> appear at the top of every hierarchical screen: <code>Home &gt; Projects &gt; Project name &gt; Summary</code>, with the current page marked <code>aria-current="page"</code>.</p>
+  </div></section>
+
+  <section class="guide-chapter" id="tasks"><span class="chapter-number">05</span><div>
+    <h2>Tasks and progress</h2>
+    <p>Tasks have a type (Development, Testing, UAT, Bug Fix, New Feature, Enhancement), a status (Not Started, In Progress, Blocked, Completed, Cancelled), a priority, a weight, an optional due date, an optional JIRA ticket ID, one or more owners, and ordered steps.</p>
+    <p>A task is a result of the <strong>Project Plan</strong> by default, or can reference a meeting on the same project. The <strong>source</strong> is shown on the task row so you always know where the task came from.</p>
+    <p>JIRA IDs become browse links using the <strong>JIRA browse URL</strong> setting, which an administrator can change at any time on the <strong>/settings</strong> screen without a restart.</p>
+    <h3>Steps and completion</h3>
+    <p>Project completion is the weighted average of every step: each step percentage is multiplied by its parent task's weight, and each step contributes that task weight to the denominator. A project with no steps reports 0%. Tasks without steps do not contribute to the calculation.</p>
+    <p>The <strong>current step</strong> is the first in-progress step by ascending priority. If no step is in progress, the task shows "No in-progress step".</p>
+    <h3>Task ownership</h3>
+    <p>Every task has one or more owners. The first owner is shown as the responsible member on the summary and detail pages. Task owners receive end-date reminders, stale-task nudges, and overdue alerts.</p>
+  </div></section>
+
+  <section class="guide-chapter" id="highlights"><span class="chapter-number">06</span><div>
+    <h2>Key marks and milestones</h2>
+    <h3>Key marks</h3>
+    <p>Every task carries an optional set of <strong>key marks</strong> — labels such as Key Amendment, Key Finding, and Key Decision. The list of allowed labels is maintained by an administrator on the <strong>/settings</strong> screen under <code>task_highlight_types</code>.</p>
+    <p>Applying a mark records it on the task with a date. Removing a label from the setting stops it appearing in the picker on new and edited tasks, but keeps it visible on any task that already has it and on the Project Summary — so no evidence is ever lost mid-project.</p>
+    <p>Marks appear as coloured badges on the task row and in the summary's Key highlights accordion.</p>
+    <h3>Milestones</h3>
+    <p>A task can also be flagged as a <strong>Milestone</strong> — a separate concept from a key mark. Milestones are scheduled checkpoints ordered by due date.</p>
+    <p>The first time a milestone task reaches <em>Completed</em>, its achievement date is stamped automatically. An explicit date always wins over the auto-stamp, and the auto-stamp is written only once — re-saving an unrelated field never rewrites it.</p>
+    <p>Milestones appear in the pulse row, the Milestones accordion (achieved first, then upcoming by due date), and the MCP summary and tools.</p>
+    <h3>Who can use them</h3>
+    <p>Project Team members can apply marks and set milestones when creating or editing a task. Clients, Stakeholders, and Vendors see them read-only on the summary and detail pages.</p>
+  </div></section>
+
+  <section class="guide-chapter" id="meetings"><span class="chapter-number">07</span><div>
+    <h2>Meetings and Teams</h2>
+    <p>Project Team members add a meeting date, optional local time, location, agenda, attendees, and notes. Attendees are a list of tick boxes: when you create a meeting every member on the project is pre-checked, so unticking is the only action needed to narrow the invitation. When you edit a meeting only the current attendees are pre-checked, so saving an unrelated change never adds people the meeting did not originally include.</p>
+    <p><strong>Ad-hoc attendees</strong> — comma-separated email addresses for one-time guests who have no member account (such as an external consultant). Addresses are validated, lowercased, and de-duplicated. They receive Teams compose links and reminder emails but gain no project access and are not added to the member directory.</p>
+    <h3>Teams compose links</h3>
+    <p>When a meeting has a future date <em>and</em> a start time, saving it opens a prefilled Teams <code>meeting/new</code> compose link. The link carries the project meeting subject, agenda, all member attendee and ad-hoc guest email addresses, and a 30-minute time range, in the creator's browser timezone.</p>
+    <p>The link is a compose link, not Microsoft Graph integration — the organizer reviews and sends the invitation from Teams.</p>
+    <p><strong>On the Project Summary</strong> — every future meeting with a start time shows a <strong>Join in Teams</strong> button in the Meetings accordion and on the pulse tile. This lets any project member (including Stakeholders and Clients who were not invited) open Teams and join.</p>
+    <p>Past meetings and meetings without a time do not open Teams.</p>
+    <h3>Action tasks</h3>
+    <p>Create action tasks directly from a meeting record. The task retains the meeting as its source, so you can always trace a task back to the meeting where it was decided.</p>
+  </div></section>
+
+  <section class="guide-chapter" id="admin"><span class="chapter-number">08</span><div>
+    <h2>Members and servers</h2>
+    <p>Administrators manage member profiles and server records from their separate screens. New member passwords must be at least 12 characters. Server records include IP address, operating system, and technology/packages.</p>
+    <p>The <strong>Members</strong> screen lists every member account with name, email, designation, organization, and an Admin tag for administrators. Each row has an Edit and Delete button. You cannot delete your own administrator account, and a member with project roles or task ownership must be removed from those first.</p>
+    <p>The <strong>Servers</strong> screen lists every server with its name, IP, operating system, and packages. Servers are assigned to projects from the project detail page.</p>
+    <p>Only members created with <code>flask --app mizalla create-admin</code> or the Members screen by an existing administrator have administrator access.</p>
+  </div></section>
+
+  <section class="guide-chapter" id="services"><span class="chapter-number">09</span><div>
+    <h2>Services</h2>
+    <p>Five services sit outside the project records: Bulk Emailer, Bulk Messenger, Vision, Speech, and Chat. There is no separate services landing page — each one is a link in the header beside Bulk Emailer and Bulk Messenger, alongside the other apps. Every one of them is granted per member by an administrator, and every one of them enforces that grant on the server — a bookmarked or typed URL for a service you were not given returns 403 rather than the form.</p>
+    <h3>Granting access</h3>
+    <p>Open <strong>Members</strong> and edit the member. The <strong>Service Access</strong> fieldset lists every service as a checkbox; untick to revoke. Granted services appear as tags next to the member's name on the Members list. Administrators always have access to every service, so they can verify one before rolling it out. The older single "Has access to Bulk Emailer" checkbox is gone: every service is now granted the same way, and existing Bulk Emailer members were migrated automatically on first start.</p>
+    <h3>When a service has no credentials</h3>
+    <p>Two things decide what the header shows, and they are independent.</p>
+    <ul>
+      <li><strong>Access</strong> — a service you were not granted is left out of the header entirely, so it does not advertise itself. Typing its URL still returns 403.</li>
+      <li><strong>Credentials</strong> — a service you <em>were</em> granted but that has no keys is still listed, greyed out and not clickable. Hovering it names the exact <code>.env</code> variable an administrator has to fill in. Being granted a service does not conjure its credentials.</li>
+    </ul>
+    <p>Opening a service page without credentials returns "not available" and the same list of missing variables, rather than a form that could only fail. The <strong>Settings</strong> screen carries an <strong>Azure service credentials</strong> panel showing a tick or a cross per service and, for anything missing, the <code>.env</code> variable names in red.</p>
+    <h3>Bulk Emailer and Bulk Messenger</h3>
+    <p><strong>Bulk Emailer</strong> sends a templated message to a recipient list from a CSV file, with <code>{{placeholder}}</code> substitution in subject, body, and attachments. <strong>Bulk Messenger</strong> sends the same kind of templated message through a registered WhatsApp device. Both require a device or service grant, and the WhatsApp screen first checks that the GOWA server is reachable — if it is not, sending is disabled with the reason shown rather than a form that would time out.</p>
+    <h3>Vision Test Service</h3>
+    <p>Upload an image with <strong>Browse</strong> or by dropping it on the target. One Azure Vision call returns the text it reads from the image on the same page:</p>
+    <ul>
+      <li><strong>Recognised text</strong> — every line Vision read, which is what the mapping below is resolved against.</li>
+      <li><strong>Mapped fields</strong> — named values pulled out of the response by the administrator's mapping, each labelled with how it was resolved.</li>
+      <li><strong>Service JSON</strong> — the entire response, collapsible, exactly as Azure returned it.</li>
+    </ul>
+    <p>The mapping is JSON entered by an administrator in Settings. Each value is tried as a path into the Vision response first, then as a label to look for in the recognised text, then falls back to the whole recognised text. The default <code>{"ID": ""}</code> means "give me the ID", resolved to whatever text Vision read off the image. Because the fallback is the whole text, a field that resolves wrongly is visible rather than silently blank, and the "Resolved by" column tells you which of the three rules fired.</p>
+    <h3>Speech Test Service</h3>
+    <p>Type text (up to 5,000 characters) and it comes back as an audio clip with a player on the page. The <strong>Voice</strong> list is grouped by accent: four English accents — US, UK, Australia, India — with two male and two female voices each, then four Arabic accents — Egypt, Saudi Arabia, Morocco, Qatar. Clips are kept briefly and only you can play your own; older ones for your account are cleaned up automatically.</p>
+    <p>Each Arabic accent offers one male and one female voice rather than two of each. Azure publishes only that pair per Arabic locale, so there is no fourth voice to select; the list shows every voice that exists rather than padding itself with names Azure would reject.</p>
+    <p>The list is a fixed catalogue of real Azure voices rather than a free-text box, so a mistyped name cannot turn into an opaque "voice not found" from Azure — an unrecognised choice is refused with a message pointing back at the list.</p>
+    <h3>Chat Service</h3>
+    <p>Add documents with <strong>Browse</strong> or by dropping them on the target — PDF, DOCX, DOC, XLS, XLSX, PPT, PPTX, TXT, MD, CSV, and RTF. The text is extracted, split into searchable sections, and indexed. Then ask a question in plain language.</p>
+    <p>Answers are built only from the sections that match your question, and every claim is cited by number so you can check it. Each answer lists its source extracts with the document name, the section heading, and how much of your question's wording it covered — so you can see <em>why</em> it answered what it did. If nothing in the documents matches, the service says so rather than answering from general knowledge. Follow-up questions carry the previous exchange forward.</p>
+    <p>Two caveats worth knowing: retrieval is keyword-based, so a question phrased very differently from the document may match nothing even when the document covers the topic; and the library is shared by everyone with Chat access, so one member's upload can answer another's question. Legacy <code>.doc</code> and <code>.xls</code> files are read by scraping printable text, which is approximate — PDF and DOCX extract far more reliably, and the app says so when it has used a fallback.</p>
+    <h3>Upload File</h3>
+    <p>Stores a file in a folder on the server and lists everything already there. Accepted types are <strong>PDF, TXT, DOCX, XLSX, PPTX, PPT, DOC, HTML, HTM</strong>; anything else is refused with a message naming the accepted list. No credentials are needed, so this service is never shown greyed out.</p>
+    <p>The folder is shared, so every member with access sees the same files, and the list shows who uploaded each one. Each file keeps the name it arrived with while being stored on disk under a generated name — two members can each have a <code>report.docx</code> without one overwriting the other. You can delete a file you uploaded; an administrator can delete anyone's.</p>
+    <p>Every download is saved rather than opened in place, including HTML. That is deliberate: an uploaded page could otherwise contain script that runs in this app's own address when another member clicks it. Your browser saves the file and you open it yourself, where it is just a document.</p>
+    <h3>Where the Azure credentials live</h3>
+    <p>Every Azure Vision, Speech, and OpenAI credential is read from the application's <code>.env</code> file and nowhere else. They are not settings, are not editable on the Settings screen, and are never written to the database — which also means they do not appear in a database backup or in a screenshot of the settings page. Adding one is a deployment change: put it in <code>.env</code> and restart the application.</p>
+    <p>The variables are <code>MS_VISION_ENDPOINT</code> and <code>MS_VISION_KEY</code> for Vision; <code>MS_SPEECH_KEY</code> with <code>MS_REGION</code> (or a full <code>MS_SPEECH_ENDPOINT</code>, from which the region is read) for Speech; and <code>AZURE_OPENAI_ENDPOINT</code>, <code>AZURE_OPENAI_KEY</code>, and <code>AZURE_OPENAI_DEPLOYMENT_NAME</code> for Chat. The Settings screen shows only whether each one is present, so an administrator can confirm the state without the value ever being displayed, entered, or stored.</p>
+  </div></section>
+
+  <section class="guide-chapter" id="settings"><span class="chapter-number">10</span><div>
+    <h2>Settings</h2>
+    <p>The <strong>/settings</strong> screen is restricted to administrators and manages hot settings that take effect immediately across the web UI, API handlers, MCP tools, and email jobs — no restart required.</p>
+    <h3>Setting types</h3>
+    <p>Each setting shows its key, current value, a badge indicating whether it is at its <strong>Default</strong> value or has been <strong>Modified</strong>, and an optional hint explaining the setting. Settings whose effective value differs from the stored value show an "In effect now" notice revealing which source wins.</p>
+    <ul>
+      <li><strong>JIRA browse URL</strong> — the base URL for rendering JIRA ticket IDs as browse links.</li>
+      <li><strong>Project team roles</strong> — the comma-separated list of allowed team roles. Used for the project team role pickers and the <code>project_team_roles</code> setting.</li>
+      <li><strong>Task highlight types</strong> — the comma-separated list of allowed key mark labels (e.g. Key Amendment, Key Finding, Key Decision).</li>
+      <li><strong>App base URL</strong> — the base URL used in generated links and email content.</li>
+      <li><strong>Email thresholds</strong> — days between status reports, task reminders, stale nudges, overdue digests, and meeting reminders.</li>
+      <li><strong>Azure Vision</strong> — the <code>vision_id_mapping</code> JSON that decides which fields are extracted from the response and how. A mapping that is not valid JSON is reported on the Vision page and falls back to the default rather than breaking the service.</li>
+      <li><strong>Azure OpenAI</strong> — how large a document section may be (<code>chat_chunk_chars</code>) and how many sections a single answer may draw on (<code>chat_max_chunks</code>).</li>
+    </ul>
+    <h3>Managing settings</h3>
+    <p>Each setting row has a <strong>Reset to default</strong> button that restores the built-in default value. The <strong>Save Settings</strong> button validates label lists before writing — if a label list contains invalid entries, the error is displayed and nothing is written. A label list that passes validation is saved immediately and takes effect everywhere.</p>
+    <p><strong>Resolution order</strong> is <em>database → boot configuration (process environment / <code>.env</code>) → built-in default</em>. A database value is an administrator override and always wins. The environment value seeds a fresh database and is used when no override exists. Only <code>SECRET_KEY</code>, <code>SENDGRID_API_KEY</code>, and the Azure Vision, Speech, and OpenAI credentials are env-only and never hot settings.</p>
+  </div></section>
+
+  <section class="guide-chapter" id="security"><span class="chapter-number">11</span><div>
+    <h2>Security and stored data</h2>
+    <p>State-changing forms use CSRF protection. Uploaded documents are stored with generated names under the configured instance upload directory and are available only to project members. Every document download goes through a membership check and, optionally, a cryptographically signed time-limited token.</p>
+    <p>Service grants are enforced on the server, not by hiding links, and they are separate per service — holding Chat does not imply Vision, and neither implies Bulk Emailer. Uploads to the services are checked by extension <em>and</em> by file signature, so a renamed executable is refused. Synthesised audio is stored under the instance folder and served only back to the member who created it, under a filename that must match that member's ID. Azure keys are stored in the settings table and are never shown in a service page.</p>
+    <p>Local development generates a signing key at <code>instance/.secret_key</code> (git-ignored). Production should provide a persistent <code>SECRET_KEY</code> environment value and serve Flask behind a production WSGI server with HTTPS and <code>SESSION_COOKIE_SECURE=true</code>.</p>
+    <p><strong>Error handling</strong> — styled <code>error.html</strong> pages handle 403, 404, 500, and 413 errors with a link back to the portfolio. The 404 page deliberately names no project, so a hidden record does not leak its existence.</p>
+    <p>SQLite schema changes are additive. Back up the database and uploads together. The built-in Flask server is intended for local development only.</p>
+  </div></section>
+
+</div>
+<a class="button button-quiet" href="{{ url_for('main.about') }}">About Mizalla</a><a class="button button-primary" href="{{ url_for('auth.login') }}">Sign in</a></div>
+{% endblock %}

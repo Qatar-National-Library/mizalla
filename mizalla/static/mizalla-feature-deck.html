@@ -1,0 +1,664 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#103e30">
+  <title>Mizalla | Feature Deck</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #f2f2ec;
+      --bg-secondary: #e4eae2;
+      --text-primary: #182a24;
+      --text-secondary: #68766e;
+      --accent: #176b4d;
+      --accent-soft: #bed5c4;
+      --accent-hot: #c2683e;
+      --dark: #103e30;
+      --white: #fbfbf8;
+      --line: #cbd4ca;
+      --font-display: "DM Serif Display", Georgia, serif;
+      --font-body: "DM Sans", sans-serif;
+      --font-mono: "DM Mono", monospace;
+      --title-size: clamp(2rem, 6vw, 5.1rem);
+      --subtitle-size: clamp(.9rem, 1.8vw, 1.35rem);
+      --body-size: clamp(.76rem, 1.35vw, 1.08rem);
+      --small-size: clamp(.62rem, .9vw, .78rem);
+      --slide-padding: clamp(1rem, 5vw, 4.5rem);
+      --content-gap: clamp(.6rem, 2.2vw, 1.8rem);
+      --element-gap: clamp(.3rem, 1vw, .85rem);
+      --ease-out-expo: cubic-bezier(.16, 1, .3, 1);
+      --duration-normal: .55s;
+    }
+
+    * { box-sizing: border-box; }
+
+    /* ===========================================
+       VIEWPORT FITTING: MANDATORY BASE STYLES
+       =========================================== */
+    html, body { height: 100%; overflow-x: hidden; }
+    html { scroll-snap-type: y mandatory; scroll-behavior: smooth; }
+    body { margin: 0; color: var(--text-primary); background: var(--bg-primary); font-family: var(--font-body); }
+    .slide { width: 100vw; height: 100vh; height: 100dvh; overflow: hidden; scroll-snap-align: start; display: flex; flex-direction: column; position: relative; }
+    .slide-content { width: 100%; max-width: 80rem; flex: 1; display: flex; flex-direction: column; justify-content: center; max-height: 100%; overflow: hidden; padding: var(--slide-padding); margin: 0 auto; gap: var(--content-gap); }
+    .card, .container, .content-box { max-width: min(90vw, 1000px); max-height: min(80vh, 700px); }
+    .feature-list, .bullet-list { gap: clamp(.4rem, 1vh, 1rem); }
+    .feature-list li, .bullet-list li { font-size: var(--body-size); line-height: 1.4; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: clamp(.5rem, 1.5vw, 1rem); }
+    img, .image-container { max-width: 100%; max-height: min(50vh, 400px); object-fit: contain; }
+
+    /* ===========================================
+       DECK CHROME
+       =========================================== */
+    .progress-track { position: fixed; inset: 0 0 auto; z-index: 50; height: clamp(3px, .45vh, 5px); background: rgb(16 62 48 / 10%); }
+    .progress-bar { width: 0; height: 100%; background: var(--accent-hot); transition: width .25s ease; }
+    .nav-dots { position: fixed; z-index: 40; right: clamp(.45rem, 1.5vw, 1.2rem); top: 50%; display: grid; gap: clamp(.35rem, .8vh, .65rem); transform: translateY(-50%); }
+    .nav-dot { width: clamp(.48rem, .9vw, .68rem); aspect-ratio: 1; padding: 0; border: 1px solid var(--accent); border-radius: 50%; background: transparent; cursor: pointer; transition: transform .2s ease, background .2s ease; }
+    .nav-dot[aria-current="true"] { background: var(--accent-hot); border-color: var(--accent-hot); transform: scale(1.35); }
+    .deck-controls { position: fixed; z-index: 40; right: clamp(.7rem, 2vw, 1.5rem); bottom: clamp(.55rem, 1.5vh, 1rem); display: flex; align-items: center; gap: clamp(.3rem, .8vw, .65rem); }
+    .deck-controls button { width: clamp(2rem, 3.2vw, 2.6rem); aspect-ratio: 1; border: 1px solid var(--line); border-radius: 50%; color: var(--text-primary); background: var(--white); font: 500 clamp(.8rem, 1vw, 1rem) var(--font-body); cursor: pointer; }
+    .deck-controls button:hover { color: white; background: var(--accent); }
+    .slide-count { min-width: clamp(3.3rem, 4vw, 4rem); color: var(--text-secondary); font: 500 var(--small-size) var(--font-mono); text-align: center; }
+    .keyboard-hint { position: fixed; z-index: 10; left: var(--slide-padding); bottom: clamp(.75rem, 1.7vh, 1.2rem); color: var(--text-secondary); font: 400 var(--small-size) var(--font-mono); }
+    .slide-number { position: absolute; top: var(--slide-padding); right: var(--slide-padding); color: var(--text-secondary); font: 400 var(--small-size) var(--font-mono); }
+    .eyebrow { color: var(--accent); font: 500 var(--small-size) var(--font-mono); text-transform: uppercase; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1, h2 { font-family: var(--font-display); font-weight: 400; }
+    h1 { font-size: var(--title-size); line-height: .98; }
+    h2 { margin-bottom: 0; font-size: clamp(1.55rem, 3.7vw, 3rem); line-height: 1.05; }
+    h3 { margin-bottom: clamp(.3rem, .8vh, .7rem); font-size: clamp(.86rem, 1.25vw, 1.12rem); line-height: 1.2; }
+    p { margin-bottom: 0; font-size: var(--body-size); line-height: 1.45; }
+    .reveal { opacity: 0; transform: translateY(clamp(.5rem, 2vh, 1.5rem)); transition: opacity var(--duration-normal) var(--ease-out-expo), transform var(--duration-normal) var(--ease-out-expo); }
+    .slide.visible .reveal { opacity: 1; transform: translateY(0); }
+    .slide.visible .reveal:nth-child(2) { transition-delay: .08s; }
+    .slide.visible .reveal:nth-child(3) { transition-delay: .16s; }
+    .slide.visible .reveal:nth-child(4) { transition-delay: .24s; }
+    .slide.visible .reveal:nth-child(5) { transition-delay: .32s; }
+    .slide.visible .reveal:nth-child(6) { transition-delay: .4s; }
+    .mono { font-family: var(--font-mono); }
+    .muted { color: var(--text-secondary); }
+    .accent { color: var(--accent-hot); }
+
+    /* ===========================================
+       SLIDE 01: TITLE
+       =========================================== */
+    .title-slide { color: var(--white); background: var(--dark); }
+    .title-slide::before { position: absolute; inset: 0; background-image: linear-gradient(rgb(205 229 210 / 5%) 1px, transparent 1px), linear-gradient(90deg, rgb(205 229 210 / 5%) 1px, transparent 1px); background-size: clamp(2rem, 5vw, 4rem) clamp(2rem, 5vw, 4rem); content: ""; mask-image: linear-gradient(100deg, black, transparent 78%); }
+    .title-layout { position: relative; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(13rem, .65fr); align-items: center; gap: clamp(1rem, 5vw, 4rem); }
+    .title-slide .eyebrow { color: var(--accent-soft); }
+    .title-slide h1 { max-width: 9ch; margin: clamp(.7rem, 2vh, 1.4rem) 0; }
+    .title-slide .subtitle { max-width: 42ch; color: #c5d5ca; font-size: var(--subtitle-size); line-height: 1.45; }
+    .cover-graphic { position: relative; min-height: clamp(12rem, 42vh, 22rem); display: grid; place-items: center; }
+    .cover-orbit { position: absolute; width: clamp(10rem, 26vw, 20rem); aspect-ratio: 1; border: 1px solid rgb(190 213 196 / 34%); border-radius: 50%; transform: rotate(-23deg) scaleX(1.22); }
+    .cover-orbit::before, .cover-orbit::after { position: absolute; inset: 12%; border: 1px solid rgb(190 213 196 / 23%); border-radius: 50%; content: ""; }
+    .cover-orbit::after { inset: 25%; border-color: rgb(194 104 62 / 80%); }
+    .cover-mark { position: relative; width: clamp(5rem, 12vw, 8rem); aspect-ratio: 1; display: grid; place-items: center; border: 1px solid var(--accent-soft); color: var(--accent-soft); font: 400 clamp(2rem, 6vw, 4rem) var(--font-display); }
+    .cover-caption { position: absolute; right: 0; bottom: 0; color: #a8c1af; font: 400 var(--small-size) var(--font-mono); }
+
+    /* ===========================================
+       SLIDE 02: PORTFOLIO
+       =========================================== */
+    .portfolio-slide { background: var(--bg-secondary); }
+    .portfolio-layout { display: grid; grid-template-columns: minmax(0, .7fr) minmax(18rem, 1.3fr); align-items: center; gap: clamp(1rem, 4vw, 3.5rem); }
+    .portfolio-copy { display: grid; gap: var(--element-gap); }
+    .portfolio-board { padding: clamp(.65rem, 2vw, 1.4rem); border: 1px solid var(--line); background: var(--white); box-shadow: 0 1rem 2.5rem rgb(20 54 38 / 9%); }
+    .board-head { display: flex; justify-content: space-between; gap: .5rem; padding-bottom: clamp(.45rem, 1vh, .8rem); border-bottom: 1px solid var(--line); color: var(--text-secondary); font: 500 var(--small-size) var(--font-mono); }
+    .board-row { display: grid; grid-template-columns: minmax(6rem, 1fr) minmax(4rem, .75fr) minmax(5rem, 1fr); align-items: center; gap: clamp(.35rem, 1vw, .8rem); padding: clamp(.55rem, 1.5vh, 1rem) 0; border-bottom: 1px solid #e6e9e3; font-size: var(--small-size); }
+    .board-row:last-child { border-bottom: 0; }
+    .board-project { display: grid; gap: .15rem; }
+    .board-project strong { font-size: var(--body-size); }
+    .board-project small, .board-task small { color: var(--text-secondary); font-size: var(--small-size); }
+    .mini-progress { height: clamp(.28rem, .6vh, .42rem); background: #dce5dc; }
+    .mini-progress i { display: block; height: 100%; background: var(--accent); }
+    .board-task { display: grid; gap: .15rem; }
+
+    /* ===========================================
+       SLIDE 03: PROJECT RECORD
+       =========================================== */
+    .record-slide { color: var(--white); background: #244d3b; }
+    .record-slide .eyebrow { color: #c5ddc9; }
+    .record-slide .muted { color: #d0dfd3; }
+    .record-layout { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: clamp(1rem, 4vw, 3rem); align-items: center; }
+    .record-stamp { display: inline-grid; place-items: center; width: fit-content; padding: clamp(.55rem, 1.4vh, .9rem) clamp(.7rem, 1.5vw, 1.1rem); border: 1px solid #a3c6aa; color: #d7ead9; font: 500 var(--small-size) var(--font-mono); }
+    .record-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(.4rem, 1vw, .85rem); }
+    .record-field { min-height: clamp(4rem, 13vh, 6.5rem); display: flex; flex-direction: column; justify-content: space-between; padding: clamp(.55rem, 1.5vh, 1rem); border: 1px solid rgb(230 243 230 / 24%); background: rgb(10 40 29 / 15%); }
+    .record-field span { color: #bad2bf; font: 400 var(--small-size) var(--font-mono); text-transform: uppercase; }
+    .record-field strong { font-size: clamp(.8rem, 1.4vw, 1.15rem); font-weight: 500; }
+
+    /* ===========================================
+       SLIDE 04: ACCESS MODEL
+       =========================================== */
+    .access-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .8fr); gap: clamp(1rem, 5vw, 4rem); align-items: center; }
+    .access-roles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(.4rem, 1vw, .8rem); }
+    .role { min-height: clamp(3rem, 9vh, 4.5rem); display: flex; align-items: center; gap: clamp(.4rem, 1vw, .8rem); padding: clamp(.55rem, 1.4vh, .9rem); border: 1px solid var(--line); background: var(--white); }
+    .role b { color: var(--accent); font: 500 var(--small-size) var(--font-mono); }
+    .access-gate { position: relative; padding: clamp(1rem, 3vw, 2rem); color: var(--white); background: var(--dark); }
+    .gate-lines { display: grid; gap: clamp(.45rem, 1.3vh, .9rem); margin-top: var(--element-gap); }
+    .gate-lines span { display: flex; justify-content: space-between; gap: .5rem; padding-bottom: .4rem; border-bottom: 1px solid rgb(255 255 255 / 20%); font-size: var(--body-size); }
+    .gate-lines strong { color: #c9e2cc; font-weight: 600; }
+
+    /* ===========================================
+       SLIDE 05: TASK DELIVERY
+       =========================================== */
+    .task-slide { background: #e9e6dc; }
+    .task-layout { display: grid; gap: var(--content-gap); }
+    .task-types { display: flex; flex-wrap: wrap; gap: clamp(.35rem, .8vw, .7rem); }
+    .task-types span { padding: clamp(.35rem, .8vh, .6rem) clamp(.5rem, 1.1vw, .9rem); border: 1px solid #c6c9bc; background: rgb(255 255 255 / 52%); font-size: var(--small-size); }
+    .delivery-flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: clamp(.4rem, 1vw, .9rem); align-items: stretch; }
+    .delivery-step { position: relative; min-height: clamp(5.5rem, 18vh, 8rem); display: flex; flex-direction: column; justify-content: space-between; padding: clamp(.6rem, 1.5vh, 1rem); background: var(--white); border-top: clamp(.15rem, .4vh, .28rem) solid var(--accent); }
+    .delivery-step:nth-child(2) { border-color: var(--accent-hot); }
+    .delivery-step:nth-child(3) { border-color: #8b7845; }
+    .delivery-step:nth-child(4) { border-color: #738b78; }
+    .delivery-step b { color: var(--text-secondary); font: 400 var(--small-size) var(--font-mono); }
+    .delivery-step span { font-size: var(--body-size); }
+    .formula { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; padding: clamp(.7rem, 1.8vh, 1.2rem); color: var(--white); background: var(--dark); }
+    .formula code { color: #d1e5d4; font: 400 clamp(.62rem, 1.2vw, 1rem) var(--font-mono); }
+
+    /* ===========================================
+       SLIDE 06: MEETINGS AND TEAMS
+       =========================================== */
+    .meeting-slide { color: var(--white); background: var(--dark); }
+    .meeting-slide .eyebrow { color: #bad6c1; }
+    .meeting-layout { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); align-items: center; gap: clamp(1rem, 4vw, 3rem); }
+    .meeting-flow { display: grid; gap: clamp(.4rem, 1.3vh, .9rem); }
+    .meeting-node { display: grid; grid-template-columns: clamp(1.8rem, 4vw, 2.5rem) minmax(0, 1fr); align-items: center; gap: clamp(.5rem, 1.1vw, .9rem); padding: clamp(.55rem, 1.2vh, .85rem); color: var(--text-primary); background: var(--white); }
+    .meeting-node i { width: clamp(1.6rem, 3.5vw, 2.1rem); aspect-ratio: 1; display: grid; place-items: center; border-radius: 50%; color: white; background: var(--accent); font: 500 var(--small-size) var(--font-mono); font-style: normal; }
+    .meeting-node strong { display: block; font-size: var(--body-size); }
+    .meeting-node small { display: block; color: var(--text-secondary); font-size: var(--small-size); }
+    .teams-window { position: relative; padding: clamp(1rem, 3vw, 2rem); color: var(--text-primary); background: var(--bg-primary); box-shadow: 1.2rem 1.2rem 0 rgb(194 104 62 / 70%); }
+    .teams-window::before { display: block; width: 100%; height: clamp(1.3rem, 3vh, 2rem); margin-bottom: clamp(.7rem, 1.5vh, 1.2rem); background: radial-gradient(circle at 1rem 50%, var(--accent-hot) 0 .22rem, transparent .24rem), radial-gradient(circle at 2rem 50%, #d6ad58 0 .22rem, transparent .24rem), linear-gradient(#dfe5dc, #dfe5dc); content: ""; }
+    .teams-window p { margin: clamp(.35rem, 1vh, .7rem) 0; color: var(--text-secondary); font-size: var(--small-size); }
+    .teams-cta { display: inline-block; margin-top: clamp(.3rem, 1vh, .7rem); padding: clamp(.4rem, 1vh, .7rem) clamp(.6rem, 1.2vw, 1rem); color: white; background: var(--accent); font-size: var(--small-size); }
+    .organizer-note { margin-top: var(--element-gap); color: #c7d8ca; font-size: var(--small-size); }
+
+    /* ===========================================
+       SLIDE 07: OPERATIONS
+       =========================================== */
+    .operations-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(1rem, 4vw, 3rem); align-items: center; }
+    .operations-list { display: grid; gap: clamp(.45rem, 1.3vh, .9rem); }
+    .operation-row { display: grid; grid-template-columns: clamp(2.5rem, 6vw, 4.2rem) minmax(0, 1fr); gap: clamp(.5rem, 1.5vw, 1.1rem); align-items: center; padding-bottom: clamp(.45rem, 1.1vh, .75rem); border-bottom: 1px solid var(--line); }
+    .operation-row b { color: var(--accent-hot); font: 400 clamp(1.3rem, 3vw, 2.1rem) var(--font-display); }
+    .operation-row p { color: var(--text-secondary); font-size: var(--small-size); }
+    .operation-schematic { position: relative; min-height: clamp(12rem, 42vh, 22rem); display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: clamp(.45rem, 1.5vw, 1.2rem); }
+    .schematic-tile { display: flex; flex-direction: column; justify-content: space-between; padding: clamp(.65rem, 1.6vh, 1.1rem); border: 1px solid var(--line); background: var(--white); }
+    .schematic-tile:nth-child(2) { color: white; background: var(--accent); }
+    .schematic-tile:nth-child(3) { color: white; background: var(--dark); }
+    .schematic-tile:nth-child(4) { background: #e8d9c5; }
+    .schematic-tile span { color: var(--text-secondary); font: 400 var(--small-size) var(--font-mono); }
+    .schematic-tile:nth-child(2) span, .schematic-tile:nth-child(3) span { color: #d4e6d6; }
+    .schematic-tile strong { font: 400 clamp(.9rem, 1.8vw, 1.4rem) var(--font-display); }
+
+    /* ===========================================
+       SLIDE 08: CONTROL AND HISTORY
+       =========================================== */
+    .control-slide { background: var(--bg-secondary); }
+    .control-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: clamp(1rem, 4vw, 3rem); }
+    .filter-stack { display: flex; flex-wrap: wrap; gap: clamp(.35rem, .8vw, .65rem); margin-top: var(--element-gap); }
+    .filter-stack span { padding: clamp(.35rem, .8vh, .6rem) clamp(.5rem, 1vw, .8rem); border: 1px solid #c0cbc0; background: var(--white); color: var(--accent); font: 400 var(--small-size) var(--font-mono); }
+    .audit-board { border: 1px solid var(--line); background: var(--white); }
+    .audit-head { padding: clamp(.55rem, 1.2vh, .9rem); border-bottom: 1px solid var(--line); color: var(--text-secondary); font: 400 var(--small-size) var(--font-mono); }
+    .audit-line { display: grid; grid-template-columns: minmax(3.5rem, .65fr) minmax(0, 1.35fr); gap: .5rem; padding: clamp(.5rem, 1.1vh, .8rem); border-bottom: 1px solid #e8ebe6; font-size: var(--small-size); }
+    .audit-line time { color: var(--text-secondary); font-family: var(--font-mono); }
+    .audit-line strong { font-weight: 600; }
+    .audit-line span { display: block; margin-top: .14rem; color: var(--text-secondary); }
+
+    /* ===========================================
+       SLIDE 09: CLOSE
+       =========================================== */
+    .close-slide { color: var(--white); background: var(--dark); }
+    .close-slide .eyebrow { color: var(--accent-soft); }
+    .close-layout { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(12rem, .7fr); align-items: center; gap: clamp(1rem, 5vw, 4rem); }
+    .close-layout h2 { max-width: 12ch; margin: clamp(.7rem, 2vh, 1.3rem) 0; font-size: clamp(2.1rem, 5.5vw, 4.5rem); }
+    .close-layout p { max-width: 42ch; color: #c5d5ca; font-size: var(--subtitle-size); }
+    .close-seal { width: clamp(10rem, 24vw, 18rem); aspect-ratio: 1; display: grid; place-items: center; justify-self: center; border: 1px solid var(--accent-soft); border-radius: 50%; color: var(--accent-soft); font: 400 clamp(1.1rem, 2.4vw, 1.8rem) var(--font-display); text-align: center; transform: rotate(-10deg); }
+    .close-seal span { max-width: 8ch; }
+
+        /* ===========================================
+        SLIDE 06: KEY MARKS AND MILESTONES
+        =========================================== */
+    .highlights-slide { background: #e9e6dc; }
+    .highlights-layout { display: grid; gap: var(--content-gap); }
+    .highlight-badge { display: inline-block; padding: clamp(.35rem, .8vh, .6rem) clamp(.5rem, 1.1vw, .9rem); border: 1px solid var(--accent); background: var(--white); color: var(--accent); font: 500 var(--small-size) var(--font-mono); margin: 0 clamp(.2rem, .5vw, .4rem) .4rem 0; }
+    .highlight-badge-hot { border-color: var(--accent-hot); color: var(--accent-hot); }
+    .milestone-flow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(.4rem, 1vw, .9rem); align-items: stretch; }
+    .milestone-col { padding: clamp(.6rem, 1.5vh, 1rem); background: var(--white); border-top: clamp(.15rem, .4vh, .28rem) solid var(--line); }
+    .milestone-col b { color: var(--text-secondary); font: 400 var(--small-size) var(--font-mono); }
+    .milestone-col h4 { font-size: var(--body-size); margin: .3rem 0; }
+    .milestone-col span { font-size: var(--small-size); color: var(--text-secondary); }
+
+    /* ===========================================
+        SLIDE 07: PROJECT SUMMARY
+        =========================================== */
+    .summary-slide { background: var(--bg-primary); }
+    .summary-layout { display: grid; gap: var(--content-gap); }
+    .pulse-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: clamp(.4rem, 1vw, .9rem); }
+    .pulse-tile { padding: clamp(.6rem, 1.5vh, 1rem); background: var(--white); border-top: clamp(.2rem, .5vh, .35rem) solid var(--accent); }
+    .pulse-tile-warn { border-top-color: var(--accent-hot); }
+    .pulse-tile .stat-label { color: var(--text-secondary); font: 400 var(--small-size) var(--font-mono); }
+    .pulse-tile .stat-value { font-size: clamp(1.2rem, 3vw, 2rem); font-weight: 700; }
+    .accordion-stack { display: grid; gap: clamp(.35rem, 1vh, .7rem); }
+    .accordion-item { padding: clamp(.5rem, 1.2vh, .85rem); border: 1px solid var(--line); background: var(--white); font-size: var(--small-size); }
+    .accordion-item b { color: var(--accent); }
+    .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(.4rem, 1vw, .8rem); }
+    .summary-field { padding: clamp(.4rem, 1vh, .7rem); border: 1px solid #e6e9e3; background: var(--white); }
+    .summary-field span { color: var(--text-secondary); font: 400 var(--small-size) var(--font-mono); text-transform: uppercase; }
+    .summary-field strong { font-size: var(--body-size); }
+
+    /* ===========================================
+        SLIDE 11: SETTINGS AND ERROR HANDLING
+        =========================================== */
+    .settings-slide { background: var(--bg-secondary); }
+    .settings-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(1rem, 4vw, 3rem); align-items: center; }
+    .settings-list { display: grid; gap: clamp(.4rem, 1.3vh, .9rem); }
+    .settings-row { display: grid; grid-template-columns: minmax(6rem, 1.5fr) minmax(0, 1fr); gap: .5rem; padding: clamp(.5rem, 1.2vh, .85rem); border: 1px solid var(--line); background: var(--white); font-size: var(--small-size); }
+    .settings-row b { color: var(--accent); font: 500 var(--small-size) var(--font-mono); }
+    .settings-row .badge { padding: clamp(.15rem, .4vh, .35rem) clamp(.35rem, .6vw, .55rem); border-radius: 2px; font: 500 var(--small-size) var(--font-mono); }
+    .badge-default { background: var(--accent); color: var(--white); }
+    .badge-modified { background: var(--accent-hot); color: var(--white); }
+    .error-list { display: grid; gap: clamp(.35rem, 1vh, .7rem); }
+    .error-row { display: grid; grid-template-columns: clamp(3rem, 6vw, 4.2rem) minmax(0, 1fr); gap: .5rem; padding: clamp(.4rem, 1vh, .7rem); border-left: 3px solid var(--accent); background: var(--white); font-size: var(--small-size); }
+    .error-row .code { font: 700 var(--body-size) var(--font-mono); }
+    .error-row p { font-size: var(--small-size); color: var(--text-secondary); }
+
+/* ===========================================
+       RESPONSIVE BREAKPOINTS
+       =========================================== */
+    @media (max-height: 700px) {
+      .slide-content { gap: clamp(.45rem, 1.3vh, 1rem); }
+      .record-field { min-height: clamp(3.5rem, 11vh, 5rem); }
+      .delivery-step { min-height: clamp(4.4rem, 14vh, 6.5rem); }
+    }
+    @media (max-height: 600px) {
+      .slide-content { gap: clamp(.3rem, 1vh, .75rem); }
+      .cover-graphic { min-height: clamp(8rem, 32vh, 12rem); }
+      .nav-dots, .keyboard-hint { display: none; }
+      .record-field { min-height: clamp(3rem, 9vh, 4rem); }
+      .delivery-step { min-height: clamp(3.5rem, 11vh, 5rem); }
+      .operation-schematic { min-height: clamp(8rem, 32vh, 12rem); }
+    }
+    @media (max-height: 500px) {
+      .slide-content { padding-top: clamp(.4rem, 2vh, .8rem); padding-bottom: clamp(.4rem, 2vh, .8rem); }
+      .slide-number { top: clamp(.4rem, 2vh, .8rem); }
+      .cover-graphic { min-height: clamp(6rem, 25vh, 9rem); }
+      .meeting-node { padding-top: clamp(.3rem, .8vh, .5rem); padding-bottom: clamp(.3rem, .8vh, .5rem); }
+    }
+    @media (max-width: 600px) {
+      .title-layout, .portfolio-layout, .record-layout, .access-layout, .meeting-layout, .operations-layout, .control-layout, .close-layout, .settings-layout { grid-template-columns: 1fr; }
+      .cover-graphic { min-height: clamp(7rem, 22vh, 11rem); }
+      .title-layout { gap: clamp(.3rem, 1vh, .7rem); }
+      .portfolio-board { max-height: 42vh; overflow: hidden; }
+      .record-layout, .access-layout, .meeting-layout, .operations-layout, .control-layout { gap: clamp(.5rem, 1vh, .8rem); }
+      .operation-schematic { min-height: clamp(7rem, 22vh, 10rem); }
+      .nav-dots { right: clamp(.25rem, .8vw, .45rem); }
+      .nav-dot { width: clamp(.35rem, 1.4vw, .5rem); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+      html { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="progress-track" aria-hidden="true"><div class="progress-bar" id="progressBar"></div></div>
+  <nav class="nav-dots" id="navDots" aria-label="Presentation slides"></nav>
+
+  <section class="slide title-slide visible" aria-labelledby="slide-title">
+    <div class="slide-content title-layout">
+      <div>
+        <p class="eyebrow reveal">PROJECT OPERATIONS / FEATURE DECK</p>
+        <h1 id="slide-title" class="reveal">Work in view.<br>Progress with context.</h1>
+        <p class="subtitle reveal">Mizalla brings scope, people, tasks, meetings, and delivery history into one shared record.</p>
+      </div>
+      <div class="cover-graphic reveal" aria-label="Concentric project coordination rings">
+        <div class="cover-orbit"></div><div class="cover-mark">P</div>
+        <span class="cover-caption">MIZALLA / 2026</span>
+      </div>
+    </div>
+    <span class="slide-number">01 / 13</span>
+  </section>
+
+  <section class="slide portfolio-slide" aria-labelledby="portfolio-title">
+    <div class="slide-content portfolio-layout">
+      <div class="portfolio-copy">
+        <p class="eyebrow reveal">01 / PORTFOLIO</p>
+        <h2 class="reveal" id="portfolio-title">The current work,<br>not just the project list.</h2>
+        <p class="muted reveal">A membership-scoped portfolio pairs overall completion with active tasks, in-progress steps, and owners.</p>
+        <p class="mono muted reveal">SEARCH · STATUS · OWNER · DUE DATE</p>
+      </div>
+      <div class="portfolio-board reveal" aria-label="Illustrative portfolio view">
+        <div class="board-head"><span>VISIBLE PROJECTS</span><span>COMPLETION / CURRENT WORK</span></div>
+        <div class="board-row"><div class="board-project"><strong>Service Renewal</strong><small>OPS-204</small></div><div class="mini-progress"><i style="width: 64%"></i></div><div class="board-task"><strong>Migration testing</strong><small>Verify data · R. Malik</small></div></div>
+        <div class="board-row"><div class="board-project"><strong>Member Portal</strong><small>WEB-118</small></div><div class="mini-progress"><i style="width: 38%"></i></div><div class="board-task"><strong>Access controls</strong><small>Review roles · S. Noor</small></div></div>
+        <div class="board-row"><div class="board-project"><strong>Data Archive</strong><small>DATA-032</small></div><div class="mini-progress"><i style="width: 82%"></i></div><div class="board-task"><strong>Release readiness</strong><small>Final review · M. Ali</small></div></div>
+      </div>
+    </div>
+    <span class="slide-number">02 / 13</span>
+  </section>
+
+  <section class="slide record-slide" aria-labelledby="record-title">
+    <div class="slide-content record-layout">
+      <div class="reveal">
+        <p class="eyebrow">02 / PROJECT RECORD</p>
+        <h2 id="record-title">One home for the shape of the work.</h2>
+        <p class="muted">Capture the mandate and the operating context alongside delivery.</p>
+        <div style="margin-top: clamp(.7rem, 2vh, 1.5rem)"><span class="record-stamp">SCOPE / OWNERS / ENVIRONMENTS</span></div>
+      </div>
+      <div class="record-fields reveal" aria-label="Project record fields">
+        <div class="record-field"><span>Definition</span><strong>Scope &amp; description</strong></div>
+        <div class="record-field"><span>Schedule</span><strong>Estimate · start · finish</strong></div>
+        <div class="record-field"><span>Business</span><strong>Owner departments</strong></div>
+        <div class="record-field"><span>People</span><strong>Team · clients · stakeholders · vendors</strong></div>
+        <div class="record-field"><span>Technology</span><strong>Development stack</strong></div>
+        <div class="record-field"><span>Environments</span><strong>Test &amp; production servers</strong></div>
+      </div>
+    </div>
+    <span class="slide-number">03 / 13</span>
+  </section>
+
+  <section class="slide" aria-labelledby="access-title">
+    <div class="slide-content access-layout">
+      <div>
+        <p class="eyebrow reveal">03 / ACCESS BY MEMBERSHIP</p>
+        <h2 class="reveal" id="access-title">Shared visibility.<br>Clear edit boundaries.</h2>
+        <p class="muted reveal">A project appears only to members assigned a project role. Task ownership or admin status alone never reveals a project.</p>
+        <div class="access-roles reveal" aria-label="Roles that grant project visibility">
+          <span class="role"><b>01</b> Project Team</span><span class="role"><b>02</b> Client</span><span class="role"><b>03</b> Stakeholder</span><span class="role"><b>04</b> Vendor</span>
+        </div>
+      </div>
+      <div class="access-gate reveal">
+        <p class="eyebrow">PERMISSION MODEL</p>
+        <div class="gate-lines"><span>View project <strong>All four roles</strong></span><span>Create project <strong>PM + Admin</strong></span><span>Edit project <strong>Project Team</strong></span><span>Manage members <strong>PM + Admin</strong></span><span>Delete project <strong>Admin + Team</strong></span></div>
+      </div>
+    </div>
+    <span class="slide-number">04 / 13</span>
+  </section>
+
+  <section class="slide task-slide" aria-labelledby="task-title">
+    <div class="slide-content task-layout">
+      <div><p class="eyebrow reveal">04 / TASK DELIVERY</p><h2 class="reveal" id="task-title">From work item to weighted progress.</h2></div>
+      <div class="task-types reveal" aria-label="Supported task types"><span>Development</span><span>Testing</span><span>UAT</span><span>Bug Fix</span><span>New Feature</span><span>Enhancement</span></div>
+      <div class="delivery-flow reveal" aria-label="Illustrative ordered task steps"><div class="delivery-step"><b>STEP 01</b><span>Plan</span><strong>100%</strong></div><div class="delivery-step"><b>STEP 02</b><span>Build</span><strong>65%</strong></div><div class="delivery-step"><b>STEP 03</b><span>Verify</span><strong>0%</strong></div><div class="delivery-step"><b>STEP 04</b><span>Release</span><strong>0%</strong></div></div>
+      <div class="formula reveal"><span>Task weight shapes each step's contribution</span><code>Σ(step % × task weight) / Σ(task weight per step)</code></div>
+      <p class="muted reveal">Tasks also carry status, due date, priority, weight, one or more owners, responsibilities, and optional JIRA IDs.</p>
+    </div>
+    <span class="slide-number">05 / 13</span>
+  </section>
+
+  <section class="slide meeting-slide" aria-labelledby="meeting-title">
+    <div class="slide-content meeting-layout">
+      <div>
+        <p class="eyebrow reveal">05 / DECISIONS TO ACTION</p>
+        <h2 class="reveal" id="meeting-title">Keep the meeting attached to the work.</h2>
+        <p class="reveal" style="color: #c5d5ca">Capture an agenda, local time, attendees, location, and notes. Turn an outcome into a task without losing its meeting source.</p>
+        <div class="meeting-flow reveal">
+          <div class="meeting-node"><i>01</i><div><strong>Schedule locally</strong><small>Browser timezone · 30 minutes</small></div></div>
+          <div class="meeting-node"><i>02</i><div><strong>Prefill Teams compose</strong><small>Subject · agenda · selected emails</small></div></div>
+          <div class="meeting-node"><i>03</i><div><strong>Organizer confirms</strong><small>Review and send from Teams</small></div></div>
+        </div>
+      </div>
+      <div class="teams-window reveal" aria-label="Illustrative Teams compose window">
+        <p class="eyebrow">TEAMS / NEW MEETING</p><h3>Service Renewal — review</h3>
+        <p><strong>When</strong> &nbsp; 14:15 — 14:45</p><p><strong>Invitees</strong> &nbsp; selected project members</p><p><strong>Agenda</strong> &nbsp; Review migration test results and open risks</p>
+        <span class="teams-cta">Open in Teams ↗</span>
+        <p class="organizer-note">Compose link only. The organizer sends the invitation.</p><p class="organizer-note">On the Project Summary, every future meeting with a start time shows a <strong>Join in Teams</strong> button — any project member can join, even without being invited.</p>
+      </div>
+    </div>
+    <span class="slide-number">06 / 13</span>
+  </section>
+
+  <section class="slide" aria-labelledby="operations-title">
+    <div class="slide-content operations-layout">
+      <div>
+        <p class="eyebrow reveal">06 / OPERATING CONTEXT</p>
+        <h2 class="reveal" id="operations-title">The people and systems around the project.</h2>
+        <div class="operations-list reveal">
+          <div class="operation-row"><b>01</b><p>Member directory: name, email, designation, organization.</p></div>
+          <div class="operation-row"><b>02</b><p>Server inventory: IP, operating system, technology/packages.</p></div>
+          <div class="operation-row"><b>03</b><p>Project documents stored privately and downloaded through membership checks.</p></div>
+          <div class="operation-row"><b>04</b><p>Business owner departments and responsibilities.</p></div>
+        </div>
+      </div>
+      <div class="operation-schematic reveal" aria-label="Project operational context diagram">
+        <div class="schematic-tile"><span>PEOPLE</span><strong>Member directory</strong></div><div class="schematic-tile"><span>PLATFORMS</span><strong>Development stack</strong></div><div class="schematic-tile"><span>INFRA</span><strong>Test / production</strong></div><div class="schematic-tile"><span>REFERENCE</span><strong>Project documents</strong></div>
+      </div>
+    </div>
+    <span class="slide-number">07 / 13</span>
+  </section>
+
+  <section class="slide control-slide" aria-labelledby="control-title">
+    <div class="slide-content control-layout">
+      <div>
+        <p class="eyebrow reveal">07 / CONTROL &amp; HISTORY</p>
+        <h2 class="reveal" id="control-title">Find the signal.<br>Keep the trail.</h2>
+        <p class="muted reveal">Portfolio search and filters help narrow delivery work. Successful project changes record actor, action, entity, and time.</p>
+        <div class="filter-stack reveal"><span>PROJECT / TASK</span><span>STATUS</span><span>OWNER</span><span>DUE DATE</span><span>JIRA ID</span></div>
+      </div>
+      <div class="audit-board reveal" aria-label="Illustrative project activity history">
+        <div class="audit-head">RECENT PROJECT ACTIVITY</div>
+        <div class="audit-line"><time>09:14</time><div><strong>Step completion 40% → 65%</strong><span>Task step · Project Team member</span></div></div>
+        <div class="audit-line"><time>08:52</time><div><strong>Task status updated</strong><span>Task · Project Team member</span></div></div>
+        <div class="audit-line"><time>YESTERDAY</time><div><strong>Meeting added</strong><span>Meeting · Project Team member</span></div></div>
+        <div class="audit-line"><time>MON</time><div><strong>Project scope updated</strong><span>Project · Project Team member</span></div></div>
+      </div>
+    </div>
+    <span class="slide-number">08 / 13</span>
+  </section>
+
+
+  <section class="slide highlights-slide" aria-labelledby="highlights-title">
+    <div class="slide-content highlights-layout">
+      <div>
+        <p class="eyebrow reveal">08 / KEY MARKS</p>
+        <h2 class="reveal" id="highlights-title">What matters, marked.</h2>
+        <p class="reveal">Tasks carry optional key marks that an administrator configures on the settings screen.</p>
+        <div class="reveal" aria-label="Configured highlight labels">
+          <span class="highlight-badge">Key Amendment</span>
+          <span class="highlight-badge">Key Finding</span>
+          <span class="highlight-badge">Key Decision</span>
+          <span class="highlight-badge highlight-badge-hot">+ more</span>
+        </div>
+      </div>
+      <div class="milestone-flow reveal" aria-label="Milestone lifecycle">
+        <div class="milestone-col"><b>01</b><h4>Flag as milestone</h4><span>Due date drives order</span></div>
+        <div class="milestone-col"><b>02</b><h4>Complete the task</h4><span>Achievement auto-stamped</span></div>
+        <div class="milestone-col"><b>03</b><h4>Visible everywhere</h4><span>Pulse · accordion · API</span></div>
+      </div>
+      <p class="muted reveal">Removing a label from the setting hides it from the picker but keeps it on existing tasks — no evidence is ever lost.</p>
+    </div>
+    <span class="slide-number">09 / 13</span>
+  </section>
+
+  <section class="slide summary-slide" aria-labelledby="summary-title">
+    <div class="slide-content summary-layout">
+      <div>
+        <p class="eyebrow reveal">09 / PROJECT SUMMARY</p>
+        <h2 class="reveal" id="summary-title">One screen. Every role.</h2>
+        <p class="reveal">The clean landing screen shows completion, the next milestone, what needs attention, and the next meeting — before you open any section.</p>
+        <div class="pulse-row reveal" aria-label="Always-visible pulse tiles">
+          <div class="pulse-tile"><span class="stat-label">Completion</span><div class="stat-value">44%</div></div>
+          <div class="pulse-tile"><span class="stat-label">Next milestone</span><div class="stat-text">Production cutover</div></div>
+          <div class="pulse-tile pulse-tile-warn"><span class="stat-label">Needs attention</span><div class="stat-value">1</div></div>
+          <div class="pulse-tile"><span class="stat-label">Next meeting</span><div class="stat-text">Oct 15</div></div>
+        </div>
+      </div>
+      <div class="accordion-stack reveal" aria-label="Collapsed accordion sections">
+        <div class="accordion-item"><b>Scope and timeline</b><span>description, dates, completion</span></div>
+        <div class="accordion-item"><b>Milestones · Key highlights · Current tasks · Blocked · Meetings · Documents · Team</b><span>each collapsed under its own &lt;details&gt; heading</span></div>
+        <div class="summary-field"><span>Full project details</span><strong>opens the detail view</strong></div>
+      </div>
+      <p class="muted reveal">Read-only for Clients, Stakeholders, and Vendors. Project Team members can create and edit.</p>
+    </div>
+    <span class="slide-number">10 / 13</span>
+  </section>
+
+  <section class="slide settings-slide" aria-labelledby="settings-title">
+    <div class="slide-content settings-layout">
+      <div>
+        <p class="eyebrow reveal">10 / SETTINGS &amp; ERRORS</p>
+        <h2 class="reveal" id="settings-title">Admin control. Safe errors.</h2>
+        <div class="settings-list reveal" aria-label="Admin settings">
+          <div class="settings-row"><b>JIRA URL</b><span>Browse links · hot override</span></div>
+          <div class="settings-row"><b>Team roles</b><span>Configurable list · default preserved</span></div>
+          <div class="settings-row"><b>Highlight types</b><span>Key marks · reset to default</span></div>
+          <div class="settings-row"><b>Email thresholds</b><span>Reminders · gated by JobRunLog</span></div>
+        </div>
+      </div>
+      <div>
+        <p class="eyebrow reveal" style="color: #bad6c1">09 / SAFE FAILURE</p>
+        <div class="error-list reveal" aria-label="Styled error pages">
+          <div class="error-row"><span class="code">403</span><div><strong>Forbidden</strong><p>No project access</p></div></div>
+          <div class="error-row"><span class="code">404</span><div><strong>Not found</strong><p>No project name leaked</p></div></div>
+          <div class="error-row"><span class="code">500</span><div><strong>Server error</strong><p>Back to portfolio</p></div></div>
+        </div>
+      </div>
+    </div>
+    <span class="slide-number">11 / 13</span>
+  </section>
+
+  <section class="slide" aria-labelledby="services-title">
+    <div class="slide-content operations-layout">
+      <div>
+        <p class="eyebrow reveal">11 / AI SERVICES</p>
+        <h2 class="reveal" id="services-title">Three Azure tools.<br>Granted one member at a time.</h2>
+        <p class="muted reveal">An administrator ticks each service per member. The gate is enforced on the server, not by hiding links, so a typed URL for an ungranted service returns 403.</p>
+        <div class="operations-list reveal">
+          <div class="operation-row"><b>01</b><p>Vision &mdash; image in, description, mapped fields, and the full service JSON out.</p></div>
+          <div class="operation-row"><b>02</b><p>Speech &mdash; text in, a replayable audio clip out, served only to its author.</p></div>
+          <div class="operation-row"><b>03</b><p>Chat &mdash; documents in, cited answers out. Keyword retrieval, no embeddings.</p></div>
+          <div class="operation-row"><b>04</b><p>No credentials? The card is disabled and names the setting to fill in.</p></div>
+        </div>
+      </div>
+      <div class="operation-schematic reveal" aria-label="Azure AI service pipeline">
+        <div class="schematic-tile"><span>UPLOAD</span><strong>Image / text / document</strong></div><div class="schematic-tile"><span>AZURE</span><strong>Vision &middot; Speech &middot; OpenAI</strong></div><div class="schematic-tile"><span>MAPPING</span><strong>Admin-defined JSON fields</strong></div><div class="schematic-tile"><span>RESULT</span><strong>Caption, audio, cited answer</strong></div>
+      </div>
+    </div>
+    <span class="slide-number">12 / 13</span>
+  </section>
+
+  <section class="slide close-slide" aria-labelledby="close-title">
+    <div class="slide-content close-layout">
+      <div>
+        <p class="eyebrow reveal">MIZALLA / PROJECT OPERATIONS</p>
+        <h2 class="reveal" id="close-title">One record.<br>Shared progress.</h2>
+        <p class="reveal">A focused workspace for project context, delivery work, and the decisions that move it forward.</p>
+      </div>
+      <div class="close-seal reveal" aria-label="Mizalla"><span>Clarity across the project</span></div>
+    </div>
+    <span class="slide-number">13 / 13</span>
+  </section>
+
+  <p class="keyboard-hint">← → / SPACE TO NAVIGATE · SWIPE ON TOUCH</p>
+  <div class="deck-controls" aria-label="Slide controls"><button type="button" id="previousSlide" aria-label="Previous slide">←</button><span class="slide-count" id="slideCount" aria-live="polite">01 / 13<</span><button type="button" id="nextSlide" aria-label="Next slide">→</button></div>
+
+  <script>
+    /* ===========================================
+       SLIDE PRESENTATION CONTROLLER
+       =========================================== */
+    class SlidePresentation {
+      constructor() {
+        this.slides = [...document.querySelectorAll(".slide")];
+        this.currentSlide = 0;
+        this.navDotsContainer = document.getElementById("navDots");
+        this.progressBar = document.getElementById("progressBar");
+        this.slideCount = document.getElementById("slideCount");
+        this.wheelLocked = false;
+        this.startTouchY = null;
+        this.setupNavDots();
+        this.setupIntersectionObserver();
+        this.setupKeyboardNav();
+        this.setupTouchNav();
+        this.setupWheelNav();
+        this.setupButtons();
+        this.updateChrome(0);
+      }
+
+      setupIntersectionObserver() {
+        const observer = new IntersectionObserver((entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              const index = this.slides.indexOf(entry.target);
+              this.currentSlide = index;
+              entry.target.classList.add("visible");
+              this.updateChrome(index);
+            }
+          }
+        }, { threshold: 0.5 });
+        this.slides.forEach((slide) => observer.observe(slide));
+      }
+
+      setupNavDots() {
+        this.navDotsContainer.innerHTML = "";
+        this.slides.forEach((slide, index) => {
+          const dot = document.createElement("button");
+          dot.type = "button";
+          dot.className = "nav-dot";
+          dot.setAttribute("aria-label", `Go to slide ${index + 1}`);
+          dot.addEventListener("click", () => this.goTo(index));
+          this.navDotsContainer.appendChild(dot);
+        });
+      }
+
+      setupKeyboardNav() {
+        document.addEventListener("keydown", (event) => {
+          if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) return;
+          if (["ArrowRight", "ArrowDown", "PageDown", " "].includes(event.key)) {
+            event.preventDefault();
+            this.goTo(this.currentSlide + 1);
+          } else if (["ArrowLeft", "ArrowUp", "PageUp"].includes(event.key)) {
+            event.preventDefault();
+            this.goTo(this.currentSlide - 1);
+          } else if (event.key === "Home") {
+            this.goTo(0);
+          } else if (event.key === "End") {
+            this.goTo(this.slides.length - 1);
+          }
+        });
+      }
+
+      setupTouchNav() {
+        document.addEventListener("touchstart", (event) => {
+          this.startTouchY = event.changedTouches[0].clientY;
+        }, { passive: true });
+        document.addEventListener("touchend", (event) => {
+          if (this.startTouchY === null) return;
+          const delta = this.startTouchY - event.changedTouches[0].clientY;
+          if (Math.abs(delta) > 50) this.goTo(this.currentSlide + (delta > 0 ? 1 : -1));
+          this.startTouchY = null;
+        }, { passive: true });
+      }
+
+      setupWheelNav() {
+        document.addEventListener("wheel", (event) => {
+          if (this.wheelLocked || Math.abs(event.deltaY) < 25) return;
+          this.wheelLocked = true;
+          this.goTo(this.currentSlide + (event.deltaY > 0 ? 1 : -1));
+          window.setTimeout(() => { this.wheelLocked = false; }, 650);
+        }, { passive: true });
+      }
+
+      setupButtons() {
+        document.getElementById("previousSlide").addEventListener("click", () => this.goTo(this.currentSlide - 1));
+        document.getElementById("nextSlide").addEventListener("click", () => this.goTo(this.currentSlide + 1));
+      }
+
+      goTo(index) {
+        const nextIndex = Math.max(0, Math.min(this.slides.length - 1, index));
+        this.slides[nextIndex].scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+
+      updateChrome(index) {
+        this.navDotsContainer.querySelectorAll(".nav-dot").forEach((dot, dotIndex) => {
+          dot.setAttribute("aria-current", dotIndex === index ? "true" : "false");
+        });
+        this.progressBar.style.width = `${((index + 1) / this.slides.length) * 100}%`;
+        this.slideCount.textContent = `${String(index + 1).padStart(2, "0")} / ${String(this.slides.length).padStart(2, "0")}`;
+      }
+    }
+
+    new SlidePresentation();
+  </script>
+</body>
+</html>

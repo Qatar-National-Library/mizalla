@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb %}
+{% block title %}WhatsApp Devices{% endblock %}
+{% block content %}
+{{ breadcrumb([("Projects", url_for('main.project_list')), ("Settings", url_for('admin.settings_list') + '#panel-whatsapp'), ("Registered Devices", None)]) }}
+<div class="page-heading"><p class="eyebrow">ADMINISTRATION / WHATSAPP</p><h1>WhatsApp Devices</h1></div>
+<div class="bulk-email-admin">
+  <p class="intro-copy">View WhatsApp devices registered in the GOWA app and assign access to members. Device access control is configured below by the Administrator.</p>
+
+  <div class="flash-stack" style="margin-top:1rem">
+    {% if gowa_health.online %}
+      <p class="flash flash-success">GOWA is online — <code>{{ gowa_health.url }}</code> responded with HTTP {{ gowa_health.status_code }}.</p>
+    {% else %}
+      <p class="flash flash-error">
+        <strong>GOWA is offline.</strong> {{ gowa_health.error }}
+        Device synchronization is disabled until GOWA is running.
+        {% if gowa_health.status_code %}Last response: HTTP {{ gowa_health.status_code }}.{% endif %}
+        Checked <code>{{ gowa_health.url }}</code>.
+      </p>
+    {% endif %}
+  </div>
+
+  <div class="heading-row" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; margin-top:1.5rem">
+    <div class="section-heading" style="margin:0"><div><p class="eyebrow">REGISTERED DEVICES / {{ devices|length }}</p><h2>Devices</h2></div></div>
+    <form method="post" action="{{ url_for('whatsapp.device_fetch') }}" style="display:inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="button button-quiet button-small" type="submit"{% if not gowa_health.online %} disabled{% endif %}>
+        🔄 Fetch Devices from GOWA
+      </button>
+    </form>
+  </div>
+
+  {% if devices|length == 0 and gowa_devices|length == 0 %}
+    <p class="muted empty-inline">No devices found in GOWA yet. Register devices in the GOWA app and click "Fetch Devices from GOWA".</p>
+  {% else %}
+    <table class="bulk-email-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Device ID</th>
+          <th>Status</th>
+          <th>Registered By</th>
+          <th>Registered</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for device in devices %}
+        <tr>
+          <td>{{ device.name }}</td>
+          <td>{{ device.device_id }}</td>
+          <td><span class="status-chip {{ 'sent' if device.status == 'active' else 'error' }}">{{ device.status }}</span></td>
+          <td>{{ device.registered_by_name }}</td>
+          <td>{{ device.created_at.strftime('%Y-%m-%d %H:%M') if device.created_at else '' }}</td>
+        </tr>
+        {% endfor %}
+        {% for device in gowa_devices %}
+        <tr>
+          <td>{{ device.name }}</td>
+          <td>{{ device.device_id }}</td>
+          <td><span class="status-chip sent">{{ device.status }}</span></td>
+          <td>{{ device.registered_by_name }}</td>
+          <td>—</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+{% endblock %}
+

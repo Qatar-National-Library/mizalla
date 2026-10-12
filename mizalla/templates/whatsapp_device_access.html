@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb %}
+{% block title %}Device Access{% endblock %}
+{% block content %}
+{{ breadcrumb([("Projects", url_for('main.project_list')), ("WhatsApp", url_for('whatsapp.index')), ("Devices", url_for('whatsapp.device_list')), ("Access", None)]) }}
+<div class="page-heading"><p class="eyebrow">ADMINISTRATION / WHATSAPP</p><h1>Device Access — {{ device.name }}</h1></div>
+<div class="bulk-email-admin">
+  <p class="intro-copy">Assign members who can use this device for bulk WhatsApp messaging.</p>
+
+  <form method="post" action="{{ url_for('whatsapp.device_access_update', device_id=device.id) }}" class="form-panel" style="max-width:600px;margin-top:1.5rem">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="section-heading"><div><p class="eyebrow">MEMBER ACCESS</p><h2>Select members</h2></div></div>
+    <div class="team-roles-select" style="margin-bottom:1rem">
+      {% for member in members %}
+      <label class="checkbox-inline">
+        <input type="checkbox" name="member_ids" value="{{ member.id }}"
+          {% for grant in access_grants %}{% if grant.member_id == member.id %}checked{% endif %}{% endfor %}>
+        {{ member.name }} ({{ member.email }})
+      </label>
+      {% endfor %}
+    </div>
+    <button class="button button-primary" type="submit">Save Access</button>
+  </form>
+</div>
+{% endblock %}

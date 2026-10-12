@@ -1,0 +1,365 @@
+{% extends "base.html" %}
+{% block title %}Bulk WhatsApp{% endblock %}
+{% block content %}<div class="bulk-email">
+<section class="page-heading">
+  <p class="eyebrow">BULK WHATSAPP</p>
+  <h1>One message.<br><span>Every phone.</span></h1>
+  <p class="intro-copy">Select a registered device, upload a phone list, and send personalized WhatsApp messages with media attachments.</p>
+</section>
+
+<form id="whatsapp-form" class="composer" enctype="multipart/form-data">
+  {# The Test button posts this form via JS to /test, which validates the token
+     explicitly. Without the field, FormData carries no token and every test
+     send is rejected. #}
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="form-heading"><h2>Compose message</h2><i></i></div>
+
+  <label class="field-label" for="device_id">WhatsApp device <span>REQUIRED</span></label>
+  {% if devices|length == 0 %}
+  <div class="device-access-error" role="alert">
+    <p>You do not have access to any registered device. Contact Administrator.</p>
+  </div>
+  <select class="text-input" id="device_id" name="device_id" disabled>
+    <option value="">No devices available</option>
+  </select>
+  {% else %}
+  <select class="text-input" id="device_id" name="device_id" required>
+    <option value="">Select a device</option>
+    {% for device in devices %}
+    <option value="{{ device.id }}">{{ device.name }} ({{ device.device_id }})</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+
+  <label class="field-label body-label" for="message">Message <span>UTF-8 supported</span></label>
+  <textarea class="text-input body-input" id="message" name="message" required placeholder="Write your message in any language..."></textarea>
+
+  <div class="upload-grid">
+    <div class="upload-field">
+      <label class="field-label" for="attachments">Media attachments <span>OPTIONAL</span></label>
+      <label class="file-picker drop-zone" for="attachments" id="drop-zone-attachments">
+        <span class="upload-symbol" aria-hidden="true">＋</span>
+        <span class="file-picker-copy"><strong id="attachment-label">Add files or drop here</strong><small>Images, video, audio, PDF, DOCX, XLSX, PPTX, HTM, HTML</small></span>
+        <input id="attachments" name="attachments" type="file" multiple accept=".pdf,.docx,.xlsx,.pptx,.htm,.html,.png,.jpg,.jpeg,.gif,.webp,.mp4,.mkv,.avi,.mp3,.wav,.ogg,.m4a">
+      </label>
+      <div class="attachment-options" id="attachment-options" hidden>
+        <p class="eyebrow">ATTACHED DOCUMENTS</p>
+        <div id="attachment-options-list"></div>
+      </div>
+    </div>
+    <div class="upload-field">
+      <label class="field-label" for="phone-list">Phone list <span>REQUIRED</span></label>
+      <label class="file-picker drop-zone" for="phone-list" id="drop-zone-list">
+        <span class="upload-symbol sheet-symbol" aria-hidden="true">▤</span>
+        <span class="file-picker-copy"><strong id="list-label">Choose CSV or drop here</strong><small>CSV file with a PHONE column</small></span>
+        <input id="phone-list" name="phone_list" type="file" accept=".csv,text/csv" required>
+      </label>
+      <p class="field-helper">Use <code>{% raw %}{{ COLUMN_NAME }}{% endraw %}</code> in the message or HTML/DOCX/XLSX attachments to insert row data. Column names are case-insensitive. Missing values become empty.</p>
+    </div>
+  </div>
+
+  <div class="form-footer">
+    <p>Each non-empty value under <strong>PHONE</strong> is processed as one recipient. Attachments are sent as media messages.</p>
+    <div class="footer-actions">
+      <div class="test-action-group">
+        <input type="text" id="test_recipient" name="test_recipient" class="text-input test-recipient-input" placeholder="Test phone number (+...)...">
+        <button class="test-button" id="test-button" type="button" disabled>Test</button>
+      </div>
+      <button class="send-button" id="send-button" type="submit" disabled>Send messages</button>
+    </div>
+  </div>
+  <p class="form-error" id="form-error" role="alert" hidden></p>
+</form>
+
+<section class="summary" id="summary" aria-labelledby="summary-title" hidden>
+  <div><p class="eyebrow">CAMPAIGN COMPLETE</p><h2 id="summary-title">Summary</h2></div>
+  <dl class="summary-stats">
+    <div><dt>PROVIDED</dt><dd id="summary-total">0</dd></div>
+    <div><dt>SENT</dt><dd class="sent-count" id="summary-sent">0</dd></div>
+    <div><dt>ERROR</dt><dd class="error-count" id="summary-errors">0</dd></div>
+  </dl>
+</section>
+
+<section class="activity" aria-labelledby="activity-title" id="activity-section" hidden>
+  <div class="activity-heading">
+    <div><p class="eyebrow">DELIVERY LOG</p><h2 id="activity-title">Status</h2></div>
+    <p id="progress-label" class="progress-label">AWAITING CAMPAIGN</p>
+  </div>
+  <div class="progress-track" aria-hidden="true"><span id="progress-bar"></span></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col">TO</th><th scope="col">STATUS</th></tr></thead>
+      <tbody id="status-rows"><tr class="empty-row"><td colspan="2">Recipient results will appear here.</td></tr></tbody>
+    </table>
+  </div>
+  <div class="form-footer" id="export-row" hidden>
+    <div class="footer-actions" style="justify-content: flex-end;">
+      <a class="send-button" id="export-button" href="#" style="text-decoration: none;">Export to Excel</a>
+    </div>
+  </div>
+</section>
+</div>{% endblock %}
+
+{% block scripts %}
+<script>
+const form = document.querySelector("#whatsapp-form");
+const sendButton = document.querySelector("#send-button");
+const testButton = document.querySelector("#test-button");
+const testRecipientInput = document.querySelector("#test_recipient");
+const phoneListInput = document.querySelector("#phone-list");
+const deviceSelect = document.querySelector("#device_id");
+const messageInput = document.querySelector("#message");
+const formError = document.querySelector("#form-error");
+const rows = document.querySelector("#status-rows");
+const progressLabel = document.querySelector("#progress-label");
+const progressBar = document.querySelector("#progress-bar");
+const summary = document.querySelector("#summary");
+const activitySection = document.getElementById("activity-section");
+const exportRow = document.getElementById("export-row");
+const exportButton = document.getElementById("export-button");
+let currentJobId = null;
+let csvHasPhone = false;
+let testRecipientValid = false;
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function updateButtonStates() {
+  const deviceSelected = deviceSelect ? deviceSelect.value.trim() !== "" : false;
+  const messageFilled = messageInput ? messageInput.value.trim() !== "" : false;
+  const allRequiredFilled = deviceSelected && messageFilled && csvHasPhone;
+
+  sendButton.disabled = !allRequiredFilled;
+  testButton.disabled = !(allRequiredFilled && testRecipientValid);
+}
+
+if (deviceSelect) deviceSelect.addEventListener("change", updateButtonStates);
+if (messageInput) messageInput.addEventListener("input", updateButtonStates);
+
+function checkPhoneListFile(file) {
+  if (!file) {
+    csvHasPhone = false;
+    updateButtonStates();
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const text = e.target.result || "";
+    const lines = text.split(/\r\n|\n|\r/);
+    if (lines.length > 0) {
+      const headers = lines[0].split(/[,;\t]/).map((h) => h.replace(/^["']|["']$/g, "").trim().toUpperCase());
+      csvHasPhone = headers.includes("PHONE");
+    } else {
+      csvHasPhone = false;
+    }
+    updateButtonStates();
+  };
+  reader.onerror = () => {
+    csvHasPhone = false;
+    updateButtonStates();
+  };
+  reader.readAsText(file.slice(0, 4096));
+}
+
+let selectedAttachments = [];
+const attachmentOptions = document.getElementById("attachment-options");
+const attachmentOptionsList = document.getElementById("attachment-options-list");
+
+function renderAttachments() {
+  const dt = new DataTransfer();
+  selectedAttachments.forEach(f => dt.items.add(f));
+  document.querySelector("#attachments").files = dt.files;
+  
+  const names = selectedAttachments.map((file) => file.name);
+  document.querySelector("#attachment-label").textContent = names.length ? `${names.length} file${names.length === 1 ? "" : "s"} selected` : "Add files or drop here";
+
+  attachmentOptionsList.replaceChildren();
+  if (selectedAttachments.length === 0) {
+    attachmentOptions.hidden = true;
+    return;
+  }
+  attachmentOptions.hidden = false;
+
+  selectedAttachments.forEach((file, idx) => {
+    const ext = file.name.split(".").pop().toLowerCase();
+    const isHtml = ext === "htm" || ext === "html";
+    const isPdf = ext === "pdf";
+
+    const row = document.createElement("div");
+    row.className = "attachment-option-row";
+    row.style.display = "flex";
+    row.style.alignItems = "center";
+    row.style.gap = "8px";
+    row.style.marginBottom = "4px";
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "attachment-option-name";
+    nameSpan.textContent = file.name;
+    nameSpan.style.flex = "1";
+    row.appendChild(nameSpan);
+
+    if (!isPdf) {
+      const convertLabel = document.createElement("label");
+      convertLabel.className = "checkbox-inline";
+      convertLabel.innerHTML = `<input type="checkbox" name="convert_pdf_${idx}" value="1"> Convert to PDF`;
+      row.appendChild(convertLabel);
+    }
+
+    const substitutable = isHtml || ext === "docx" || ext === "xlsx" || ext === "pptx" || isPdf;
+    if (substitutable) {
+      const subTag = document.createElement("span");
+      subTag.className = "substitution-tag";
+      subTag.textContent = "{% raw %}{{ }}{% endraw %} supported";
+      row.appendChild(subTag);
+    }
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "button button-small";
+    removeBtn.style.padding = "2px 6px";
+    removeBtn.textContent = "Remove";
+    removeBtn.onclick = () => {
+      selectedAttachments.splice(idx, 1);
+      renderAttachments();
+    };
+    row.appendChild(removeBtn);
+
+    attachmentOptionsList.appendChild(row);
+  });
+}
+
+document.querySelector("#attachments").addEventListener("change", (event) => {
+  const newFiles = Array.from(event.target.files);
+  const existingNames = new Set(selectedAttachments.map(f => f.name));
+  newFiles.forEach(f => {
+    if (!existingNames.has(f.name)) {
+      selectedAttachments.push(f);
+    }
+  });
+  renderAttachments();
+});
+
+phoneListInput.addEventListener("change", (event) => {
+  const file = event.target.files[0];
+  document.querySelector("#list-label").textContent = file?.name || "Choose CSV or drop here";
+  checkPhoneListFile(file);
+});
+
+testRecipientInput.addEventListener("input", () => {
+  const val = testRecipientInput.value.trim();
+  testRecipientValid = /^\+?[0-9\s\-()]{7,20}$/.test(val);
+  updateButtonStates();
+});
+updateButtonStates();
+
+// Drag-and-drop for phone list
+const dropZoneList = document.getElementById("drop-zone-list");
+["dragenter", "dragover"].forEach((evt) => {
+  dropZoneList.addEventListener(evt, (e) => { e.preventDefault(); dropZoneList.classList.add("drop-zone--active"); });
+});
+["dragleave", "drop"].forEach((evt) => {
+  dropZoneList.addEventListener(evt, (e) => { e.preventDefault(); dropZoneList.classList.remove("drop-zone--active"); });
+});
+dropZoneList.addEventListener("drop", (e) => {
+  const files = e.dataTransfer.files;
+  if (files.length) {
+    const input = document.getElementById("phone-list");
+    input.files = files;
+    input.dispatchEvent(new Event("change"));
+  }
+});
+
+// Drag-and-drop for attachments
+const dropZoneAttachments = document.getElementById("drop-zone-attachments");
+["dragenter", "dragover"].forEach((evt) => {
+  dropZoneAttachments.addEventListener(evt, (e) => { e.preventDefault(); dropZoneAttachments.classList.add("drop-zone--active"); });
+});
+["dragleave", "drop"].forEach((evt) => {
+  dropZoneAttachments.addEventListener(evt, (e) => { e.preventDefault(); dropZoneAttachments.classList.remove("drop-zone--active"); });
+});
+dropZoneAttachments.addEventListener("drop", (e) => {
+  const files = e.dataTransfer.files;
+  if (files.length) {
+    const input = document.getElementById("attachments");
+    input.files = files;
+    input.dispatchEvent(new Event("change"));
+  }
+});
+
+function appendResult(result) {
+  if (rows.querySelector(".empty-row")) rows.replaceChildren();
+  const row = document.createElement("tr");
+  const phone = document.createElement("td");
+  phone.className = "recipient-cell";
+  phone.textContent = result.to;
+  const statusCell = document.createElement("td");
+  const status = document.createElement("span");
+  status.className = `status-chip ${result.status.toLowerCase()}`;
+  status.textContent = result.status;
+  statusCell.append(status);
+  if (result.reason) {
+    const reason = document.createElement("span");
+    reason.className = "error-reason";
+    reason.textContent = result.reason;
+    statusCell.append(reason);
+  }
+  row.append(phone, statusCell);
+  rows.append(row);
+}
+
+// Test button — send processed message to test WhatsApp number using first row of CSV
+testButton.addEventListener("click", async () => {
+  testButton.disabled = true;
+  try {
+    const formData = new FormData(form);
+    const result = await composerFetch("/apps/whatsapp/test", { method: "POST", body: formData });
+    alert(result.message || "Test WhatsApp message sent.");
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    updateButtonStates();
+  }
+});
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  formError.hidden = true;
+  summary.hidden = true;
+  activitySection.hidden = false;
+  rows.replaceChildren();
+  progressBar.style.width = "0%";
+  sendButton.disabled = true;
+  progressLabel.textContent = "PREPARING CAMPAIGN";
+  exportRow.hidden = true;
+
+  try {
+    const started = await composerFetch("/apps/whatsapp/send", { method: "POST", body: new FormData(form) });
+    currentJobId = started.job_id;
+    exportButton.href = `/apps/whatsapp/jobs/${encodeURIComponent(currentJobId)}/export`;
+
+    let shownResults = 0;
+    let snapshot;
+    do {
+      snapshot = await composerFetch(`/apps/whatsapp/jobs/${encodeURIComponent(currentJobId)}`, { cache: "no-store" });
+      snapshot.results.slice(shownResults).forEach(appendResult);
+      shownResults = snapshot.results.length;
+      const percentage = snapshot.total ? (shownResults / snapshot.total) * 100 : 100;
+      progressBar.style.width = `${percentage}%`;
+      progressLabel.textContent = `${shownResults} / ${snapshot.total} PROCESSED`;
+      if (!snapshot.complete) await delay(700);
+    } while (!snapshot.complete);
+
+    document.querySelector("#summary-total").textContent = snapshot.total;
+    document.querySelector("#summary-sent").textContent = snapshot.sent;
+    document.querySelector("#summary-errors").textContent = snapshot.errors;
+    summary.hidden = false;
+    progressLabel.textContent = "ALL RECIPIENTS PROCESSED";
+    exportRow.hidden = false;
+  } catch (error) {
+    formError.textContent = error.message;
+    formError.hidden = false;
+    progressLabel.textContent = "CAMPAIGN INTERRUPTED";
+  } finally {
+    updateButtonStates();
+  }
+});
+</script>
+{% endblock %}

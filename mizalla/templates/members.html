@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb, admin_nav %}
+{% block title %}Members · Administration{% endblock %}
+{% block content %}
+{{ breadcrumb([("Projects", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Members", None)]) }}
+
+{{ admin_nav('members') }}
+<section class="detail-grid admin-grid">
+  <div class="detail-section">
+    <div class="section-heading"><div><p class="eyebrow">ACCOUNT DIRECTORY / {{ members|length }}</p><h2>People</h2></div></div>
+    <div class="directory-list">{% for member in members %}<article class="directory-row"><div class="avatar-mark" aria-hidden="true">{{ member.name[:1]|upper }}</div><div class="directory-copy"><strong>{{ member.name }}{% if member.is_admin %}<span class="admin-tag">Admin</span>{% endif %}{% if member.is_pm %}<span class="pm-tag" title="May create new projects. Project authority comes from project roles.">Creates projects</span>{% endif %}{% for key in member_features.get(member.id, []) %}<span class="service-tag">{{ feature_labels[key] }}</span>{% endfor %}</strong><span>{{ member.email }}</span><small>{{ member.designation or "No designation" }} · {{ member.department_organization or "No department / organization" }}</small></div><a class="button button-quiet button-small" href="{{ url_for('admin.member_edit', member_id=member.id) }}">Edit</a><form method="post" action="{{ url_for('admin.member_delete', member_id=member.id) }}" onsubmit="return confirm('Delete this member account?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="text-button danger-text" type="submit">Delete</button></form></article>{% else %}<p class="muted empty-inline">No member accounts yet.</p>{% endfor %}</div>
+  </div>
+  <aside class="detail-section create-panel">
+    <div class="section-heading"><div><p class="eyebrow">NEW ACCOUNT</p><h2>Add member</h2></div></div>
+    <form method="post" class="form-stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Name<input name="name" maxlength="120" required></label>
+      <label>Email<input type="email" name="email" maxlength="254" required></label>
+      <label>Designation<input name="designation" maxlength="120"></label>
+      <label>Department / organization<input name="department_organization" maxlength="160"></label>
+      <label>Initial password<input type="password" name="password" minlength="12" autocomplete="new-password" required></label>
+      <label class="checkbox-inline"><input type="checkbox" name="is_pm" value="1" checked> Project Manager <span class="muted">(may create new projects. Authority over an existing project comes from a role on it: open the project and assign Project Manager or Delegated PM.)</span></label>
+      <fieldset class="checkbox-group" style="margin-top:1rem">
+        <legend>Service Access</legend>
+        <div class="checkbox-grid">
+          {% for card in feature_cards %}
+            {% if card.key == 'bulk_whatsapp' %}
+              <div class="feature-item-wrap" style="grid-column: 1 / -1;">
+                <label class="checkbox-row">
+                  <input type="checkbox" name="feature_ids" value="bulk_whatsapp" id="cb-bulk-whatsapp-create" onchange="toggleWhatsappDevicesCreate(this)">
+                  <span>{{ card.label }}</span>
+                  <p class="checkbox-note">{{ card.note }}</p>
+                  {% if not card.configured %}
+                  <span class="pm-tag">not configured: {{ card.missing | join(', ') }}</span>
+                  {% endif %}
+                </label>
+                <fieldset id="whatsapp-device-fieldset-create" class="checkbox-group" style="margin: 0.5rem 0 0.5rem 1.5rem; padding: 0.75rem 1rem; border: 1px solid var(--line); border-radius: 6px; background: rgba(0,0,0,0.01);" disabled>
+                  <legend style="font-size: 0.75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; padding: 0 0.4rem;">Registered WhatsApp Device Access</legend>
+                  <p class="muted" style="font-size: 0.8rem; margin: 0 0 0.5rem;">Select registered GOWA devices this member may send through.</p>
+                  {% if devices %}
+                    <div class="checkbox-grid" style="grid-template-columns: 1fr;">
+                      {% for device in devices %}
+                      <label class="checkbox-row">
+                        <input type="checkbox" name="device_ids" value="{{ device.id }}">
+                        <span>{{ device.name }} <span class="muted">({{ device.device_id }})</span></span>
+                      </label>
+                      {% endfor %}
+                    </div>
+                  {% else %}
+                    <p class="muted" style="font-size: 0.82rem; margin: 0;">No registered devices available yet. Register devices under <strong>WhatsApp Service</strong> in System Settings.</p>
+                  {% endif %}
+                </fieldset>
+              </div>
+            {% else %}
+              <label class="checkbox-row">
+                <input type="checkbox" name="feature_ids" value="{{ card.key }}">
+                <span>{{ card.label }}</span>
+                <p class="checkbox-note">{{ card.note }}</p>
+                {% if not card.configured %}
+                <span class="pm-tag">not configured: {{ card.missing | join(', ') }}</span>
+                {% endif %}
+              </label>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </fieldset>
+      <button class="button button-primary" type="submit">Create account</button>
+    </form>
+  </aside>
+</section>
+
+<script>
+function toggleWhatsappDevicesCreate(cb) {
+  var fieldset = document.getElementById('whatsapp-device-fieldset-create');
+  if (!fieldset) return;
+  if (cb.checked) {
+    fieldset.removeAttribute('disabled');
+  } else {
+    fieldset.setAttribute('disabled', 'disabled');
+    var checkboxes = fieldset.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(function(deviceCb) {
+      deviceCb.checked = false;
+    });
+  }
+}
+</script>
+{% endblock %}

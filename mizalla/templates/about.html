@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}About{% endblock %}
+{% block content %}
+<section class="about-hero">
+  <p class="eyebrow">FIELDNOTES / PROJECT OPERATIONS</p>
+  <h1>Mizalla</h1>
+  <p class="about-lead">A shared view of project scope, people, decisions, and delivery progress.</p>
+  <div class="about-actions">
+    <a class="button button-primary" href="{{ url_for('static', filename='mizalla-feature-deck.html') }}" target="_blank" rel="noopener noreferrer">View feature deck <span aria-hidden="true">↗</span></a>
+    <a class="button button-quiet" href="{{ url_for('main.user_guide') }}">Read the user guide</a>
+  </div>
+</section>
+<section class="about-capabilities" aria-label="Application capabilities">
+  <article><p class="eyebrow">01 / VISIBILITY</p><h2>The right people, the right view.</h2><p>Roles are per project: the same person can run one project as Project Manager or Delegated PM, build another as a team member, and sit in on a third as a vendor. Team members and Delegated roles edit; clients, stakeholders, and vendors review.</p></article>
+  <article><p class="eyebrow">02 / DELIVERY</p><h2>Progress with context.</h2><p>Tasks, weighted steps, owners, JIRA references, and due-date filters give project teams a useful delivery picture.</p></article>
+  <article><p class="eyebrow">03 / DECISIONS</p><h2>Meetings connected to work.</h2><p>Record agendas, attendees, and notes; create follow-up tasks; open future meetings as prefilled Teams compose links.</p></article>
+</section>
+<p class="about-footnote">Mizalla · Flask + SQLite · Local sign-in</p>
+{% endblock %}

@@ -1,0 +1,803 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb %}
+{% block title %}Video Upload{% endblock %}
+
+{% block content %}
+
+
+<div class="upload-file">
+  {{ breadcrumb([("Projects", url_for('main.project_list')), ("Video Upload", None)]) }}
+
+  <div class="page-heading">
+    <h1>Video Upload</h1>
+    <p class="lede">Send videos directly to Cloudflare Stream. Files travel securely from your browser straight to
+      Cloudflare over resumable TUS protocol, without touching this application server.</p>
+  </div>
+
+  {% if not configured %}
+  <div class="card">
+    <h2>Not configured</h2>
+    <p class="field-helper">An administrator must add <code>CLOUDFLARE_ACCOUNT_ID</code>,
+      <code>CLOUDFLARE_API_TOKEN</code> and <code>CLOUDFLARE_ENDPOINT</code> to the <code>.env</code> file and restart
+      the application. The token needs the <strong>Stream:Edit</strong> permission, which covers both uploading and
+      deleting.
+    </p>
+  </div>
+  {% else %}
+
+  <section class="detail-grid video-upload-grid">
+    <div class="detail-section">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">NEW VIDEO</p>
+          <h2>Video Upload</h2>
+        </div>
+      </div>
+
+      <div class="form-stack">
+        <label class="file-picker drop-zone" for="video" id="drop-zone-video">
+          <span class="upload-symbol" aria-hidden="true">＋</span>
+          <span class="file-picker-copy">
+            <strong id="video-label">Add videos or drop here</strong>
+            <small>MP4, MOV, MKV, WEBM, AVI and more &middot; multiple allowed</small>
+          </span>
+          <input id="video" type="file" accept="{{ accept }}" multiple>
+        </label>
+
+        <!-- Selected Videos Queue -->
+        <div id="video-queue-box" class="video-queue" hidden>
+          <div class="video-queue-header">
+            <p class="eyebrow">SELECTED VIDEOS (<span id="queue-count">0</span>)</p>
+            <button type="button" class="text-button" id="clear-queue-btn">Clear list</button>
+          </div>
+          <div id="video-queue-list" class="video-queue-list"></div>
+        </div>
+
+        <div id="upload-message" class="flash-stack" role="status" aria-live="polite" hidden></div>
+
+        <div class="form-actions">
+          <button class="button button-primary" type="button" id="start-upload" disabled>Upload</button>
+          <button class="button button-secondary" type="button" id="cancel-upload" hidden>Cancel Uploads</button>
+        </div>
+      </div>
+
+      <!--<p class="field-helper">
+      Up to {{ (max_duration_seconds / 60) | round(0, 'floor') | int }} minutes long per video. Cloudflare reserves that much
+      storage while the upload runs, then counts only what the video actually uses.
+    </p>
+    <p class="field-helper">
+      Large uploads resume if the connection drops. If that happens, choose the same file
+      again &mdash; the browser picks up where it stopped rather than starting over.
+    </p>
+    {% if account_hint %}<p class="field-helper">Cloudflare account <code>{{ account_hint }}&hellip;</code></p>{% endif %}-->
+    </div>
+
+    <aside class="detail-section">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">CLOUDFLARE STREAM / {{ videos | length }} VIDEO{{ '' if videos | length == 1 else 'S' }}
+          </p>
+          <h2>Uploaded Videos</h2>
+        </div>
+      </div>
+
+      {% if videos %}
+      <ul class="document-list">
+        {% for video in videos %}
+        <li>
+          <div>
+            <strong>{{ video.filename }}</strong>
+            {% if video.media_id %}
+            <div class="history-media-id">Video ID: <code>{{ video.media_id }}</code></div>
+            {% endif %}
+            <span class="muted"><small>
+                {{ (video.size_bytes / 1048576) | round(1) }} MB &middot; uploaded by {{ video.uploaded_by_name or
+                "unknown" }}{% if video.uploaded_by_id != current_user.id %} &middot; not yours{% endif %}
+                &middot; <span class="pm-tag">{{ video.status }}</span>{% if video.status_detail %} &middot; {{
+                video.status_detail }}{% endif %}
+              </small></span>
+
+            {% if video.media_id %}
+            <div class="history-links">
+              <a href="{{ video.watch_url }}" target="_blank" rel="noopener">Direct Watch</a>
+              <span class="muted">&middot;</span>
+              <a href="{{ video.embed_url }}" target="_blank" rel="noopener">Embed Player</a>
+              <span class="muted">&middot;</span>
+              <a href="{{ video.hls_manifest_url }}" target="_blank" rel="noopener">HLS Manifest</a>
+            </div>
+            {% endif %}
+          </div>
+          <div class="button-group">
+            {% if can_delete(video) %}
+            <form method="post" action="{{ url_for('video_upload.delete', upload_id=video.id) }}"
+              onsubmit="return confirm('Delete {{ video.filename }} from Cloudflare Stream? The video cannot be recovered.')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="text-button danger-text" type="submit">Delete</button>
+            </form>
+            {% endif %}
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted empty-inline">No videos yet. Choose one or more above to get started.</p>
+      {% endif %}
+
+      <p class="field-helper">You can delete a video you uploaded. An administrator can delete anyone's. Deleting
+        removes it from Cloudflare Stream as well as from this list.</p>
+    </aside>
+  </section>
+
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='vendor/tus-js-client-4.3.1.min.js') }}"></script>
+<script>
+  (function () {
+    "use strict";
+
+    const input = document.getElementById("video");
+    if (!input) return;
+
+    const zone = document.getElementById("drop-zone-video");
+    const label = document.getElementById("video-label");
+    const startBtn = document.getElementById("start-upload");
+    const cancelBtn = document.getElementById("cancel-upload");
+    const messageBox = document.getElementById("upload-message");
+    const queueBox = document.getElementById("video-queue-box");
+    const queueCount = document.getElementById("queue-count");
+    const queueList = document.getElementById("video-queue-list");
+    const clearQueueBtn = document.getElementById("clear-queue-btn");
+
+    const csrfToken = {{ csrf_token() | tojson
+  }};
+  const chunkSize = {{ chunk_size }};
+  const tusEndpoint = {{ url_for("video_upload.tus_url") | tojson }};
+  const completeTemplate = {{ url_for("video_upload.complete", upload_id = 0) | tojson }};
+  const statusTemplate = {{ url_for("video_upload.status", upload_id = 0) | tojson }};
+  const filenameHeader = "{{ filename_header }}";
+
+  let selectedVideos = []; // Array of { id, file, state, tusUpload, uploadRecordId, mediaId, pollTimer }
+  let nextFileId = 1;
+  let isUploading = false;
+
+  if (!window.tus || !window.tus.isSupported) {
+    say("This browser cannot do resumable uploads. A current version of Chrome, Edge, Firefox or Safari is needed.", "error");
+    return;
+  }
+
+  function say(text, kind) {
+    if (!messageBox) return;
+    messageBox.hidden = false;
+    messageBox.innerHTML = "";
+    const p = document.createElement("p");
+    p.className = "flash" + (kind ? " flash-" + kind : "");
+    p.textContent = text;
+    messageBox.appendChild(p);
+  }
+
+  function sayHtml(html, kind) {
+    if (!messageBox) return;
+    messageBox.hidden = false;
+    messageBox.innerHTML = "";
+    const div = document.createElement("div");
+    div.className = "flash" + (kind ? " flash-" + kind : "");
+    div.innerHTML = html;
+    messageBox.appendChild(div);
+  }
+
+  function clearMessage() {
+    if (!messageBox) return;
+    messageBox.hidden = true;
+    messageBox.innerHTML = "";
+  }
+
+  function megabytes(bytes) {
+    return (bytes / 1048576).toFixed(1);
+  }
+
+  function copyToClipboard(text, btn) {
+    if (!text) return;
+    const orig = btn.textContent;
+    const onSuccess = function () {
+      btn.textContent = "Copied!";
+      setTimeout(function () { btn.textContent = orig; }, 1800);
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(onSuccess).catch(function () {
+        fallbackCopy(text, onSuccess);
+      });
+    } else {
+      fallbackCopy(text, onSuccess);
+    }
+  }
+
+  function fallbackCopy(text, cb) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); cb(); } catch (e) { }
+    document.body.removeChild(ta);
+  }
+
+  function renderQueue() {
+    if (selectedVideos.length === 0) {
+      queueBox.hidden = true;
+      startBtn.disabled = true;
+      if (clearQueueBtn) clearQueueBtn.disabled = false;
+      label.textContent = "Add videos or drop here";
+      return;
+    }
+
+    queueBox.hidden = false;
+    queueCount.textContent = selectedVideos.length;
+    label.textContent = `${selectedVideos.length} video${selectedVideos.length === 1 ? "" : "s"} selected`;
+    startBtn.disabled = isUploading;
+    if (clearQueueBtn) clearQueueBtn.disabled = isUploading;
+
+    queueList.innerHTML = "";
+    selectedVideos.forEach(function (item) {
+      const card = document.createElement("div");
+      card.className = "video-queue-item";
+      card.id = `video-item-${item.id}`;
+
+      // 1. Top row
+      const top = document.createElement("div");
+      top.className = "video-item-top";
+
+      const meta = document.createElement("div");
+      meta.className = "video-item-meta";
+      meta.innerHTML = `<span class="video-item-name">${escapeHtml(item.file.name)} <span class="video-item-size">(${megabytes(item.file.size)} MB)</span></span>`;
+
+      // Media ID (under the name for debugging)
+      const idElem = document.createElement("div");
+      idElem.className = "video-item-id";
+      idElem.id = `vid-id-${item.id}`;
+      if (item.mediaId) {
+        idElem.innerHTML = `<small>Video ID: <code>${escapeHtml(item.mediaId)}</code></small>`;
+      } else {
+        idElem.hidden = true;
+      }
+      meta.appendChild(idElem);
+      top.appendChild(meta);
+
+      const actions = document.createElement("div");
+      actions.className = "video-item-actions";
+
+      const statusTag = document.createElement("span");
+      statusTag.className = `pm-tag status-tag status-tag-${item.stateClass || "queued"}`;
+      statusTag.id = `vid-status-${item.id}`;
+      statusTag.textContent = item.statusText || "QUEUED";
+      actions.appendChild(statusTag);
+
+      if (!isUploading && item.state !== "ready") {
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "button button-small";
+        removeBtn.textContent = "Remove";
+        removeBtn.onclick = function () {
+          removeVideo(item.id);
+        };
+        actions.appendChild(removeBtn);
+      }
+      top.appendChild(actions);
+      card.appendChild(top);
+
+      // 2. Progress row
+      const progWrap = document.createElement("div");
+      progWrap.className = "video-item-progress";
+      progWrap.id = `vid-prog-wrap-${item.id}`;
+      progWrap.hidden = !item.isStarted;
+
+      const progMeta = document.createElement("div");
+      progMeta.className = "video-progress-meta";
+      progMeta.innerHTML = `<span id="vid-prog-text-${item.id}">${escapeHtml(item.progressText || "Waiting...")}</span><strong id="vid-prog-pct-${item.id}">${item.pct || 0}%</strong>`;
+      progWrap.appendChild(progMeta);
+
+      const bar = document.createElement("progress");
+      bar.id = `vid-bar-${item.id}`;
+      bar.max = 100;
+      bar.value = item.pct || 0;
+      progWrap.appendChild(bar);
+      card.appendChild(progWrap);
+
+      // 3. Playback Links Card (only if links exist)
+      if (item.links) {
+        const linksCard = document.createElement("div");
+        linksCard.className = "video-links-card";
+        linksCard.id = `vid-links-${item.id}`;
+        renderLinks(linksCard, item.links);
+        card.appendChild(linksCard);
+      }
+
+      queueList.appendChild(card);
+    });
+  }
+
+  function renderLinks(container, links) {
+    container.innerHTML = '<p class="links-title">Playback Links</p>';
+
+    const directRow = createLinkRow("Direct Watch", links.direct);
+    const embedRow = createLinkRow("Embed Player", links.embedded);
+    const hlsRow = createLinkRow("HLS Manifest", links.hls);
+
+    container.appendChild(directRow);
+    container.appendChild(embedRow);
+    container.appendChild(hlsRow);
+    container.hidden = false;
+  }
+
+  function createLinkRow(labelText, url) {
+    const row = document.createElement("div");
+    row.className = "link-row";
+
+    const label = document.createElement("span");
+    label.className = "link-label";
+    label.textContent = labelText;
+    row.appendChild(label);
+
+    const a = document.createElement("a");
+    a.className = "link-anchor";
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = url;
+    row.appendChild(a);
+
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "button button-small link-copy-btn";
+    copyBtn.textContent = "Copy";
+    copyBtn.onclick = function () {
+      copyToClipboard(url, copyBtn);
+    };
+    row.appendChild(copyBtn);
+
+    return row;
+  }
+
+  function escapeHtml(str) {
+    if (!str) return "";
+    return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function addFiles(files) {
+    const existing = new Set(selectedVideos.map(function (v) { return `${v.file.name}_${v.file.size}`; }));
+    Array.from(files).forEach(function (file) {
+      const key = `${file.name}_${file.size}`;
+      if (!existing.has(key)) {
+        selectedVideos.push({
+          id: nextFileId++,
+          file: file,
+          state: "queued",
+          statusText: "QUEUED",
+          stateClass: "queued",
+          pct: 0,
+          progressText: "Ready to upload",
+          isStarted: false,
+          tusUpload: null,
+          uploadRecordId: null,
+          mediaId: null,
+          pollTimer: null,
+          links: null,
+        });
+        existing.add(key);
+      }
+    });
+    renderQueue();
+  }
+
+  function removeVideo(id) {
+    const idx = selectedVideos.findIndex(function (v) { return v.id === id; });
+    if (idx !== -1) {
+      if (selectedVideos[idx].pollTimer) clearInterval(selectedVideos[idx].pollTimer);
+      selectedVideos.splice(idx, 1);
+      renderQueue();
+    }
+  }
+
+  if (clearQueueBtn) {
+    clearQueueBtn.addEventListener("click", function () {
+      if (isUploading) return;
+      selectedVideos.forEach(function (v) {
+        if (v.pollTimer) clearInterval(v.pollTimer);
+      });
+      selectedVideos = [];
+      renderQueue();
+    });
+  }
+
+  input.addEventListener("change", function (e) {
+    if (e.target.files && e.target.files.length) {
+      addFiles(e.target.files);
+    }
+  });
+
+  if (zone) {
+    ["dragenter", "dragover"].forEach(function (evt) {
+      zone.addEventListener(evt, function (e) { e.preventDefault(); zone.classList.add("drop-zone--active"); });
+    });
+    ["dragleave", "drop"].forEach(function (evt) {
+      zone.addEventListener(evt, function (e) { e.preventDefault(); zone.classList.remove("drop-zone--active"); });
+    });
+    zone.addEventListener("drop", function (e) {
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+        addFiles(e.dataTransfer.files);
+      }
+    });
+  }
+
+  // ── Parallel Upload Runner ────────────────────────────────────────────────
+
+  function startUploads() {
+    if (selectedVideos.length === 0) return;
+    clearMessage();
+    isUploading = true;
+    startBtn.disabled = true;
+    cancelBtn.hidden = false;
+    renderQueue();
+
+    // Launch all queued uploads in parallel
+    selectedVideos.forEach(function (item) {
+      if (item.state === "ready") return; // already uploaded
+      uploadSingleVideo(item);
+    });
+  }
+
+  function uploadSingleVideo(item) {
+    item.isStarted = true;
+    item.state = "uploading";
+    item.statusText = "UPLOADING";
+    item.stateClass = "uploading";
+    item.progressText = "Reserving storage…";
+    item.pct = 0;
+    updateItemUi(item);
+
+    const file = item.file;
+    const startedAt = Date.now();
+
+    const upload = new window.tus.Upload(file, {
+      endpoint: tusEndpoint,
+      chunkSize: chunkSize,
+      retryDelays: [0, 1000, 3000, 5000, 10000, 20000],
+      storeFingerprintForResuming: false,
+      removeFingerprintOnSuccess: true,
+      fingerprint: function () { return Promise.resolve(null); },
+      metadata: { filename: file.name, filetype: file.type || "application/octet-stream" },
+
+      onBeforeRequest: function (req) {
+        const url = req.getURL ? req.getURL() : "";
+        // Only attach internal app headers (CSRF & Filename) to our provisioning endpoint.
+        // Cloudflare's direct upload endpoint rejects custom headers with a CORS error.
+        if (!url || url.indexOf("upload.cloudflarestream.com") === -1) {
+          req.setHeader(filenameHeader, file.name);
+          req.setHeader("X-CSRFToken", csrfToken);
+        }
+      },
+
+      onAfterResponse: function (req, res) {
+        if (req.getMethod && req.getMethod() !== "POST") return;
+        let payload = null;
+        try { payload = JSON.parse(res.getBody()); } catch (e) { return; }
+        if (payload && payload.upload_id) item.uploadRecordId = payload.upload_id;
+        if (payload && payload.media_id) {
+          item.mediaId = payload.media_id;
+          const idElem = document.getElementById(`vid-id-${item.id}`);
+          if (idElem) {
+            idElem.hidden = false;
+            idElem.innerHTML = `<small>Video ID: <code>${escapeHtml(item.mediaId)}</code></small>`;
+          }
+        }
+      },
+
+      onProgress: function (done, total) {
+        const pct = total ? (done / total) * 100 : 0;
+        item.pct = Math.round(pct);
+        item.statusText = "UPLOADING";
+
+        let line = megabytes(done) + " of " + megabytes(total) + " MB";
+        const elapsed = (Date.now() - startedAt) / 1000;
+        if (done && elapsed >= 1) {
+          const seconds = (total - done) / (done / elapsed);
+          if (isFinite(seconds) && seconds > 0) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.round(seconds % 60);
+            line += " · " + (mins ? mins + "m " + secs + "s" : secs + "s") + " left";
+          }
+        }
+        item.progressText = line;
+        updateItemUi(item);
+      },
+
+      onSuccess: function () {
+        item.pct = 100;
+        item.state = "processing";
+        item.statusText = "PROCESSING";
+        item.stateClass = "processing";
+        item.progressText = "Bytes uploaded. Cloudflare is encoding...";
+        updateItemUi(item);
+
+        // Notify server that tus upload is complete, then poll status
+        confirmAndPoll(item);
+      },
+
+      onError: function (error) {
+        item.state = "error";
+        item.statusText = "ERROR";
+        item.stateClass = "error";
+        item.progressText = describeError(error);
+        updateItemUi(item);
+        checkAllFinished();
+      },
+    });
+
+    item.tusUpload = upload;
+    upload.start();
+  }
+
+  function updateItemUi(item) {
+    const statusElem = document.getElementById(`vid-status-${item.id}`);
+    if (statusElem) {
+      statusElem.className = `pm-tag status-tag status-tag-${item.stateClass || "queued"}`;
+      statusElem.textContent = item.statusText || "QUEUED";
+    }
+
+    const progWrap = document.getElementById(`vid-prog-wrap-${item.id}`);
+    if (progWrap && item.isStarted) {
+      progWrap.hidden = false;
+    }
+
+    const progPct = document.getElementById(`vid-prog-pct-${item.id}`);
+    if (progPct) progPct.textContent = `${item.pct || 0}%`;
+
+    const progText = document.getElementById(`vid-prog-text-${item.id}`);
+    if (progText) progText.textContent = item.progressText || "";
+
+    const bar = document.getElementById(`vid-bar-${item.id}`);
+    if (bar) bar.value = item.pct || 0;
+
+    if (item.mediaId) {
+      const idElem = document.getElementById(`vid-id-${item.id}`);
+      if (idElem) {
+        idElem.hidden = false;
+        idElem.innerHTML = `<small>Video ID: <code>${escapeHtml(item.mediaId)}</code></small>`;
+      }
+    }
+
+    if (item.state === "ready" && item.links) {
+      let linksCard = document.getElementById(`vid-links-${item.id}`);
+      if (!linksCard) {
+        linksCard = document.createElement("div");
+        linksCard.className = "video-links-card";
+        linksCard.id = `vid-links-${item.id}`;
+        const card = document.getElementById(`video-item-${item.id}`);
+        if (card) card.appendChild(linksCard);
+      }
+      linksCard.hidden = false;
+      renderLinks(linksCard, item.links);
+    } else {
+      const linksCard = document.getElementById(`vid-links-${item.id}`);
+      if (linksCard) linksCard.remove();
+    }
+  }
+
+  async function confirmAndPoll(item) {
+    if (!item.uploadRecordId) {
+      item.state = "ready";
+      item.statusText = "SENT";
+      item.progressText = "Uploaded to Cloudflare.";
+      updateItemUi(item);
+      checkAllFinished();
+      return;
+    }
+
+    const completeUrl = completeTemplate.replace("/uploads/0/", `/uploads/${item.uploadRecordId}/`);
+    const statusUrl = statusTemplate.replace("/uploads/0/", `/uploads/${item.uploadRecordId}/`);
+
+    // 1. First completion call
+    try {
+      const res = await fetch(completeUrl, {
+        method: "POST",
+        headers: { "X-CSRFToken": csrfToken, "X-Requested-With": "XMLHttpRequest" },
+      });
+      const data = await res.json().catch(function () { return null; });
+      if (data && handleStatusData(item, data)) {
+        return; // already terminal (ready or error)
+      }
+    } catch (e) {
+      // Continue to poll status
+    }
+
+    // 2. Poll Cloudflare every 2.5 seconds for live pctComplete & state
+    item.pollTimer = setInterval(async function () {
+      try {
+        const res = await fetch(statusUrl, {
+          method: "GET",
+          headers: { "X-Requested-With": "XMLHttpRequest" },
+        });
+        const data = await res.json().catch(function () { return null; });
+        if (data && handleStatusData(item, data)) {
+          clearInterval(item.pollTimer);
+          item.pollTimer = null;
+        }
+      } catch (err) {
+        // Retry next interval
+      }
+    }, 2500);
+  }
+
+  function handleStatusData(item, data) {
+    if (data.media_id && !item.mediaId) {
+      item.mediaId = data.media_id;
+    }
+
+    if (data.status === "ready" || data.ready_to_stream) {
+      item.state = "ready";
+      item.statusText = "READY";
+      item.stateClass = "ready";
+      item.pct = 100;
+      item.progressText = "Encoding complete. Ready to stream!";
+      item.links = data.links;
+      updateItemUi(item);
+      checkAllFinished();
+      return true;
+    }
+
+    if (data.status === "error") {
+      item.state = "error";
+      item.statusText = "ERROR";
+      item.stateClass = "error";
+      item.progressText = data.detail || "Cloudflare encoding error.";
+      updateItemUi(item);
+      checkAllFinished();
+      return true;
+    }
+
+    // Still processing / encoding: update pctComplete if provided
+    item.state = "processing";
+    item.stateClass = "processing";
+    if (data.pct_complete !== null && data.pct_complete !== undefined) {
+      const pctNum = Math.round(parseFloat(data.pct_complete));
+      if (!isNaN(pctNum)) {
+        item.pct = Math.max(0, Math.min(100, pctNum));
+      }
+      item.statusText = "PROCESSING";
+      item.progressText = `Encoding (${data.step || "processing"})`;
+    } else {
+      item.statusText = "PROCESSING";
+      item.progressText = data.detail || "Cloudflare is encoding the video…";
+    }
+
+    updateItemUi(item);
+    return false;
+  }
+
+  function checkAllFinished() {
+    const unfinished = selectedVideos.filter(function (v) {
+      return v.state !== "ready" && v.state !== "error";
+    });
+
+    if (unfinished.length === 0 && selectedVideos.length > 0) {
+      isUploading = false;
+      cancelBtn.hidden = true;
+      startBtn.disabled = false;
+      startBtn.textContent = "Upload Again";
+      if (clearQueueBtn) clearQueueBtn.disabled = false;
+
+      const readyVideos = selectedVideos.filter(function (v) { return v.state === "ready" && v.links; });
+      const succeeded = selectedVideos.filter(function (v) { return v.state === "ready"; }).length;
+      const failed = selectedVideos.filter(function (v) { return v.state === "error"; }).length;
+
+      let html = "";
+      if (failed === 0 && succeeded > 0) {
+        const text = succeeded === 1
+          ? "1 video uploaded and processed successfully."
+          : `${succeeded} videos uploaded and processed successfully.`;
+        html = `<div><strong>${escapeHtml(text)}</strong></div>`;
+        if (readyVideos.length > 0) {
+          html += `<div style="margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.45rem;">`;
+          readyVideos.forEach(function (v) {
+            html += `<div style="font-size: 0.82rem;">` +
+              `<span><strong>${escapeHtml(v.file.name)}</strong>: </span>` +
+              `<a href="${escapeHtml(v.links.direct)}" target="_blank" rel="noopener" style="text-decoration: underline; font-weight: 600;">Direct Watch</a> &middot; ` +
+              `<a href="${escapeHtml(v.links.embedded)}" target="_blank" rel="noopener" style="text-decoration: underline; font-weight: 600;">Embed Player</a> &middot; ` +
+              `<a href="${escapeHtml(v.links.hls)}" target="_blank" rel="noopener" style="text-decoration: underline; font-weight: 600;">HLS Manifest</a>` +
+              `</div>`;
+          });
+          html += `</div>`;
+        }
+        sayHtml(html, "success");
+      } else if (succeeded === 0 && failed > 0) {
+        const text = failed === 1
+          ? "Upload failed for 1 video. Check the error details above."
+          : `Upload failed for ${failed} videos. Check the error details above.`;
+        say(text, "error");
+      } else {
+        const text = `${succeeded} succeeded, ${failed} failed.`;
+        html = `<div><strong>${escapeHtml(text)}</strong></div>`;
+        if (readyVideos.length > 0) {
+          html += `<div style="margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.45rem;">`;
+          readyVideos.forEach(function (v) {
+            html += `<div style="font-size: 0.82rem;">` +
+              `<span><strong>${escapeHtml(v.file.name)}</strong>: </span>` +
+              `<a href="${escapeHtml(v.links.direct)}" target="_blank" rel="noopener" style="text-decoration: underline; font-weight: 600;">Direct Watch</a> &middot; ` +
+              `<a href="${escapeHtml(v.links.embedded)}" target="_blank" rel="noopener" style="text-decoration: underline; font-weight: 600;">Embed Player</a> &middot; ` +
+              `<a href="${escapeHtml(v.links.hls)}" target="_blank" rel="noopener" style="text-decoration: underline; font-weight: 600;">HLS Manifest</a>` +
+              `</div>`;
+          });
+          html += `</div>`;
+        }
+        sayHtml(html, "error");
+      }
+    }
+  }
+
+  function describeError(error) {
+    const raw = (error && error.message) || "";
+    if (/timeout/i.test(raw)) return "The upload timed out. You can retry.";
+    if (/network|failed to fetch|load failed|abort/i.test(raw)) return "Connection interrupted. You can retry.";
+    if (/40[13]|forbidden|unauthorized|permission/i.test(raw)) return "Cloudflare rejected credentials. Check Stream:Edit permission.";
+    return "Upload failed: " + (raw || "Unknown error");
+  }
+
+  startBtn.addEventListener("click", startUploads);
+
+  if (cancelBtn) {
+    cancelBtn.addEventListener("click", function () {
+      selectedVideos.forEach(function (item) {
+        // Only files mid upload can be cancelled!
+        // Files uploaded and under processing will complete processing and be listed in Uploaded files list and cannot be canceled.
+        if (item.state !== "uploading") {
+          return;
+        }
+
+        if (item.tusUpload) {
+          const target = item.tusUpload.url;
+          if (target && window.tus.Upload.terminate) {
+            window.tus.Upload.terminate(target, { endpoint: tusEndpoint }).catch(function () { });
+          } else if (item.tusUpload.abort) {
+            item.tusUpload.abort();
+          }
+        }
+        item.state = "error";
+        item.statusText = "CANCELLED";
+        item.stateClass = "error";
+        item.progressText = "Upload cancelled.";
+        updateItemUi(item);
+      });
+
+      const midUpload = selectedVideos.some(function (v) { return v.state === "uploading"; });
+      const processing = selectedVideos.filter(function (v) { return v.state === "processing"; }).length;
+      const succeeded = selectedVideos.filter(function (v) { return v.state === "ready"; }).length;
+      const failed = selectedVideos.filter(function (v) { return v.state === "error"; }).length;
+
+      if (!midUpload) {
+        cancelBtn.hidden = true;
+      }
+
+      if (processing === 0 && !midUpload) {
+        isUploading = false;
+        startBtn.disabled = false;
+        startBtn.textContent = "Upload Again";
+        if (clearQueueBtn) clearQueueBtn.disabled = false;
+      }
+
+      let msg = "";
+      if (processing > 0) {
+        msg = `${succeeded} completed, ${failed} failed/cancelled, ${processing} still processing on Cloudflare.`;
+        say(msg, "warning");
+      } else {
+        msg = `${succeeded} completed, ${failed} failed/cancelled.`;
+        say(msg, failed > 0 ? "error" : "success");
+      }
+    });
+  }
+}) ();
+</script>
+{% endblock %}

@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb, accordion, highlight_badges, task_link %}
+
+{% block title %}{{ project.name }} · Summary{% endblock %}
+
+{% block content %}
+{{ breadcrumb([
+  ("Projects", url_for('main.project_list')),
+  (project.project_id, url_for('main.project_detail', project_id=project.id)),
+  ("Summary", None)
+]) }}
+
+<header class="summary-header">
+  <div class="summary-header-main">
+    <p class="eyebrow">PROJECT SUMMARY / {{ project.project_id }}</p>
+    <h1>{{ project.name }}</h1>
+    <p class="summary-lede">{{ project.description or "No description recorded." }}</p>
+    <p class="summary-freshness">Last updated
+      <time datetime="{{ last_updated.isoformat() }}">{{ last_updated.strftime('%b %d, %Y · %H:%M') }}</time>
+    </p>
+  </div>
+  <div class="summary-header-actions">
+    <a class="button button-primary" href="{{ url_for('main.project_detail', project_id=project.id) }}">Full project details</a>
+    <a class="button button-quiet" href="{{ url_for('main.project_list') }}">All projects</a>
+  </div>
+</header>
+
+{# Always-visible pulse, so the collapsed screen still answers "is this project OK?". #}
+<div class="stat-row">
+  <div class="stat-tile">
+    <span class="stat-label">Completion</span>
+    <strong class="stat-value">{{ completion }}<small>%</small></strong>
+    <progress value="{{ completion }}" max="100" aria-label="{{ completion }} percent complete"></progress>
+  </div>
+  <div class="stat-tile{% if next_milestone %} stat-tile-active{% endif %}">
+    <span class="stat-label">Next milestone</span>
+    {% if next_milestone %}
+      <strong class="stat-text">{{ next_milestone.name|truncate(42) }}</strong>
+      <span class="stat-note">{% if next_milestone.due_date %}Due {{ next_milestone.due_date.strftime('%b %d, %Y') }}{% else %}No date set{% endif %}
+        · {{ next_milestone.task_completion }}% done</span>
+    {% else %}
+      <strong class="stat-text stat-quiet">None scheduled</strong>
+      <span class="stat-note">{{ achieved_milestones|length }} achieved</span>
+    {% endif %}
+  </div>
+  <div class="stat-tile{% if at_risk_tasks %} stat-tile-warn{% endif %}">
+    <span class="stat-label">Needs attention</span>
+    <strong class="stat-value">{{ at_risk_tasks|length }}</strong>
+    <span class="stat-note">blocked, overdue or at risk</span>
+  </div>
+  <div class="stat-tile">
+    <span class="stat-label">Next meeting</span>
+    {% if next_meeting %}
+      <strong class="stat-text">{{ next_meeting.meeting_date.strftime('%b %d, %Y') }}</strong>
+      <span class="stat-note">{{ next_meeting.agenda|truncate(40) or "Agenda pending" }}</span>
+      {% set _mu = meeting_teams_urls.get(next_meeting.id) %}
+      {% if _mu %}<a class="button button-small button-quiet" href="{{ _mu }}" target="_blank" rel="noopener noreferrer">Join in Teams</a>{% endif %}
+    {% else %}
+      <strong class="stat-text stat-quiet">None scheduled</strong>
+      <span class="stat-note">{{ past_meetings|length }} held to date</span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="accordion-stack">
+
+{% call accordion("Scope and timeline", count_label="") %}
+  <p class="scope-copy">{{ project.scope or "No project scope recorded." }}</p>
+  <dl class="fact-list">
+    <div><dt>Estimated completion</dt><dd>{{ project.estimated_completion_date.strftime('%b %d, %Y') if project.estimated_completion_date else "—" }}</dd></div>
+    <div><dt>Actual start</dt><dd>{{ project.actual_start_date.strftime('%b %d, %Y') if project.actual_start_date else "—" }}</dd></div>
+    <div><dt>Actual completion</dt><dd>{{ project.actual_completion_date.strftime('%b %d, %Y') if project.actual_completion_date else "—" }}</dd></div>
+    <div><dt>Overall completion</dt><dd>{{ completion }}%</dd></div>
+  </dl>
+  {% if project.technologies %}
+    <h3 class="inline-heading">Technology stack</h3>
+    <ul class="tag-list">{% for item in project.technologies %}<li>{{ item.technology }}</li>{% endfor %}</ul>
+  {% else %}<p class="muted empty-inline">No technologies recorded.</p>{% endif %}
+  {% if project.departments %}
+    <h3 class="inline-heading">Owner departments</h3>
+    <ul class="plain-list">{% for department in project.departments %}<li><span>{{ department.department_name }}</span><small>{{ department.responsibility or "No responsibility recorded" }}</small></li>{% endfor %}</ul>
+  {% endif %}
+{% endcall %}
+
+{% call accordion("Milestones", count=achieved_milestones|length + upcoming_milestones|length, count_label="total") %}
+  {% if upcoming_milestones %}
+    <h3 class="inline-heading">Upcoming</h3>
+    <ul class="summary-list">
+      {% for task in upcoming_milestones %}
+        <li>
+          <div class="summary-list-main">
+            {{ task_link(project.id, task) }}
+            {{ highlight_badges(task, size="small") }}
+            <p class="summary-list-meta">
+              {% if task.due_date %}Due {{ task.due_date.strftime('%b %d, %Y') }}{% else %}No date set{% endif %}
+              · {{ task.task_completion }}% complete
+              · {% if task.owners %}{% for owner in task.owners %}{{ owner.member.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}Unassigned{% endif %}
+            </p>
+          </div>
+          <span class="summary-list-side">{{ task.task_completion }}%</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  {% if achieved_milestones %}
+    <h3 class="inline-heading">Achieved</h3>
+    <ul class="summary-list">
+      {% for task in achieved_milestones %}
+        <li>
+          <div class="summary-list-main">
+            {{ task_link(project.id, task) }}
+            <p class="summary-list-meta">
+              Achieved {{ task.milestone_achieved_on.strftime('%b %d, %Y') if task.milestone_achieved_on else "date not recorded" }}
+              · {% if task.owners %}{% for owner in task.owners %}{{ owner.member.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}Unassigned{% endif %}
+            </p>
+          </div>
+          <span class="summary-list-side summary-list-side-done">Done</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  {% if not upcoming_milestones and not achieved_milestones %}
+    <p class="muted empty-inline">No tasks have been flagged as milestones.</p>
+  {% endif %}
+{% endcall %}
+
+{% call accordion("Key highlights", count=highlight_total, count_label="recorded") %}
+  {% for label in highlight_labels %}
+    {% set items = highlights_by_label[label] %}
+    {% if items %}
+      <h3 class="inline-heading">{{ label }}</h3>
+      <ul class="summary-list">
+        {% for task in items %}
+          <li>
+            <div class="summary-list-main">
+              {{ task_link(project.id, task) }}
+              <p class="summary-list-meta">
+                {{ task.highlighted_on.strftime('%b %d, %Y') if task.highlighted_on else "Date not recorded" }}
+                · {{ task.status }}
+                · {% if task.owners %}{% for owner in task.owners %}{{ owner.member.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}Unassigned{% endif %}
+              </p>
+            </div>
+            <span class="badge badge-highlight badge-small">{{ label }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  {% endfor %}
+  {% if not highlight_total %}
+    <p class="muted empty-inline">
+      No highlights recorded. Highlight types are configured by an administrator in
+      {% if current_user.is_admin %}<a class="text-link" href="{{ url_for('admin.settings_list') }}">Settings</a>{% else %}Settings{% endif %}
+      and applied to a task from the task screen.
+    </p>
+  {% endif %}
+{% endcall %}
+
+{% call accordion("Current tasks", count=active_tasks|length, count_label="active") %}
+  {% if active_tasks %}
+    <ul class="summary-list">
+      {% for task in active_tasks %}
+        {% set step = current_step(task) %}
+        <li>
+          <div class="summary-list-main">
+            {{ task_link(project.id, task) }}
+            {{ highlight_badges(task, size="small") }}
+            <p class="summary-list-meta">
+              {{ step.header if step else "No step in progress" }}
+              · {% if task.owners %}{% for owner in task.owners %}{{ owner.member.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}Unassigned{% endif %}
+              {% if task.due_date %}· Due {{ task.due_date.strftime('%b %d, %Y') }}{% endif %}
+            </p>
+          </div>
+          <div class="summary-list-side">
+            <span>{{ task.task_completion }}%</span>
+            <progress value="{{ task.task_completion }}" max="100" aria-label="{{ task.name }} {{ task.task_completion }} percent complete"></progress>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}<p class="muted empty-inline">No active tasks. Everything is completed or cancelled.</p>{% endif %}
+{% endcall %}
+
+{% call accordion("Blocked, overdue and at risk", count=at_risk_tasks|length, count_label="tasks") %}
+  {% if at_risk_tasks %}
+    <ul class="summary-list">
+      {% for task in at_risk_tasks %}
+        <li>
+          <div class="summary-list-main">
+            {{ task_link(project.id, task) }}
+            <p class="summary-list-meta">
+              <span class="status status-{{ task.status|lower|replace(' ', '-') }}">{{ task.status }}</span>
+              {% if task.due_date %}· Due {{ task.due_date.strftime('%b %d, %Y') }}{% endif %}
+              · {% if task.owners %}{% for owner in task.owners %}{{ owner.member.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}Unassigned{% endif %}
+            </p>
+          </div>
+          <span class="summary-list-side summary-list-side-warn">{{ task.task_completion }}%</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}<p class="muted empty-inline">Nothing blocked, overdue or at risk.</p>{% endif %}
+{% endcall %}
+
+{% call accordion("Meetings", count=project.meetings|length, count_label="held or scheduled") %}
+  {% if project.meetings %}
+    <ul class="summary-list">
+      {% for meeting in project.meetings %}
+        <li>
+          <div class="summary-list-main">
+            <strong>{{ meeting.agenda or "Agenda pending" }}</strong>
+            <p class="summary-list-meta">
+              <time datetime="{{ meeting.meeting_date.isoformat() }}">{{ meeting.meeting_date.strftime('%b %d, %Y') }}</time>
+              · {{ meeting.attendees|length }} attendee{{ "" if meeting.attendees|length == 1 else "s" }}
+              {% if meeting.get_external_attendee_list() %}· {{ meeting.get_external_attendee_list()|length }} external{% endif %}
+              {% if meeting.location %}· {{ meeting.location }}{% endif %}
+            </p>
+          </div>
+          <span class="summary-list-side{% if meeting.meeting_date >= next_meeting_date %} summary-list-side-active{% endif %}">
+            {%- if meeting.meeting_date >= next_meeting_date %}Upcoming{% else %}—{% endif -%}
+          </span>
+          {% set _mu = meeting_teams_urls.get(meeting.id) %}
+          {% if _mu %}<a class="button button-small button-quiet" href="{{ _mu }}" target="_blank" rel="noopener noreferrer">Join in Teams</a>{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}<p class="muted empty-inline">No meetings recorded.</p>{% endif %}
+{% endcall %}
+
+{% call accordion("Documents", count=project.documents|length, count_label="files") %}
+  {% if project.documents %}
+    <ul class="plain-list">
+      {% for document in project.documents %}
+        <li>
+          <span><a class="text-link" href="{{ url_for('main.document_download', document_id=document.id) }}">{{ document.filename }}</a></span>
+          <small>{{ document.description or "No description" }}</small>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}<p class="muted empty-inline">No documents attached.</p>{% endif %}
+{% endcall %}
+
+{% call accordion("Project team and responsibilities", count=project.memberships|map(attribute="member_id")|unique|list|length, count_label="people") %}
+  {% if pm_memberships %}
+    <h3 class="inline-heading">Project Managers</h3>
+    <ul class="summary-list">
+      {% for membership in pm_memberships %}
+        <li>
+          <div class="summary-list-main">
+            <strong>{{ membership.member.name }}</strong>
+            <p class="summary-list-meta">{{ membership.responsibility or "Project Manager" }}
+              · <a class="person-email" href="mailto:{{ membership.member.email }}">{{ membership.member.email }}</a>
+            </p>
+          </div>
+          <span class="badge badge-pm badge-small">PM</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  {% for role, label in roles %}
+    {% set members = project.memberships|selectattr('role', 'equalto', role)|list %}
+    {% set is_pm_group = role == 'delegated' or role == 'team' %}
+    {% if members and not (is_pm_group and pm_memberships|length == members|length) %}
+      <h3 class="inline-heading">{{ label }}{{ " (including PM)" if is_pm_group and pm_memberships else "" }}</h3>
+      <ul class="summary-list">
+        {% for membership in members %}
+          <li>
+            <div class="summary-list-main">
+              <strong>{{ membership.member.name }}</strong>
+              {% if membership.member.designation %}<span class="summary-list-designation">{{ membership.member.designation }}</span>{% endif %}
+              <p class="summary-list-meta">{{ membership.responsibility or "No responsibility recorded" }}
+                · <a class="person-email" href="mailto:{{ membership.member.email }}">{{ membership.member.email }}</a>
+              </p>
+              {% if membership.role == 'team' and membership.get_team_roles_list() %}
+                <div class="team-roles-tags">{% for trole in membership.get_team_roles_list() %}<span class="role-tag">{{ trole }}</span>{% endfor %}</div>
+              {% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  {% endfor %}
+  {% if not project.memberships %}<p class="muted empty-inline">No members assigned to this project.</p>{% endif %}
+  {% if not can_edit %}<p class="muted empty-inline">You have read-only access to this summary.</p>{% endif %}
+{% endcall %}
+
+</div>
+{% endblock %}

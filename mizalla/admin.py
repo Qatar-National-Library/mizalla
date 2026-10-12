@@ -1,0 +1,677 @@
+"""Admin blueprint — member, server, settings, and audit management."""
+
+import io
+import ipaddress
+import os
+from functools import wraps
+from pathlib import Path
+
+from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, send_file, url_for
+from flask_login import current_user, login_required
+
+from .azure_ai import service_status
+from .extensions import db
+from .feature_access import sync_member_features
+from .jobs import run_all_scheduled_jobs
+from .models import (
+    FEATURE_KEYS,
+    FEATURE_LABELS,
+    AppFeatureAccess,
+    AppSetting,
+    BulkEmailJob,
+    GowaDevice,
+    GowaDeviceAccess,
+    Member,
+    Server,
+    ServiceAuditLog,
+)
+from .settings import (
+    BOOLEAN_SETTING_KEYS,
+    DEFAULT_APP_SETTINGS,
+    DIRECTORY_SETTING_KEYS,
+    INTEGER_SETTING_KEYS,
+    LABEL_LIST_SETTING_KEYS,
+    RETIRED_SETTING_KEYS,
+    get_setting,
+    reset_setting,
+    seed_default_settings,
+    set_setting,
+    validate_directory_setting,
+    validate_integer_setting,
+    validate_label_list,
+)
+from .azure_ai import FEATURE_REQUIREMENTS, service_status
+from .validators import is_valid_email
+
+bp = Blueprint("admin", __name__, url_prefix="/apps/admin")
+
+#: Per-service notes shown next to each access checkbox, so an administrator
+#: can see which services are not usable yet without leaving the member form.
+FEATURE_NOTES = {
+    "bulk_email": "Send templated email to a recipient list.",
+    "bulk_whatsapp": "Send templated messages through a registered GOWA device.",
+    "bulk_sms": "Send templated SMS through Pingram, one SMS per recipient.",
+    "vision": "Analyse an image: description, full response, and mapped fields.",
+    "speech": "Turn text into a playable audio clip.",
+    "chat": "Upload documents and ask questions about them.",
+    "upload_file": "Store PDF, Word, Excel, PowerPoint, text and HTML files in a folder on the server.",
+    "video_upload": "Send videos straight to Cloudflare Stream. Needs a Cloudflare API token in .env.",
+}
+
+
+def _feature_cards() -> list[dict]:
+    cards = []
+    for key in FEATURE_KEYS:
+        status = service_status(key)
+        cards.append(
+            {
+                "key": key,
+                "label": FEATURE_LABELS[key],
+                "note": FEATURE_NOTES.get(key, ""),
+                "configured": status["configured"],
+                "missing": status["missing"],
+            }
+        )
+    return cards
+
+
+
+
+
+def admin_required(view):
+    @wraps(view)
+    @login_required
+    def wrapped(*args, **kwargs):
+        if not current_user.is_admin:
+            abort(403)
+        return view(*args, **kwargs)
+    return wrapped
+
+
+@bp.route("/members", methods=["GET", "POST"])
+@admin_required
+def member_list():
+    devices = GowaDevice.query.order_by(GowaDevice.name).all()
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        if not name or not is_valid_email(email) or len(password) < 12:
+            flash("Enter a name, valid email, and password of at least 12 characters.", "error")
+        elif Member.query.filter_by(email=email).first():
+            flash("That email address is already registered.", "error")
+        else:
+            requested_features = set(request.form.getlist("feature_ids", type=str))
+            member = Member(
+                name=name,
+                email=email,
+                designation=request.form.get("designation", "").strip(),
+                department_organization=request.form.get("department_organization", "").strip(),
+                is_pm=bool(request.form.get("is_pm")),
+                can_bulk_email="bulk_email" in requested_features,
+            )
+            member.set_password(password)
+            db.session.add(member)
+            db.session.flush()
+            sync_member_features(member, requested_features, granted_by_id=current_user.id)
+            if "bulk_whatsapp" in requested_features:
+                new_device_ids = set(request.form.getlist("device_ids", type=int))
+                for device_id in new_device_ids:
+                    db.session.add(
+                        GowaDeviceAccess(device_id=device_id, member_id=member.id, granted_by_id=current_user.id)
+                    )
+            db.session.commit()
+            flash("Member account created.", "success")
+            return redirect(url_for("admin.member_list"))
+    members = Member.query.order_by(Member.name).all()
+    # One grouped query for the whole page: N+1 grants lookups would fire on a
+    # directory of any size.
+    member_features: dict[int, list[str]] = {}
+    for member_id, feature_key in db.session.execute(
+        db.select(AppFeatureAccess.member_id, AppFeatureAccess.feature_key).order_by(AppFeatureAccess.feature_key)
+    ):
+        member_features.setdefault(member_id, []).append(feature_key)
+    return render_template(
+        "members.html",
+        members=members,
+        member_features=member_features,
+        feature_cards=_feature_cards(),
+        devices=devices,
+    )
+
+
+@bp.route("/members/<int:member_id>/edit", methods=["GET", "POST"])
+@admin_required
+def member_edit(member_id):
+    member = db.get_or_404(Member, member_id)
+    devices = GowaDevice.query.order_by(GowaDevice.name).all()
+    current_device_ids = {a.device_id for a in GowaDeviceAccess.query.filter_by(member_id=member.id).all()}
+    current_feature_ids = {
+        row.feature_key
+        for row in db.session.scalars(
+            db.select(AppFeatureAccess).filter_by(member_id=member.id)
+        )
+    }
+
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        duplicate = Member.query.filter(Member.email == email, Member.id != member.id).first()
+        password = request.form.get("password", "")
+        if not request.form.get("name", "").strip() or not is_valid_email(email):
+            flash("Name and valid email are required.", "error")
+        elif duplicate:
+            flash("That email address is already registered.", "error")
+        elif password and len(password) < 12:
+            flash("A replacement password must be at least 12 characters.", "error")
+        else:
+            member.name = request.form["name"].strip()
+            member.email = email
+            member.designation = request.form.get("designation", "").strip()
+            member.department_organization = request.form.get("department_organization", "").strip()
+            member.is_pm = bool(request.form.get("is_pm"))
+            # Keep the legacy flag in step with the Bulk Emailer grant so the
+            # backfill stays idempotent and no access is silently lost.
+            requested_features = set(request.form.getlist("feature_ids", type=str))
+            member.can_bulk_email = "bulk_email" in requested_features
+            sync_member_features(member, requested_features, granted_by_id=current_user.id)
+            if password:
+                member.set_password(password)
+
+            # Update device access: if Bulk Messenger (bulk_whatsapp) is explicitly unchecked in feature_ids, remove all device access
+            if "feature_ids" in request.form and "bulk_whatsapp" not in requested_features:
+                new_device_ids = set()
+            else:
+                new_device_ids = set(request.form.getlist("device_ids", type=int))
+
+            # Revoke access to devices that are no longer selected
+            for grant in GowaDeviceAccess.query.filter_by(member_id=member.id).all():
+                if grant.device_id not in new_device_ids:
+                    db.session.delete(grant)
+            # Grant access to newly selected devices
+            for device_id in new_device_ids - current_device_ids:
+                db.session.add(
+                    GowaDeviceAccess(device_id=device_id, member_id=member.id, granted_by_id=current_user.id)
+                )
+
+            db.session.commit()
+            flash("Member updated.", "success")
+            return redirect(url_for("admin.member_list"))
+    return render_template(
+        "member_form.html",
+        member=member,
+        devices=devices,
+        current_device_ids=current_device_ids,
+        current_feature_ids=current_feature_ids,
+        feature_cards=_feature_cards(),
+    )
+
+
+
+@bp.post("/members/<int:member_id>/delete")
+@admin_required
+def member_delete(member_id):
+    member = db.get_or_404(Member, member_id)
+    if member.id == current_user.id:
+        flash("You cannot delete your own administrator account.", "error")
+    elif member.memberships or member.task_assignments:
+        flash("Remove this member from project roles and task ownership before deleting the account.", "error")
+    else:
+        db.session.delete(member)
+        db.session.commit()
+        flash("Member deleted.", "success")
+    return redirect(url_for("admin.member_list"))
+
+
+@bp.route("/bulk-email-audit")
+@admin_required
+def bulk_email_audit():
+    """Admin view of all bulk email jobs with audit trail."""
+    jobs = BulkEmailJob.query.order_by(BulkEmailJob.created_at.desc()).all()
+    return render_template("bulk_email_admin.html", jobs=jobs)
+
+
+@bp.route("/servers", methods=["GET", "POST"])
+@admin_required
+def server_list():
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        ip = request.form.get("ip", "").strip()
+        operating_system = request.form.get("operating_system", "").strip()
+        try:
+            ipaddress.ip_address(ip)
+            valid_ip = True
+        except ValueError:
+            valid_ip = False
+        if not name or not valid_ip or not operating_system:
+            flash("Server name, valid IP address, and operating system are required.", "error")
+        else:
+            db.session.add(
+                Server(
+                    name=name,
+                    ip=ip,
+                    operating_system=operating_system,
+                    technology_packages=request.form.get("technology_packages", "").strip(),
+                )
+            )
+            db.session.commit()
+            flash("Server created.", "success")
+            return redirect(url_for("admin.server_list"))
+    return render_template("servers.html", servers=Server.query.order_by(Server.name).all())
+
+
+@bp.route("/servers/<int:server_id>/edit", methods=["GET", "POST"])
+@admin_required
+def server_edit(server_id):
+    server = db.get_or_404(Server, server_id)
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        ip = request.form.get("ip", "").strip()
+        operating_system = request.form.get("operating_system", "").strip()
+        try:
+            ipaddress.ip_address(ip)
+            valid_ip = True
+        except ValueError:
+            valid_ip = False
+        if not name or not valid_ip or not operating_system:
+            flash("Server name, valid IP address, and operating system are required.", "error")
+        else:
+            server.name = name
+            server.ip = ip
+            server.operating_system = operating_system
+            server.technology_packages = request.form.get("technology_packages", "").strip()
+            db.session.commit()
+            flash("Server updated.", "success")
+            return redirect(url_for("admin.server_list"))
+    return render_template("server_form.html", server=server)
+
+
+@bp.post("/servers/<int:server_id>/delete")
+@admin_required
+def server_delete(server_id):
+    server = db.get_or_404(Server, server_id)
+    if server.test_projects or server.production_projects:
+        flash("Unassign this server from projects before deleting it.", "error")
+    else:
+        db.session.delete(server)
+        db.session.commit()
+        flash("Server deleted.", "success")
+    return redirect(url_for("admin.server_list"))
+
+
+@bp.route("/settings", methods=["GET", "POST"])
+@admin_required
+def settings_list():
+    seed_default_settings()
+    if request.method == "POST":
+        reset_key = request.form.get("reset", "").strip()
+        if reset_key:
+            if reset_setting(reset_key):
+                flash(f"'{reset_key}' restored to its default value.", "success")
+            else:
+                flash(f"'{reset_key}' is not a known setting and was not changed.", "error")
+            return redirect(url_for("admin.settings_list"))
+
+        validated = {}
+        errors = []
+        for key in LABEL_LIST_SETTING_KEYS:
+            if key in request.form:
+                try:
+                    validated[key] = ", ".join(validate_label_list(request.form.get(key, ""), key))
+                except ValueError as error:
+                    errors.append(f"{key}: {error}")
+        for key in DIRECTORY_SETTING_KEYS:
+            if key in request.form:
+                try:
+                    validated[key] = validate_directory_setting(request.form.get(key, ""), key)
+                except ValueError as error:
+                    errors.append(f"{key}: {error}")
+        for key in INTEGER_SETTING_KEYS:
+            if key in request.form:
+                try:
+                    validated[key] = validate_integer_setting(request.form.get(key, ""), key)
+                except ValueError as error:
+                    errors.append(f"{key}: {error}")
+        if errors:
+            for message in errors:
+                flash(message, "error")
+            return redirect(url_for("admin.settings_list"))
+
+        for setting in AppSetting.query.all():
+            if setting.key in request.form:
+                set_setting(setting.key, validated.get(setting.key, request.form.get(setting.key, "").strip()), setting.description)
+        flash("Settings saved successfully.", "success")
+        return redirect(url_for("admin.settings_list"))
+
+    settings = AppSetting.query.filter(AppSetting.key.notin_(RETIRED_SETTING_KEYS)).order_by(AppSetting.key).all()
+    secret_key_configured = bool(os.environ.get("SECRET_KEY"))
+    sendgrid_key_configured = bool(os.environ.get("SENDGRID_API_KEY"))
+
+    # Credentials are never editable here - they live in .env - so the screen
+    # reports each service as ready or not. service_status reads the
+    # environment, which needs no database round-trip.
+    service_states = {feature: service_status(feature) for feature in FEATURE_KEYS}
+
+    return render_template(
+        "settings.html",
+        settings=settings,
+        defaults={key: value for key, (value, _description) in DEFAULT_APP_SETTINGS.items()},
+        in_effect={setting.key: get_setting(setting.key) for setting in settings},
+        label_list_keys=LABEL_LIST_SETTING_KEYS,
+        boolean_keys=BOOLEAN_SETTING_KEYS,
+        directory_keys=DIRECTORY_SETTING_KEYS,
+        integer_keys=tuple(INTEGER_SETTING_KEYS),
+        # What blank means for each directory setting, so an administrator can see
+        # where files go today without having to know the application layout.
+        directory_placeholders={
+            "upload_file_folder": str(Path(current_app.config["UPLOAD_FOLDER"])),
+        },
+        integer_bounds={key: bounds for key, bounds in INTEGER_SETTING_KEYS.items()},
+        secret_key_configured=secret_key_configured,
+        sendgrid_key_configured=sendgrid_key_configured,
+        service_states=service_states,
+        feature_labels=FEATURE_LABELS,
+    )
+
+
+@bp.post("/settings/run-jobs")
+@admin_required
+def run_jobs_now():
+    results = run_all_scheduled_jobs()
+    total_sent = sum(results.values())
+    flash(f"Scheduled jobs ran successfully. Sent {total_sent} notification emails ({results}).", "success")
+    return redirect(url_for("admin.settings_list"))
+
+
+# ─── Bulk Email Audit ───────────────────────────────────────────────────────
+
+@bp.get("/bulk-email-audit/export")
+@admin_required
+def bulk_email_audit_export():
+    """Export all bulk email jobs to Excel or CSV with UTF-8 support."""
+    import csv
+    from flask import send_file
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    export_format = request.args.get("format", "xlsx").lower()
+    jobs = BulkEmailJob.query.order_by(BulkEmailJob.created_at.desc()).all()
+
+    if export_format == "csv":
+        # csv.writer emits str, so the buffer is text and encoded on the way
+        # out. Writing str into a BytesIO raises TypeError rather than
+        # producing a file.
+        text = io.StringIO()
+        writer = csv.writer(text)
+        writer.writerow(["Job ID", "Subject", "From", "Created By", "Created At", "Total", "Sent", "Errors", "Duration (s)", "Summary"])
+        for job in jobs:
+            writer.writerow([
+                job.id, job.subject, job.sender, job.created_by_name,
+                job.created_at.strftime("%Y-%m-%d %H:%M:%S") if job.created_at else "",
+                job.total, job.sent, job.errors, job.duration_seconds or "", job.summary,
+            ])
+            for r in job.recipients:
+                writer.writerow(["", "", "", "", "", "", "", "", "", f"  → {r.to_email}: {r.status} — {r.reason}"])
+        # utf-8-sig so Excel opens non-Latin text without mangling it.
+        output = io.BytesIO(text.getvalue().encode("utf-8-sig"))
+        output.seek(0)
+        return send_file(output, mimetype="text/csv", as_attachment=True, download_name="bulk_email_audit.csv")
+
+    # Default: Excel
+    output = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Bulk Email Audit"
+    ws.append(["Job ID", "Subject", "From", "Created By", "Created At", "Total", "Sent", "Errors", "Duration (s)", "Summary"])
+    for job in jobs:
+        ws.append([
+            job.id, job.subject, job.sender, job.created_by_name,
+            job.created_at.strftime("%Y-%m-%d %H:%M:%S") if job.created_at else "",
+            job.total, job.sent, job.errors, job.duration_seconds or "", job.summary,
+        ])
+        for r in job.recipients:
+            ws.append(["", "", "", "", "", "", "", "", "", f"  → {r.to_email}: {r.status} — {r.reason}"])
+
+    for row in ws.iter_rows(min_row=1, max_row=1):
+        for cell in row:
+            if cell.value:
+                cell.font = Font(bold=True)
+
+    # openpyxl writes nothing until asked. Without this the .xlsx is valid HTTP
+    # but empty: 200, right Content-Type, zero bytes.
+    wb.save(output)
+    output.seek(0)
+    return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name="bulk_email_audit.xlsx")
+
+
+# ─── WhatsApp Audit ─────────────────────────────────────────────────────────
+
+@bp.route("/whatsapp-audit")
+@admin_required
+def whatsapp_audit():
+    """Admin view of all bulk WhatsApp jobs with audit trail."""
+    from .models import WhatsAppJob
+    jobs = WhatsAppJob.query.order_by(WhatsAppJob.created_at.desc()).all()
+    return render_template("whatsapp_audit.html", jobs=jobs)
+
+
+@bp.get("/whatsapp-audit/export")
+@admin_required
+def whatsapp_audit_export():
+    """Export all bulk WhatsApp jobs to Excel or CSV with UTF-8 support."""
+    import csv
+    from flask import send_file
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    from .models import WhatsAppJob
+
+    export_format = request.args.get("format", "xlsx").lower()
+    jobs = WhatsAppJob.query.order_by(WhatsAppJob.created_at.desc()).all()
+
+    if export_format == "csv":
+        # csv.writer emits str, so the buffer is text and encoded on the way
+        # out. Writing str into a BytesIO raises TypeError rather than
+        # producing a file.
+        text = io.StringIO()
+        writer = csv.writer(text)
+        writer.writerow(["Job ID", "Device", "Created By", "Created At", "Total", "Sent", "Errors", "Duration (s)", "Summary"])
+        for job in jobs:
+            writer.writerow([
+                job.id, job.device_name, job.created_by_name,
+                job.created_at.strftime("%Y-%m-%d %H:%M:%S") if job.created_at else "",
+                job.total, job.sent, job.errors, job.duration_seconds or "", job.summary,
+            ])
+            for r in job.recipients:
+                writer.writerow(["", "", "", "", "", "", "", "", f"  → {r.phone}: {r.status} — {r.reason}"])
+        # utf-8-sig so Excel opens non-Latin text without mangling it.
+        output = io.BytesIO(text.getvalue().encode("utf-8-sig"))
+        output.seek(0)
+        return send_file(output, mimetype="text/csv", as_attachment=True, download_name="whatsapp_audit.csv")
+
+    # Default: Excel
+    output = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "WhatsApp Audit"
+    ws.append(["Job ID", "Device", "Created By", "Created At", "Total", "Sent", "Errors", "Duration (s)", "Summary"])
+    for job in jobs:
+        ws.append([
+            job.id, job.device_name, job.created_by_name,
+            job.created_at.strftime("%Y-%m-%d %H:%M:%S") if job.created_at else "",
+            job.total, job.sent, job.errors, job.duration_seconds or "", job.summary,
+        ])
+        for r in job.recipients:
+            ws.append(["", "", "", "", "", "", "", "", f"  → {r.phone}: {r.status} — {r.reason}"])
+
+    for row in ws.iter_rows(min_row=1, max_row=1):
+        for cell in row:
+            if cell.value:
+                cell.font = Font(bold=True)
+
+    # openpyxl writes nothing until asked. Without this the .xlsx is valid HTTP
+    # but empty: 200, right Content-Type, zero bytes.
+    wb.save(output)
+    output.seek(0)
+    return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name="whatsapp_audit.xlsx")
+
+
+# ─── SMS Audit ───────────────────────────────────────────────────────────────
+
+@bp.route("/sms-audit")
+@admin_required
+def sms_audit():
+    """Admin view of all bulk SMS jobs with audit trail."""
+    from .models import SmsJob
+    jobs = SmsJob.query.order_by(SmsJob.created_at.desc()).all()
+    return render_template("sms_audit.html", jobs=jobs)
+
+
+@bp.get("/sms-audit/export")
+@admin_required
+def sms_audit_export():
+    """Export all bulk SMS jobs to Excel or CSV with UTF-8 support."""
+    import csv
+    from flask import send_file
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    from .models import SmsJob
+
+    export_format = request.args.get("format", "xlsx").lower()
+    jobs = SmsJob.query.order_by(SmsJob.created_at.desc()).all()
+
+    if export_format == "csv":
+        # csv.writer emits str, so the buffer is text and encoded on the way
+        # out. Writing str into a BytesIO (as the sibling exports do) raises
+        # TypeError rather than producing a file.
+        text = io.StringIO()
+        writer = csv.writer(text)
+        writer.writerow(["Job ID", "Sender", "Region", "Created By", "Created At", "Total", "Sent", "Errors", "Duration (s)", "Summary"])
+        for job in jobs:
+            writer.writerow([
+                job.id, job.sender, job.region, job.created_by_name,
+                job.created_at.strftime("%Y-%m-%d %H:%M:%S") if job.created_at else "",
+                job.total, job.sent, job.errors, job.duration_seconds or "", job.summary,
+            ])
+            for r in job.recipients:
+                writer.writerow(["", "", "", "", "", "", "", "", "", f"  → {r.phone}: {r.status} — {r.reason}"])
+        # utf-8-sig so Excel opens Arabic text without mangling it.
+        output = io.BytesIO(text.getvalue().encode("utf-8-sig"))
+        output.seek(0)
+        return send_file(output, mimetype="text/csv", as_attachment=True, download_name="sms_audit.csv")
+
+    # Default: Excel
+    output = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "SMS Audit"
+    ws.append(["Job ID", "Sender", "Region", "Created By", "Created At", "Total", "Sent", "Errors", "Duration (s)", "Summary"])
+    for job in jobs:
+        ws.append([
+            job.id, job.sender, job.region, job.created_by_name,
+            job.created_at.strftime("%Y-%m-%d %H:%M:%S") if job.created_at else "",
+            job.total, job.sent, job.errors, job.duration_seconds or "", job.summary,
+        ])
+        for r in job.recipients:
+            ws.append(["", "", "", "", "", "", "", "", "", f"  → {r.phone}: {r.status} — {r.reason}"])
+
+    for row in ws.iter_rows(min_row=1, max_row=1):
+        for cell in row:
+            if cell.value:
+                cell.font = Font(bold=True)
+
+    wb.save(output)
+    output.seek(0)
+    return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name="sms_audit.xlsx")
+
+
+# ─── Service Audit Trail ───────────────────────────────────────────────────
+
+@bp.route("/service-audit")
+@admin_required
+def service_audit():
+    """Admin view of all service audit logs (who, when, request, response)."""
+    service_filter = request.args.get("service", "").strip()
+    status_filter = request.args.get("status", "").strip()
+    query = ServiceAuditLog.query.order_by(ServiceAuditLog.created_at.desc())
+    if service_filter:
+        query = query.filter_by(service_key=service_filter)
+    if status_filter:
+        query = query.filter_by(status=status_filter)
+    logs = query.limit(500).all()
+    return render_template(
+        "service_audit_admin.html",
+        logs=logs,
+        service_filter=service_filter,
+        status_filter=status_filter,
+        feature_labels=FEATURE_LABELS,
+    )
+
+
+@bp.get("/service-audit/export")
+@admin_required
+def service_audit_export():
+    """Export all service audit log entries to Excel or CSV."""
+    import csv
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    export_format = request.args.get("format", "xlsx").lower()
+    service_filter = request.args.get("service", "").strip()
+    status_filter = request.args.get("status", "").strip()
+
+    query = ServiceAuditLog.query.order_by(ServiceAuditLog.created_at.desc())
+    if service_filter:
+        query = query.filter_by(service_key=service_filter)
+    if status_filter:
+        query = query.filter_by(status=status_filter)
+    logs = query.all()
+
+    if export_format == "csv":
+        text = io.StringIO()
+        writer = csv.writer(text)
+        writer.writerow(["ID", "Timestamp (UTC)", "Service", "Action", "Actor Name", "Actor Email", "Status", "Duration (ms)", "Request Values", "Response Values"])
+        for log in logs:
+            writer.writerow([
+                log.id,
+                log.created_at.strftime("%Y-%m-%d %H:%M:%S") if log.created_at else "",
+                FEATURE_LABELS.get(log.service_key, log.service_name or log.service_key),
+                log.action,
+                log.actor_name,
+                log.actor_email,
+                log.status,
+                log.duration_ms or 0,
+                log.request_data or "",
+                log.response_data or "",
+            ])
+        output = io.BytesIO(text.getvalue().encode("utf-8-sig"))
+        output.seek(0)
+        return send_file(output, mimetype="text/csv", as_attachment=True, download_name="service_audit_trail.csv")
+
+    # Excel format
+    output = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Service Audit Trail"
+    ws.append(["ID", "Timestamp (UTC)", "Service", "Action", "Actor Name", "Actor Email", "Status", "Duration (ms)", "Request Values", "Response Values"])
+    for log in logs:
+        ws.append([
+            log.id,
+            log.created_at.strftime("%Y-%m-%d %H:%M:%S") if log.created_at else "",
+            FEATURE_LABELS.get(log.service_key, log.service_name or log.service_key),
+            log.action,
+            log.actor_name,
+            log.actor_email,
+            log.status,
+            log.duration_ms or 0,
+            log.request_data or "",
+            log.response_data or "",
+        ])
+
+    for row in ws.iter_rows(min_row=1, max_row=1):
+        for cell in row:
+            if cell.value:
+                cell.font = Font(bold=True)
+
+    wb.save(output)
+    output.seek(0)
+    return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name="service_audit_trail.xlsx")
+

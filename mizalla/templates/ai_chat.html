@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb %}
+{% block title %}Chat Service{% endblock %}
+{% block content %}<div class="ai-chat">
+{{ breadcrumb([("Projects", url_for('main.project_list')), ("Chat", None)]) }}
+
+<div class="page-heading">
+  <h1>Chat Service</h1>
+  <p class="lede">Add documents, then ask questions about them. Answers quote the document extract they came from.</p>
+</div>
+
+<section class="detail-grid">
+  <div class="detail-section">
+    <div class="section-heading"><div><p class="eyebrow">DOCUMENTS / {{ summary.documents }}</p><h2>Ask a question</h2></div></div>
+
+    <form method="post" class="form-stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="history" id="chat-history" value="[]">
+
+      <label>Question
+        <textarea name="question" rows="3" maxlength="2000" required placeholder="What is the due date for the data migration?">{{ question }}</textarea>
+      </label>
+
+      <div class="form-actions">
+        <button class="button button-primary" type="submit">Ask</button>
+      </div>
+    </form>
+
+    {% if answer %}
+    <div class="chat-answer">
+      <p class="eyebrow">ANSWER</p>
+      <div class="chat-answer-body">{{ answer.answer }}</div>
+      {% if answer.sources %}
+      <details>
+        <summary>{{ answer.sources | length }} source extract(s)</summary>
+        <ol class="source-list">
+          {% for source in answer.sources %}
+          <li>
+            <strong>{{ source.filename }}</strong>
+            {% if source.heading %}<span class="muted"> — {{ source.heading }}</span>{% endif %}
+            <span class="muted"><small>{{ source.coverage }}% of the question's terms</small></span>
+            <pre class="cell-pre">{{ source.excerpt }}</pre>
+          </li>
+          {% endfor %}
+        </ol>
+      </details>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  <aside class="detail-section">
+    <div class="section-heading"><div><p class="eyebrow">LIBRARY / {{ summary.chunks }} SECTION{{ '' if summary.chunks == 1 else 'S' }}</p><h2>Documents</h2></div></div>
+
+    <form method="post" action="{{ url_for('ai.chat_document_upload') }}" enctype="multipart/form-data" class="form-stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="file-picker drop-zone" for="document" id="drop-zone-document">
+        <input type="file" id="document" name="document" accept="{{ accepted }}" required>
+        <span class="file-picker-copy">
+          <strong id="document-label">Add a document or drop here</strong>
+          <small>DOCX, DOC, PDF, XLS, XLSX, PPT, PPTX, TXT, MD, CSV, RTF · up to 12 MB</small>
+        </span>
+      </label>
+      <div class="form-actions">
+        <button class="button button-primary" type="submit">Add document</button>
+      </div>
+    </form>
+
+    {% if documents %}
+    <ul class="document-list">
+      {% for document in documents %}
+      <li>
+        <div>
+          <strong>{{ document.filename }}</strong>
+          <span class="muted"><small>{{ document.chunk_count }} section{{ '' if document.chunk_count == 1 else 's' }} · {{ (document.size_bytes / 1024) | round | int }} KB · added by {{ document.uploaded_by_name or "unknown" }}</small></span>
+        </div>
+        <form method="post" action="{{ url_for('ai.chat_document_delete', document_id=document.id) }}" onsubmit="return confirm('Remove this document and its sections?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="text-button danger-text" type="submit">Remove</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted empty-inline">No documents yet. Add one above to start asking questions.</p>
+    {% endif %}
+
+    <p class="muted"><small>Documents are shared by everyone with access to this service, so answers can use any member's uploads.</small></p>
+  </aside>
+</section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  // Drag-and-drop for the document picker.
+  const zone = document.getElementById("drop-zone-document");
+  const input = document.getElementById("document");
+  const label = document.getElementById("document-label");
+  if (zone && input) {
+    ["dragenter", "dragover"].forEach((evt) => {
+      zone.addEventListener(evt, (e) => { e.preventDefault(); zone.classList.add("drop-zone--active"); });
+    });
+    ["dragleave", "drop"].forEach((evt) => {
+      zone.addEventListener(evt, (e) => { e.preventDefault(); zone.classList.remove("drop-zone--active"); });
+    });
+    zone.addEventListener("drop", (e) => {
+      const files = e.dataTransfer.files;
+      if (files.length) {
+        input.files = files;
+        input.dispatchEvent(new Event("change"));
+      }
+    });
+    input.addEventListener("change", () => {
+      label.textContent = input.files[0]?.name || "Add a document or drop here";
+    });
+  }
+
+  // Carry the visible exchange forward so follow-up questions have context
+  // without needing a server-side session.
+  const historyField = document.getElementById("chat-history");
+  const answerBox = document.querySelector(".chat-answer-body");
+  if (historyField && answerBox) {
+    const asked = document.querySelector('textarea[name="question"]').value.trim();
+    if (asked) {
+      const turns = [{ role: "user", content: asked }, { role: "assistant", content: answerBox.textContent.trim() }];
+      historyField.value = JSON.stringify(turns);
+    }
+  }
+})();
+</script>
+{% endblock %}

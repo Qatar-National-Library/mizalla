@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb, admin_nav %}
+{% block title %}Service Audit Log · Administration{% endblock %}
+{% block content %}
+{{ breadcrumb([("Projects", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Service Audit Log", None)]) }}
+
+{{ admin_nav('service_audit') }}
+
+<div class="bulk-email-admin">
+  <div class="heading-row" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
+    <p class="intro-copy" style="margin:0;">Complete audit trail of all service calls recording actor, timestamp, request parameters, response values, status, and duration.</p>
+    <div class="button-group">
+      <a class="button button-quiet button-small" href="{{ url_for('admin.service_audit_export', format='xlsx', service=service_filter, status=status_filter) }}">Export Excel</a>
+      <a class="button button-quiet button-small" href="{{ url_for('admin.service_audit_export', format='csv', service=service_filter, status=status_filter) }}">Export CSV</a>
+    </div>
+  </div>
+
+  <form method="GET" action="{{ url_for('admin.service_audit') }}" style="display: flex; gap: 1rem; align-items: center; background: rgba(0,0,0,0.02); padding: 0.8rem 1rem; border-radius: 6px; margin-bottom: 1.5rem; flex-wrap: wrap;">
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+      <label for="service-select" style="font-weight: 500; font-size: 0.9rem;">Service:</label>
+      <select id="service-select" name="service" onchange="this.form.submit()" style="padding: 0.3rem 0.6rem; border-radius: 4px; border: 1px solid var(--border-color, #ccc);">
+        <option value="">All Services</option>
+        {% for key, label in feature_labels.items() %}
+          <option value="{{ key }}"{% if service_filter == key %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+      <label for="status-select" style="font-weight: 500; font-size: 0.9rem;">Status:</label>
+      <select id="status-select" name="status" onchange="this.form.submit()" style="padding: 0.3rem 0.6rem; border-radius: 4px; border: 1px solid var(--border-color, #ccc);">
+        <option value="">All Statuses</option>
+        <option value="SUCCESS"{% if status_filter == 'SUCCESS' %} selected{% endif %}>SUCCESS</option>
+        <option value="ERROR"{% if status_filter == 'ERROR' %} selected{% endif %}>ERROR</option>
+        <option value="WARNING"{% if status_filter == 'WARNING' %} selected{% endif %}>WARNING</option>
+        <option value="SKIPPED"{% if status_filter == 'SKIPPED' %} selected{% endif %}>SKIPPED</option>
+      </select>
+    </div>
+
+    {% if service_filter or status_filter %}
+      <a href="{{ url_for('admin.service_audit') }}" class="button button-quiet button-small" style="text-decoration:none;">Clear Filters</a>
+    {% endif %}
+  </form>
+
+  {% if logs|length == 0 %}
+    <p class="muted empty-inline">No service audit records found matching the selection criteria.</p>
+  {% else %}
+    <div class="accordion-stack">
+      {% for log in logs %}
+        <details class="accordion">
+          <summary class="accordion-head">
+            <span class="accordion-chevron" aria-hidden="true"></span>
+            <div class="accordion-heading audit-row-head">
+              <div class="audit-row-cell" style="flex: 1 1 140px;">
+                <span class="audit-row-label">Timestamp (UTC)</span>
+                <span class="audit-row-value">{{ log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else '' }}</span>
+              </div>
+              <div class="audit-row-cell" style="flex: 1 1 140px;">
+                <span class="audit-row-label">Actor</span>
+                <span class="audit-row-value"><strong>{{ log.actor_name or 'System' }}</strong></span>
+                {% if log.actor_email %}<span class="muted" style="font-size:0.75rem;">{{ log.actor_email }}</span>{% endif %}
+              </div>
+              <div class="audit-row-cell" style="flex: 1 1 140px;">
+                <span class="audit-row-label">Service</span>
+                <span class="audit-row-value">{{ feature_labels.get(log.service_key, log.service_name or log.service_key) }}</span>
+              </div>
+              <div class="audit-row-cell" style="flex: 1 1 120px;">
+                <span class="audit-row-label">Action</span>
+                <span class="audit-row-value"><code>{{ log.action }}</code></span>
+              </div>
+              <div class="audit-row-cell" style="flex: 0 0 70px;">
+                <span class="audit-row-label">Duration</span>
+                <span class="audit-row-value">{{ log.duration_ms if log.duration_ms is not none else '—' }}ms</span>
+              </div>
+              <div class="audit-row-cell" style="flex: 0 0 80px; align-items: flex-end;">
+                <span class="status-chip {{ 'sent' if log.status == 'SUCCESS' else 'error' if log.status == 'ERROR' else 'draft' }}">
+                  {{ log.status }}
+                </span>
+              </div>
+            </div>
+          </summary>
+          <div class="accordion-body">
+            <h4 class="inline-heading">Request & Response Payload</h4>
+            <div style="display: grid; gap: 0.75rem; font-size: 0.82rem; font-family: var(--font-mono, monospace);">
+              <div>
+                <strong style="color: var(--muted); font-size: 0.75rem; text-transform: uppercase;">[REQUEST]</strong>
+                <pre style="background: rgba(0,0,0,0.03); padding: 0.6rem 0.8rem; border-radius: 4px; margin-top: 0.25rem; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow: auto;">{{ log.request_data or '{}' }}</pre>
+              </div>
+              <div>
+                <strong style="color: var(--muted); font-size: 0.75rem; text-transform: uppercase;">[RESPONSE]</strong>
+                <pre style="background: rgba(0,0,0,0.03); padding: 0.6rem 0.8rem; border-radius: 4px; margin-top: 0.25rem; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow: auto;">{{ log.response_data or '{}' }}</pre>
+              </div>
+            </div>
+          </div>
+        </details>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
+

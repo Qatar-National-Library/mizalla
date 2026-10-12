@@ -1,0 +1,363 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb, admin_nav %}
+
+{% block title %}System Settings · Administration{% endblock %}
+
+{% block content %}
+{{ breadcrumb([("Projects", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Settings", None)]) }}
+
+{{ admin_nav('settings') }}
+
+{# Scripting fallback: with JS off, show all panels stacked #}
+<noscript><style>.settings-tab-bar { display: none !important; } .settings-panel[hidden] { display: block !important; }</style></noscript>
+
+<form method="post" action="{{ url_for('admin.settings_list') }}" id="settings-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <div class="tabbed" data-settings-tabs>
+    <div class="tab-bar settings-tab-bar" role="tablist" aria-label="Settings Sections" style="margin-bottom: 1.5rem; background: var(--surface); padding: 0.2rem 0.5rem; border: 1px solid var(--line); border-radius: 4px;">
+      <button type="button" class="tab" id="tab-general" role="tab" aria-controls="panel-general" aria-selected="true" tabindex="0">🌐 General & Core</button>
+      <button type="button" class="tab" id="tab-email" role="tab" aria-controls="panel-email" aria-selected="false" tabindex="-1">✉️ Email & Notifications</button>
+      <button type="button" class="tab" id="tab-whatsapp" role="tab" aria-controls="panel-whatsapp" aria-selected="false" tabindex="-1">💬 WhatsApp Service</button>
+      <button type="button" class="tab" id="tab-sms" role="tab" aria-controls="panel-sms" aria-selected="false" tabindex="-1">📱 SMS Service</button>
+      <button type="button" class="tab" id="tab-ai" role="tab" aria-controls="panel-ai" aria-selected="false" tabindex="-1">🤖 Azure AI & Security</button>
+      <button type="button" class="tab" id="tab-storage" role="tab" aria-controls="panel-storage" aria-selected="false" tabindex="-1">📁 Storage & Media</button>
+    </div>
+
+    {% set settings_by_key = {} %}
+    {% for s in settings %}
+      {% set _ = settings_by_key.update({s.key: s}) %}
+    {% endfor %}
+
+    {% macro render_setting(setting_key) %}
+      {% set setting = settings_by_key.get(setting_key) %}
+      {% if setting %}
+        {% set default_value = defaults.get(setting.key) %}
+        {% set effective = in_effect.get(setting.key, setting.value) %}
+        {% set is_default = default_value is not none and setting.value.strip() == default_value.strip() %}
+        <div class="form-group setting-row" style="margin-bottom: 1.5rem; padding-bottom: 1.2rem; border-bottom: 1px solid #e2e8f0;">
+          <div class="setting-row-head" style="display: flex; align-items: center; gap: 0.5rem;">
+            <label for="setting-{{ setting.key }}" style="font-weight: 600; display: block; margin-bottom: 0.25rem;">
+              <code>{{ setting.key }}</code>
+            </label>
+            {% if is_default %}
+              <span class="badge badge-highlight badge-small">Default</span>
+            {% elif default_value is not none %}
+              <span class="badge badge-milestone badge-small">Modified</span>
+            {% endif %}
+          </div>
+          <p style="font-size: 0.85rem; color: #475569; margin: 0 0 0.5rem 0;">{{ setting.description }}</p>
+
+          {% if setting.key in label_list_keys %}
+            <textarea id="setting-{{ setting.key }}" name="{{ setting.key }}" rows="3" class="form-control" style="width: 100%; font-family: monospace;">{{ setting.value }}</textarea>
+            <p class="setting-hint">Comma-separated. Each entry becomes one option, so avoid commas inside a label. Defaults to <code>{{ default_value }}</code>.</p>
+          {% elif setting.key in boolean_keys %}
+            <input type="hidden" name="{{ setting.key }}" value="false">
+            <label class="setting-check" style="display: flex; align-items: center; justify-content: flex-start; gap: 0.5rem; font-weight: normal; cursor: pointer; margin-bottom: 0.3rem;">
+              <input type="checkbox" id="setting-{{ setting.key }}" name="{{ setting.key }}" value="true"{% if setting.value.strip() == "true" %} checked{% endif %} style="width: 18px; height: 18px; min-height: 0; flex: 0 0 auto; margin: 0; accent-color: var(--green);">
+              <span style="font-size: 0.88rem;">Enabled</span>
+            </label>
+            {% if default_value is not none and not is_default %}<p class="setting-hint" style="margin-top: 0.2rem;">Default is <code>{{ default_value }}</code>.</p>{% endif %}
+          {% elif setting.key in directory_keys %}
+            <input type="text" id="setting-{{ setting.key }}" name="{{ setting.key }}" value="{{ setting.value }}" class="form-control" style="width: 100%; font-family: monospace;" placeholder="{{ directory_placeholders.get(setting.key, '') }}" spellcheck="false">
+            <p class="setting-hint">Leave blank to use the application's uploads folder. Takes effect immediately, with no restart. Changing this does not move files already stored.</p>
+          {% elif setting.key in integer_keys %}
+            <input type="number" id="setting-{{ setting.key }}" name="{{ setting.key }}" value="{{ setting.value }}" class="form-control" style="width: 100%;" min="{{ integer_bounds.get(setting.key, (0, 0))[0] }}" max="{{ integer_bounds.get(setting.key, (0, 0))[1] }}" step="1" inputmode="numeric">
+            {% set bounds = integer_bounds.get(setting.key) %}
+            {% if bounds %}<p class="setting-hint">Whole number, {{ bounds[0] }} to {{ bounds[1] }}. Takes effect immediately, with no restart.</p>{% endif %}
+          {% else %}
+            <input type="text" id="setting-{{ setting.key }}" name="{{ setting.key }}" value="{{ setting.value }}" class="form-control" style="width: 100%;">
+            {% if default_value is not none and not is_default %}<p class="setting-hint">Default is <code>{{ default_value }}</code>.</p>{% endif %}
+          {% endif %}
+
+          {% if effective.strip() != setting.value.strip() %}
+            <p class="setting-hint setting-hint-warn">In effect now: <code>{{ effective }}</code> — an environment or <code>.env</code> value overrides the stored setting.</p>
+          {% endif %}
+
+          {% if default_value is not none %}
+          <button type="submit" class="button button-quiet button-small setting-reset" name="reset" value="{{ setting.key }}" formnovalidate>Reset to default</button>
+          {% endif %}
+        </div>
+      {% endif %}
+    {% endmacro %}
+
+    {# Macro for render section save footer #}
+    {% macro render_save_footer() %}
+      <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--line); display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;">
+        <button type="submit" class="button button-primary">Save Settings</button>
+        <span class="setting-hint" style="margin: 0;">All settings save together. An invalid input is rejected and nothing is written.</span>
+      </div>
+    {% endmacro %}
+
+    {# ── Panel 1: General & Core ── #}
+    <section class="tab-panel settings-panel" id="panel-general" role="tabpanel" aria-labelledby="tab-general" tabindex="0">
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <h2>🌐 General & Core Settings</h2>
+        <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 1rem;">Primary application endpoints, ticket system integration, and global permissions.</p>
+
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1.5rem;">
+          <strong>SECRET_KEY Status:</strong>
+          {% if secret_key_configured %}
+            <span style="color: #16a34a; font-weight: 600;">✓ Configured in environment</span>
+          {% else %}
+            <span style="color: #dc2626; font-weight: 600;">⚠️ Not explicitly configured (Using fallback key)</span>
+          {% endif %}
+        </div>
+
+        {{ render_setting('app_base_url') }}
+        {{ render_setting('jira_base_url') }}
+        {{ render_setting('project_team_roles') }}
+        {{ render_setting('task_highlight_types') }}
+        {{ render_setting('task_edit_permission') }}
+
+        {% for s in settings %}
+          {% if s.key not in ['app_base_url', 'jira_base_url', 'project_team_roles', 'task_highlight_types', 'task_edit_permission', 'sendgrid_from_email', 'email_status_report_days', 'email_due_reminder_days', 'email_stale_task_nudge_days', 'email_overdue_alert_days', 'email_upcoming_meeting_hours', 'test_email_account', 'gowa_mcp_base_url', 'test_whatsapp_number', 'test_sms_number', 'azure_skip_tls_verify', 'vision_id_mapping', 'chat_chunk_chars', 'chat_max_chunks', 'upload_file_folder', 'upload_file_base_url', 'video_upload_max_duration_seconds', 'whatsapp_throttle_base_delay', 'whatsapp_throttle_jitter', 'whatsapp_batch_size', 'whatsapp_batch_delay'] %}
+            {{ render_setting(s.key) }}
+          {% endif %}
+        {% endfor %}
+
+        {{ render_save_footer() }}
+      </div>
+    </section>
+
+    {# ── Panel 2: Email & Notifications ── #}
+    <section class="tab-panel settings-panel" id="panel-email" role="tabpanel" aria-labelledby="tab-email" tabindex="0" hidden>
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
+          <div>
+            <h2 style="margin: 0 0 0.3rem 0;">✉️ Email & Notifications</h2>
+            <p style="font-size: 0.9rem; color: #64748b; margin: 0;">SendGrid dispatch configuration, scheduled job intervals, and test accounts.</p>
+          </div>
+          <button type="submit" class="button button-secondary" name="action" value="run_jobs" formnovalidate onclick="this.form.action='{{ url_for('admin.run_jobs_now') }}';">⚡ Run Scheduled Jobs Now</button>
+        </div>
+
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; flex: 1; min-width: 250px;">
+            <strong>SENDGRID_API_KEY:</strong>
+            {% if sendgrid_key_configured %}
+              <span style="color: #16a34a; font-weight: 600;">✓ Configured (Live SendGrid Emails active)</span>
+            {% else %}
+              <span style="color: #d97706; font-weight: 600;">ℹ️ Unset (Emails logged locally in memory)</span>
+            {% endif %}
+          </div>
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; flex: 1; min-width: 250px;">
+            <strong>Bulk Email Service:</strong>
+            {% if sendgrid_key_configured %}
+              <span style="color: #16a34a; font-weight: 600;">✓ Ready (SendGrid API)</span>
+            {% else %}
+              <span style="color: #d97706; font-weight: 600;">ℹ️ Active (Local Log Fallback)</span>
+            {% endif %}
+          </div>
+        </div>
+
+        {{ render_setting('sendgrid_from_email') }}
+        {{ render_setting('email_status_report_days') }}
+        {{ render_setting('email_due_reminder_days') }}
+        {{ render_setting('email_stale_task_nudge_days') }}
+        {{ render_setting('email_overdue_alert_days') }}
+        {{ render_setting('email_upcoming_meeting_hours') }}
+        {{ render_setting('test_email_account') }}
+
+        {{ render_save_footer() }}
+      </div>
+    </section>
+
+    {# ── Panel 3: WhatsApp Service ── #}
+    <section class="tab-panel settings-panel" id="panel-whatsapp" role="tabpanel" aria-labelledby="tab-whatsapp" tabindex="0" hidden>
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <h2>💬 WhatsApp Service (GOWA)</h2>
+        <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 1rem;">GOWA MCP server connection details and testing credentials for WhatsApp integration.</p>
+
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; flex: 1; min-width: 250px;">
+            <strong>Bulk WhatsApp Service:</strong>
+            {% if settings_by_key.get('gowa_mcp_base_url') and settings_by_key.get('gowa_mcp_base_url').value %}
+              <span style="color: #16a34a; font-weight: 600;">✓ Ready (GOWA MCP Server)</span>
+            {% else %}
+              <span style="color: #d97706; font-weight: 600;">ℹ️ Ready (Default GOWA endpoint)</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.85rem 1rem; border-radius: 6px; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <strong style="font-size: 0.95rem;">WhatsApp Registered Devices:</strong>
+            <p style="font-size: 0.85rem; color: #64748b; margin: 0.2rem 0 0 0;">Register new WhatsApp devices via QR code scan and assign member device permissions.</p>
+          </div>
+          <a href="{{ url_for('whatsapp.device_list') }}" class="button button-primary button-small" style="text-decoration: none;">📱 Manage Registered Devices</a>
+        </div>
+
+        {{ render_setting('gowa_mcp_base_url') }}
+        {{ render_setting('test_whatsapp_number') }}
+        {{ render_setting('whatsapp_throttle_base_delay') }}
+        {{ render_setting('whatsapp_throttle_jitter') }}
+        {{ render_setting('whatsapp_batch_size') }}
+        {{ render_setting('whatsapp_batch_delay') }}
+
+        {{ render_save_footer() }}
+      </div>
+    </section>
+
+    {# ── Panel 4: SMS Service ── #}
+    <section class="tab-panel settings-panel" id="panel-sms" role="tabpanel" aria-labelledby="tab-sms" tabindex="0" hidden>
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <h2>📱 SMS Service (Pingram)</h2>
+        <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 1rem;">Pingram SMS gateway configuration and testing phone numbers.</p>
+
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1.5rem;">
+          <strong>Bulk SMS Service:</strong>
+          {% if service_states.get('bulk_sms', {}).get('configured') %}
+            <span style="color: #16a34a; font-weight: 600;">✓ Ready</span>
+          {% else %}
+            <span style="color: #dc2626; font-weight: 600;">✗ Missing config: {{ service_states.get('bulk_sms', {}).get('missing', []) | join(', ') }}</span>
+          {% endif %}
+        </div>
+
+        {{ render_setting('test_sms_number') }}
+
+        {{ render_save_footer() }}
+      </div>
+    </section>
+
+    {# ── Panel 5: Azure AI & Security ── #}
+    <section class="tab-panel settings-panel" id="panel-ai" role="tabpanel" aria-labelledby="tab-ai" tabindex="0" hidden>
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <h2>🤖 Azure AI & Security</h2>
+        <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 1rem;">Chat document chunking parameters and TLS security settings.</p>
+
+        <h3 style="font-size: 1rem; margin: 1rem 0 0.5rem;">Azure Service Status</h3>
+        <ul style="list-style-type: none; padding-left: 0; display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
+          {% for feature in ['vision', 'speech', 'chat'] %}
+          {% set state = service_states.get(feature, {}) %}
+          <li style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; flex: 1; min-width: 220px;">
+            <strong>{{ feature_labels.get(feature, feature) }}:</strong>
+            {% if state.configured %}
+              <span style="color: #16a34a; font-weight: 600;">✓ Configured</span>
+            {% else %}
+              <span style="color: #dc2626; font-weight: 600;">✗ Missing — set in .env:</span>
+              <ul style="margin: .4rem 0 0; padding-left: 1.1rem; font-size: 0.8rem;">
+                {% for name in state.get('missing', []) %}
+                <li><code>{{ name }}</code></li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+
+        {{ render_setting('azure_skip_tls_verify') }}
+        {{ render_setting('chat_chunk_chars') }}
+        {{ render_setting('chat_max_chunks') }}
+
+        {{ render_save_footer() }}
+      </div>
+    </section>
+
+    {# ── Panel 6: Storage & Media ── #}
+    <section class="tab-panel settings-panel" id="panel-storage" role="tabpanel" aria-labelledby="tab-storage" tabindex="0" hidden>
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <h2>📁 Storage & Media Services</h2>
+        <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 1rem;">Document upload storage directory paths and Cloudflare Stream video duration limits.</p>
+
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; flex: 1; min-width: 240px;">
+            <strong>Upload File Service:</strong>
+            {% if service_states.get('upload_file', {}).get('configured') %}
+              <span style="color: #16a34a; font-weight: 600;">✓ Ready</span>
+            {% else %}
+              <span style="color: #dc2626; font-weight: 600;">✗ Missing config</span>
+            {% endif %}
+          </div>
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; flex: 1; min-width: 240px;">
+            <strong>Video Upload Service:</strong>
+            {% if service_states.get('video_upload', {}).get('configured') %}
+              <span style="color: #16a34a; font-weight: 600;">✓ Ready</span>
+            {% else %}
+              <span style="color: #dc2626; font-weight: 600;">✗ Missing config: {{ service_states.get('video_upload', {}).get('missing', []) | join(', ') }}</span>
+            {% endif %}
+          </div>
+        </div>
+
+        {{ render_setting('upload_file_folder') }}
+        {{ render_setting('upload_file_base_url') }}
+        {{ render_setting('video_upload_max_duration_seconds') }}
+
+        {{ render_save_footer() }}
+      </div>
+    </section>
+
+  </div>
+</form>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const tabs = Array.from(document.querySelectorAll('[data-settings-tabs] [role="tab"]'));
+  const panels = Array.from(document.querySelectorAll('.settings-panel'));
+  if (!tabs.length || !panels.length) return;
+
+  function selectTab(panelId, updateHash) {
+    const targetPanel = document.getElementById(panelId);
+    if (!targetPanel) return;
+
+    tabs.forEach(function (tab) {
+      const isSelected = tab.getAttribute('aria-controls') === panelId;
+      tab.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+      tab.setAttribute('tabindex', isSelected ? '0' : '-1');
+      if (isSelected) tab.classList.add('active'); else tab.classList.remove('active');
+    });
+
+    panels.forEach(function (panel) {
+      panel.hidden = panel.id !== panelId;
+    });
+
+    try {
+      localStorage.setItem('admin_settings_active_tab', panelId);
+    } catch (e) {}
+
+    if (updateHash && history.replaceState) {
+      history.replaceState(null, '', '#' + panelId);
+    }
+  }
+
+  // Restore tab from hash or localStorage
+  let initialPanel = 'panel-general';
+  const hash = (location.hash || '').replace('#', '');
+  if (document.getElementById(hash)) {
+    initialPanel = hash;
+  } else {
+    try {
+      const stored = localStorage.getItem('admin_settings_active_tab');
+      if (stored && document.getElementById(stored)) initialPanel = stored;
+    } catch (e) {}
+  }
+  selectTab(initialPanel, false);
+
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function (e) {
+      e.preventDefault();
+      const panelId = this.getAttribute('aria-controls');
+      selectTab(panelId, true);
+    });
+  });
+
+  // Keyboard navigation
+  const tabList = document.querySelector('[data-settings-tabs] [role="tablist"]');
+  if (tabList) {
+    tabList.addEventListener('keydown', function (e) {
+      const current = tabs.indexOf(document.activeElement);
+      if (current === -1) return;
+      let next = null;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (current + 1) % tabs.length;
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (current - 1 + tabs.length) % tabs.length;
+      else if (e.key === 'Home') next = 0;
+      else if (e.key === 'End') next = tabs.length - 1;
+      if (next !== null) {
+        e.preventDefault();
+        tabs[next].focus();
+        selectTab(tabs[next].getAttribute('aria-controls'), true);
+      }
+    });
+  }
+});
+</script>
+{% endblock %}

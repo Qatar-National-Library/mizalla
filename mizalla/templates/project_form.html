@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb %}
+{% block title %}{{ "Edit project" if project else "New project" }}{% endblock %}
+{% block content %}
+{% if project %}{{ breadcrumb([("Projects", url_for('main.project_list')), (project.project_id, url_for('main.project_detail', project_id=project.id)), ("Edit project", None)]) }}{% else %}{{ breadcrumb([("Projects", url_for('main.project_list')), ("New project", None)]) }}{% endif %}
+<div class="page-heading"><p class="eyebrow">PROJECT / RECORD</p><h1>{{ "Edit project" if project else "New project" }}</h1></div>
+<form method="post" class="form-panel form-stack narrow-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Project ID<input name="project_id" maxlength="40" value="{{ project.project_id if project else '' }}" required></label>
+  <label>Project name<input name="name" maxlength="180" value="{{ project.name if project else '' }}" required></label>
+  <label>Project description<textarea name="description" rows="5">{{ project.description if project else '' }}</textarea></label>
+  <label>Project scope<textarea name="scope" rows="5">{{ project.scope if project else '' }}</textarea></label>
+  <div class="form-columns">
+    <label>Estimated completion date<input type="date" name="estimated_completion_date" value="{{ project.estimated_completion_date.isoformat() if project and project.estimated_completion_date else '' }}"></label>
+    <label>Actual start date<input type="date" name="actual_start_date" value="{{ project.actual_start_date.isoformat() if project and project.actual_start_date else '' }}"></label>
+  </div>
+  <label>Actual completion date<input type="date" name="actual_completion_date" value="{{ project.actual_completion_date.isoformat() if project and project.actual_completion_date else '' }}"></label>
+  <div class="form-actions"><a class="button button-quiet" href="{{ url_for('main.project_detail', project_id=project.id) if project else url_for('main.project_list') }}">Cancel</a><button class="button button-primary" type="submit">Save project</button></div>
+</form>
+{% endblock %}

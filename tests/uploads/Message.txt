@@ -1,0 +1,2 @@
+Hello {{ NAME }},
+You name is {{ NAME }} and your phone on file is {{ PHONE }}.

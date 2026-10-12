@@ -1,0 +1,39 @@
+# Project Notes
+
+- Stack: Flask, Flask-SQLAlchemy, SQLite, Flask-Login, Flask-WTF, and FastMCP.
+- App factory: `mizalla.create_app`; models: `mizalla.models`; routes: `mizalla.routes`, `mizalla.auth`, and `mizalla.api`; shared input validation: `mizalla.validators`.
+- Configurable Project Team Roles: Stored in DB table `AppSetting` (`project_team_roles`) and hot-configurable via Admin Web UI `/settings`. Defaults to: Project Manager, Analyst, Developer/Implementer, Qa/Tester, Infrastructure Management, Integration Manager, Configuration Manager, Deployment Manager. A team member can hold multiple roles simultaneously stored in `ProjectMembership.team_roles`.
+- Hot Settings Table (`AppSetting` / `/settings`): Managed by admins. Stores hot parameters (`jira_base_url`, `project_team_roles`, `app_base_url`, email thresholds).
+  - Resolution order is **database → boot config (process env / `.env`) → built-in default**, implemented by `get_setting()` in `mizalla.settings`. `seed_default_settings()` seeds from the resolved value, not the hardcoded default.
+  - Read hot settings only through `get_setting()` / `get_project_team_roles_list()`. Reading `app.config["JIRA_BASE_URL"]` or `app.config["PROJECT_TEAM_ROLES"]` directly makes the setting cold — that was a real bug.
+  - Only `SECRET_KEY` and `SENDGRID_API_KEY` are env-only and never hot settings.
+- SendGrid Scheduled Email Jobs (`mizalla.jobs` & `mizalla.email`):
+  - Sends PM Status Reports, Task Due Reminders, Stale Task Morale Nudges, Overdue Task Alerts, and Upcoming Meeting Reminders.
+  - All emails include clickable HTML links back to projects/tasks on the web UI (`app_base_url`). These must use the internal integer `project.id` (the route converter is `<int:project_id>`), not the human `project.project_id` code, and the portfolio link is `{app_url}/` since the list route is `/`. A substring assertion is not enough — `tests/test_settings_and_emails.py` matches every emitted href against the url map and follows task fragments to a real row.
+  - PM Status Reports go only to members holding the `Project Manager` team role. A project with no PM is skipped, never widened to the full membership. Re-sends are gated by `email_status_report_days` using a `JobRunLog` row per project, and the digest uses `project_completion()` so it matches the project page.
+  - Run manually via CLI `flask --app mizalla run-scheduled-jobs` or via Admin UI button (`POST /settings/run-jobs`).
+- Meetings and attendees:
+  - Attendees are a checkbox group. On create every scoped member is pre-checked; on edit only the current attendees are pre-checked, so an unrelated save never bulk-adds.
+  - One-time invitees without an account go in the comma-separated `external_attendee_emails` field and are stored on `Meeting.external_attendees`. They get Teams links and reminders but no project access and no member-directory row. Normalise via `set_external_attendee_list()` / `get_external_attendee_list()`.
+- Deep Integration (REST API & MCP):
+  - REST API blueprint `mizalla.api` (`/api/v1`) supports Bearer / `X-API-Key` API-key authentication for creating/updating projects, tasks, steps, meetings, and memberships.
+  - The API blueprint is CSRF-exempt, so `api_auth_required` must **not** fall back to `current_user.is_authenticated`. A session cookie is not valid API auth; return 401 instead.
+  - Bound all numeric API input with `mizalla.validators.bounded_int` (task `priority`/`weight` 1–10, step `priority` 1–10000, `percentage_complete` 0–100) and parse dates with `optional_date`. Reject booleans and non-numeric strings rather than coercing; a `ValueError` becomes a 400 and nothing is written.
+  - FastMCP service `mizalla_mcp.py` enables AI agents and external orchestrators to inspect and mutate projects, tasks, steps, meetings, memberships, and team roles (`get_project_team_roles`) while enforcing membership permissions and logging audit events.
+- Secure links: `mizalla.secure_links` generates URL-safe signed tokens for document downloads (`/documents/signed/<token>`) with membership verification.
+- Preserve the visibility invariant in `mizalla.access`: only team, client, stakeholder, or vendor membership grants project access. Do not give administrators or task owners a visibility bypass.
+- Project Team members may edit project data; Clients, Stakeholders, and Vendors are read-only. Deletion additionally requires admin status and Project Team membership.
+- Task key marks (`mizalla.highlights`): Labels such as Key Amendment / Key Finding / Key Decision live in the hot `task_highlight_types` setting and are applied per-task via `Task.highlights` (a CSV column) with `get_highlight_list()` / `set_highlight_list()` / `has_highlight()`. A label removed from the setting is still honoured on existing tasks so evidence is never silently dropped; `normalise_highlights()` sorts by the setting order and raises on any unknown label, both in the web routes and the REST API.
+- Task milestones (`Task.is_milestone`, `Task.milestone_achieved_on`): A separate boolean flag, not a fourth highlight label, so milestones survive a label rename and stay ordered by `due_date`. `apply_milestone()` stamps `milestone_achieved_on` once on the first Completed save and never rewrites it; an explicit date always overrides. `milestones_for()` returns (achieved, upcoming-by-due-date, open) with undated milestones last; a task whose every step is 100% counts as achieved regardless of status.
+- The Project Summary screen (`/projects/<id>/summary`) is read by Stakeholders, Clients, the Project Manager, and any team/vendor role; it is 404 for everyone else. It renders nine native `<details>` accordions collapsed by default plus an always-visible four-tile pulse row (completion, next milestone, needs-attention, next meeting), and a **Full project details** link to the detail view. All roles read-only unless the member holds a project-team role.
+- Error handling: `mizalla.__init__` registers 403, 404, 500 and 413 handlers so every `abort(403)` / `abort(404)` from `mizalla.access` renders the styled `error.html` template (which links back to the portfolio) rather than Flask's bare default page. The 404 message deliberately names no project so a hidden record does not leak its existence.
+- Keep portfolio filters and all task/owner lists scoped to `visible_projects_query()`; never expose member choices for unrelated projects. `_member_options()` enforces this for every member picker — the full member directory must never be disclosed to a user who can only see one project.
+- Record successful project mutations through the project audit-event helper. Meeting action tasks must retain a meeting from the same project; meeting attendees do not gain project access.
+- Share validation between the web routes and the REST API through `mizalla.validators` rather than duplicating bounds. Do not re-introduce per-module copies of `_bounded_int` / `_date_value`.
+- Project completion uses each task step's completion percentage weighted by its parent task's weight. Keep `mizalla.progress` and its tests aligned with this rule.
+- Preserve the additive SQLite upgrade in `mizalla.schema`; old tasks default to the Project Plan source. Meeting references must belong to the same project as the task.
+- Projects include scope and estimated/actual dates; tasks may include an optional JIRA ticket ID. Meeting attendees do not receive project access merely by attending.
+- JIRA ticket links use the hot `jira_base_url` setting and validated ticket IDs only.
+- Run tests with `.\.venv\Scripts\python.exe -m pytest -q` from the repository root.
+- Never add default passwords or demo accounts. Bootstrap an administrator with the `create-admin` Flask CLI command.
+- Never commit a usable `SECRET_KEY`; local development generates and persists it in the ignored `instance/.secret_key` file.

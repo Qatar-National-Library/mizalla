@@ -1,0 +1,396 @@
+{% extends "base.html" %}
+{% block title %}Bulk Emailer{% endblock %}
+{% block content %}<div class="bulk-email">
+<section class="page-heading">
+  <p class="eyebrow">BULK EMAILER</p>
+  <h1>One message.<br><span>Every inbox.</span></h1>
+  <p class="intro-copy">Prepare your message, add a recipient list, and follow delivery as it happens.</p>
+</section>
+
+<form id="email-form" class="composer" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="form-heading"><h2>Compose email</h2><i></i></div>
+
+  <label class="field-label sender-label" for="sender">From</label>
+  <input class="text-input sender-input" id="sender" name="sender" type="email" value="noreply@mizalla.local" required>
+
+  <label class="field-label" for="subject">Subject</label>
+  <input class="text-input" id="subject" name="subject" maxlength="500" required placeholder="A clear subject line">
+
+  <label class="field-label body-label" for="body">Body <span>UTF-8 supported</span></label>
+  <textarea class="text-input body-input" id="body" name="body" placeholder="Write your message in any language..."></textarea>
+
+  <div class="upload-grid">
+    <div class="upload-field">
+      <label class="field-label" for="attachments">Attachments <span>OPTIONAL</span></label>
+      <label class="file-picker drop-zone" for="attachments" id="drop-zone-attachments">
+        <span class="upload-symbol" aria-hidden="true">＋</span>
+        <span class="file-picker-copy"><strong id="attachment-label">Add files or drop here</strong><small>PDF, DOCX, XLSX, PPTX, HTM, HTML · multiple allowed</small></span>
+        <input id="attachments" name="attachments" type="file" multiple accept=".pdf,.docx,.xlsx,.pptx,.htm,.html">
+      </label>
+      <div class="attachment-options" id="attachment-options" hidden>
+        <p class="eyebrow">ATTACHED DOCUMENTS</p>
+        <div id="attachment-options-list"></div>
+      </div>
+    </div>
+    <div class="upload-field">
+      <label class="field-label" for="email-list">Email list <span>REQUIRED</span></label>
+      <label class="file-picker drop-zone" for="email-list" id="drop-zone-list">
+        <span class="upload-symbol sheet-symbol" aria-hidden="true">▤</span>
+        <span class="file-picker-copy"><strong id="list-label">Choose CSV or drop here</strong><small>CSV file with an EMAIL column</small></span>
+        <input id="email-list" name="email_list" type="file" accept=".csv,text/csv" required>
+      </label>
+      <p class="field-helper">Use <code>{% raw %}{{ COLUMN_NAME }}{% endraw %}</code> in email body or HTML/DOCX/XLSX attachments to insert row data. Column names are case-insensitive. Missing values become empty.</p>
+    </div>
+  </div>
+
+  <div class="form-footer">
+    <p>Each non-empty value under <strong>EMAIL</strong> is processed as one recipient.</p>
+    <div class="footer-actions">
+      <div class="test-action-group">
+        <input type="email" id="test_recipient" name="test_recipient" class="text-input test-recipient-input" placeholder="Test email address...">
+        <button class="test-button" id="test-button" type="button" disabled>Test</button>
+      </div>
+      <button class="send-button" id="send-button" type="submit" disabled>Send emails</button>
+    </div>
+  </div>
+  <p class="form-error" id="form-error" role="alert" hidden></p>
+</form>
+
+<section class="summary" id="summary" aria-labelledby="summary-title" hidden>
+  <div><p class="eyebrow">CAMPAIGN COMPLETE</p><h2 id="summary-title">Summary</h2></div>
+  <dl class="summary-stats">
+    <div><dt>PROVIDED</dt><dd id="summary-total">0</dd></div>
+    <div><dt>SENT</dt><dd class="sent-count" id="summary-sent">0</dd></div>
+    <div><dt>ERROR</dt><dd class="error-count" id="summary-errors">0</dd></div>
+  </dl>
+</section>
+
+<section class="activity" aria-labelledby="activity-title" id="activity-section" hidden>
+  <div class="activity-heading">
+    <div><p class="eyebrow">DELIVERY LOG</p><h2 id="activity-title">Status</h2></div>
+    <p id="progress-label" class="progress-label">AWAITING CAMPAIGN</p>
+  </div>
+  <div class="progress-track" aria-hidden="true"><span id="progress-bar"></span></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col">TO</th><th scope="col">STATUS</th></tr></thead>
+      <tbody id="status-rows"><tr class="empty-row"><td colspan="2">Recipient results will appear here.</td></tr></tbody>
+    </table>
+  </div>
+  <div class="form-footer" id="export-row" hidden>
+    <div class="footer-actions" style="justify-content: flex-end;">
+      <a class="send-button" id="export-button" href="#" style="text-decoration: none;">Export to Excel</a>
+    </div>
+  </div>
+</section>
+</div>{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tinymce/6.8.3/tinymce.min.js" referrerpolicy="origin"></script>
+<script>
+  tinymce.init({
+    selector: '#body',
+    plugins: 'directionality link lists code',
+    toolbar: 'undo redo | blocks | bold italic forecolor backcolor | alignleft aligncenter alignright alignjustify | ltr rtl | bullist numlist | link | code',
+    height: 350,
+    menubar: false,
+    setup: function(editor) {
+      editor.on('change keyup paste', function() {
+        editor.save();
+        if (typeof updateButtonStates === 'function') {
+          updateButtonStates();
+        }
+      });
+    }
+  });
+</script>
+<script>
+const form = document.querySelector("#email-form");
+const sendButton = document.querySelector("#send-button");
+const testButton = document.querySelector("#test-button");
+const testRecipientInput = document.querySelector("#test_recipient");
+const emailListInput = document.querySelector("#email-list");
+const formError = document.querySelector("#form-error");
+const rows = document.querySelector("#status-rows");
+const progressLabel = document.querySelector("#progress-label");
+const progressBar = document.querySelector("#progress-bar");
+const summary = document.querySelector("#summary");
+const activitySection = document.getElementById("activity-section");
+const exportRow = document.getElementById("export-row");
+const exportButton = document.getElementById("export-button");
+let currentJobId = null;
+let csvHasEmail = false;
+let testRecipientValid = false;
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const attachmentOptions = document.getElementById("attachment-options");
+const attachmentOptionsList = document.getElementById("attachment-options-list");
+
+const subjectInput = document.querySelector("#subject");
+const bodyInput = document.querySelector("#body");
+const senderInput = document.querySelector("#sender");
+
+function updateButtonStates() {
+  const subjectFilled = subjectInput ? subjectInput.value.trim() !== "" : false;
+  const bodyFilled = bodyInput ? bodyInput.value.trim() !== "" : false;
+  const senderFilled = senderInput ? senderInput.value.trim() !== "" : false;
+  const allRequiredFilled = subjectFilled && bodyFilled && senderFilled && csvHasEmail;
+
+  sendButton.disabled = !allRequiredFilled;
+  testButton.disabled = !(allRequiredFilled && testRecipientValid);
+}
+
+if (subjectInput) subjectInput.addEventListener("input", updateButtonStates);
+if (bodyInput) bodyInput.addEventListener("input", updateButtonStates);
+if (senderInput) senderInput.addEventListener("input", updateButtonStates);
+
+function checkEmailListFile(file) {
+  if (!file) {
+    csvHasEmail = false;
+    updateButtonStates();
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const text = e.target.result || "";
+    const lines = text.split(/\r\n|\n|\r/);
+    if (lines.length > 0) {
+      const headers = lines[0].split(/[,;\t]/).map((h) => h.replace(/^["']|["']$/g, "").trim().toUpperCase());
+      csvHasEmail = headers.includes("EMAIL");
+    } else {
+      csvHasEmail = false;
+    }
+    updateButtonStates();
+  };
+  reader.onerror = () => {
+    csvHasEmail = false;
+    updateButtonStates();
+  };
+  reader.readAsText(file.slice(0, 4096));
+}
+
+let selectedAttachments = [];
+
+function renderAttachments() {
+  const dt = new DataTransfer();
+  selectedAttachments.forEach(f => dt.items.add(f));
+  document.querySelector("#attachments").files = dt.files;
+  
+  const symbol = document.querySelector("#drop-zone-attachments .upload-symbol");
+  const small = document.querySelector("#drop-zone-attachments small");
+  const names = selectedAttachments.map((file) => file.name);
+  
+  if (names.length) {
+    if (symbol) symbol.style.display = "none";
+    if (small) small.style.display = "none";
+    document.querySelector("#attachment-label").textContent = `${names.length} file${names.length === 1 ? "" : "s"} selected`;
+  } else {
+    if (symbol) symbol.style.display = "";
+    if (small) small.style.display = "";
+    document.querySelector("#attachment-label").textContent = "Add files or drop here";
+  }
+
+  attachmentOptionsList.replaceChildren();
+  if (selectedAttachments.length === 0) {
+    attachmentOptions.hidden = true;
+    return;
+  }
+  attachmentOptions.hidden = false;
+
+  selectedAttachments.forEach((file, idx) => {
+    const ext = file.name.split(".").pop().toLowerCase();
+    const isHtml = ext === "htm" || ext === "html";
+    const isDoc = ext === "doc" || ext === "docx";
+    const isPdf = ext === "pdf";
+
+    const row = document.createElement("div");
+    row.className = "attachment-option-row";
+    row.style.display = "flex";
+    row.style.alignItems = "center";
+    row.style.gap = "8px";
+    row.style.marginBottom = "4px";
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "attachment-option-name";
+    nameSpan.textContent = file.name;
+    nameSpan.style.flex = "1";
+    row.appendChild(nameSpan);
+
+    if (!isPdf) {
+      const convertLabel = document.createElement("label");
+      convertLabel.className = "checkbox-inline";
+      convertLabel.innerHTML = `<input type="checkbox" name="convert_pdf_${idx}" value="1"> Convert to PDF`;
+      row.appendChild(convertLabel);
+    }
+
+    const substitutable = isHtml || isDoc || ext === "xlsx" || ext === "pptx" || isPdf;
+    if (substitutable) {
+      const subTag = document.createElement("span");
+      subTag.className = "substitution-tag";
+      subTag.textContent = "{% raw %}{{ }}{% endraw %} supported";
+      row.appendChild(subTag);
+    }
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "button button-small";
+    removeBtn.style.padding = "2px 6px";
+    removeBtn.textContent = "Remove";
+    removeBtn.onclick = () => {
+      selectedAttachments.splice(idx, 1);
+      renderAttachments();
+    };
+    row.appendChild(removeBtn);
+
+    attachmentOptionsList.appendChild(row);
+  });
+}
+
+document.querySelector("#attachments").addEventListener("change", (event) => {
+  // Merge new files
+  const newFiles = Array.from(event.target.files);
+  const existingNames = new Set(selectedAttachments.map(f => f.name));
+  newFiles.forEach(f => {
+    if (!existingNames.has(f.name)) {
+      selectedAttachments.push(f);
+    }
+  });
+  renderAttachments();
+});
+
+emailListInput.addEventListener("change", (event) => {
+  const file = event.target.files[0];
+  const symbol = document.querySelector("#drop-zone-list .upload-symbol");
+  const small = document.querySelector("#drop-zone-list small");
+  if (file) {
+    if (symbol) symbol.style.display = "none";
+    if (small) small.style.display = "none";
+    document.querySelector("#list-label").textContent = file.name;
+  } else {
+    if (symbol) symbol.style.display = "";
+    if (small) small.style.display = "";
+    document.querySelector("#list-label").textContent = "Choose CSV or drop here";
+  }
+  checkEmailListFile(file);
+});
+
+testRecipientInput.addEventListener("input", () => {
+  const val = testRecipientInput.value.trim();
+  testRecipientValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
+  updateButtonStates();
+});
+
+// Drag-and-drop for email list
+const dropZoneList = document.getElementById("drop-zone-list");
+["dragenter", "dragover"].forEach((evt) => {
+  dropZoneList.addEventListener(evt, (e) => { e.preventDefault(); dropZoneList.classList.add("drop-zone--active"); });
+});
+["dragleave", "drop"].forEach((evt) => {
+  dropZoneList.addEventListener(evt, (e) => { e.preventDefault(); dropZoneList.classList.remove("drop-zone--active"); });
+});
+dropZoneList.addEventListener("drop", (e) => {
+  const files = e.dataTransfer.files;
+  if (files.length) {
+    const input = document.getElementById("email-list");
+    input.files = files;
+    input.dispatchEvent(new Event("change"));
+  }
+});
+
+// Drag-and-drop for attachments
+const dropZoneAttachments = document.getElementById("drop-zone-attachments");
+["dragenter", "dragover"].forEach((evt) => {
+  dropZoneAttachments.addEventListener(evt, (e) => { e.preventDefault(); dropZoneAttachments.classList.add("drop-zone--active"); });
+});
+["dragleave", "drop"].forEach((evt) => {
+  dropZoneAttachments.addEventListener(evt, (e) => { e.preventDefault(); dropZoneAttachments.classList.remove("drop-zone--active"); });
+});
+dropZoneAttachments.addEventListener("drop", (e) => {
+  const files = e.dataTransfer.files;
+  if (files.length) {
+    const input = document.getElementById("attachments");
+    input.files = files;
+    input.dispatchEvent(new Event("change"));
+  }
+});
+
+function appendResult(result) {
+  if (rows.querySelector(".empty-row")) rows.replaceChildren();
+  const row = document.createElement("tr");
+  const address = document.createElement("td");
+  address.className = "recipient-cell";
+  address.textContent = result.to;
+  const statusCell = document.createElement("td");
+  const status = document.createElement("span");
+  status.className = `status-chip ${result.status.toLowerCase()}`;
+  status.textContent = result.status;
+  statusCell.append(status);
+  if (result.reason) {
+    const reason = document.createElement("span");
+    reason.className = "error-reason";
+    reason.textContent = result.reason;
+    statusCell.append(reason);
+  }
+  row.append(address, statusCell);
+  rows.append(row);
+}
+
+// Test button — send processed message to test email using first row of CSV
+testButton.addEventListener("click", async () => {
+  testButton.disabled = true;
+  try {
+    const formData = new FormData(form);
+    const result = await composerFetch("/apps/emailer/test", { method: "POST", body: formData });
+    alert(result.message || "Test email sent.");
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    updateButtonStates();
+  }
+});
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  formError.hidden = true;
+  summary.hidden = true;
+  activitySection.hidden = false;
+  rows.replaceChildren();
+  progressBar.style.width = "0%";
+  sendButton.disabled = true;
+  progressLabel.textContent = "PREPARING CAMPAIGN";
+  exportRow.hidden = true;
+
+  try {
+    const started = await composerFetch("/apps/emailer/send", { method: "POST", body: new FormData(form) });
+    currentJobId = started.job_id;
+    exportButton.href = `/apps/emailer/jobs/${encodeURIComponent(currentJobId)}/export`;
+
+    let shownResults = 0;
+    let snapshot;
+    do {
+      snapshot = await composerFetch(`/apps/emailer/jobs/${encodeURIComponent(currentJobId)}`, { cache: "no-store" });
+      snapshot.results.slice(shownResults).forEach(appendResult);
+      shownResults = snapshot.results.length;
+      const percentage = snapshot.total ? (shownResults / snapshot.total) * 100 : 100;
+      progressBar.style.width = `${percentage}%`;
+      progressLabel.textContent = `${shownResults} / ${snapshot.total} PROCESSED`;
+      if (!snapshot.complete) await delay(700);
+    } while (!snapshot.complete);
+
+    document.querySelector("#summary-total").textContent = snapshot.total;
+    document.querySelector("#summary-sent").textContent = snapshot.sent;
+    document.querySelector("#summary-errors").textContent = snapshot.errors;
+    summary.hidden = false;
+    progressLabel.textContent = "ALL RECIPIENTS PROCESSED";
+    exportRow.hidden = false;
+  } catch (error) {
+    formError.textContent = error.message;
+    formError.hidden = false;
+    progressLabel.textContent = "CAMPAIGN INTERRUPTED";
+  } finally {
+    updateButtonStates();
+  }
+});
+</script>
+{% endblock %}

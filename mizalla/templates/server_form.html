@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb %}
+{% block title %}Edit server{% endblock %}
+{% block content %}
+{{ breadcrumb([("Projects", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Servers", url_for('admin.server_list')), ("Edit", None)]) }}
+<div class="page-heading"><p class="eyebrow">INFRASTRUCTURE / {{ server.ip }}</p><h1>Edit server</h1></div>
+<form method="post" class="form-panel form-stack narrow-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Server name<input name="name" maxlength="160" value="{{ server.name }}" required></label><label>IP address<input name="ip" maxlength="45" value="{{ server.ip }}" required></label><label>Operating system<input name="operating_system" maxlength="160" value="{{ server.operating_system }}" required></label><label>Technology / packages<textarea name="technology_packages" rows="5">{{ server.technology_packages }}</textarea></label><div class="form-actions"><a class="button button-quiet" href="{{ url_for('admin.server_list') }}">Cancel</a><button class="button button-primary" type="submit">Save server</button></div></form>
+{% endblock %}

@@ -1,0 +1,89 @@
+<!doctype html>
+{% from "macros.html" import app_switcher %}
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Mizalla{% endblock %} · Fieldnotes</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar">
+    <a class="brand"
+      href="{{ url_for('main.project_list') if current_user.is_authenticated else url_for('auth.login') }}">
+      <img src="{{ url_for('static', filename='logo_transparent.png') }}" alt="Mizalla Logo"
+        style="width:100%; height: 40px; vertical-align: middle;">
+    </a>
+    {% if current_user.is_authenticated %}
+    <nav class="navigation" aria-label="Main navigation">
+      {{ app_switcher(current_user) }}
+      <a href="{{ url_for('main.about') }}">About</a>
+      <a href="{{ url_for('main.user_guide') }}">User guide</a>
+      {% if current_user.is_admin %}
+      <span class="nav-separator" aria-hidden="true">|</span>
+      <a href="{{ url_for('admin.member_list') }}">Administration</a>
+      {% endif %}
+      <button class="icon-button hamburger" id="hamburger" aria-label="Open menu" aria-expanded="false">&#9776;</button>
+      <div class="hamburger-menu" id="hamburger-menu" hidden>
+        {{ app_switcher(current_user) }}
+        <a href="{{ url_for('main.about') }}">About</a>
+        <a href="{{ url_for('main.user_guide') }}">User guide</a>
+        {% if current_user.is_admin %}
+        <a href="{{ url_for('admin.member_list') }}">Administration</a>
+        {% endif %}
+      </div>
+    </nav>
+    <div class="account-menu">
+      <div class="user-dropdown">
+        <button class="user-dropdown-toggle" id="user-dropdown-toggle" aria-haspopup="true" aria-expanded="false">
+          <span class="account-name">{{ current_user.name }}</span>
+          <span class="dropdown-arrow" aria-hidden="true">&#9662;</span>
+        </button>
+        <div class="user-dropdown-menu" id="user-dropdown-menu" hidden>
+          <div class="dropdown-header">
+            <span class="dropdown-user-name">{{ current_user.name }}</span>
+            <span class="dropdown-user-email">{{ current_user.email }}</span>
+          </div>
+          <div class="dropdown-divider"></div>
+          <a href="{{ url_for('admin.settings_list') }}" class="dropdown-item">Settings</a>
+          <a href="{{ url_for('admin.member_edit', member_id=current_user.id) }}" class="dropdown-item">Edit Profile</a>
+          {% if current_user.is_admin %}
+          <div class="dropdown-divider"></div>
+          <a href="{{ url_for('admin.member_list') }}" class="dropdown-item">Members</a>
+          <a href="{{ url_for('admin.server_list') }}" class="dropdown-item">Servers</a>
+          <a href="{{ url_for('admin.bulk_email_audit') }}" class="dropdown-item">Bulk Email Audit</a>
+          <a href="{{ url_for('admin.whatsapp_audit') }}" class="dropdown-item">WhatsApp Audit</a>
+          <a href="{{ url_for('admin.sms_audit') }}" class="dropdown-item">SMS Audit</a>
+          {% endif %}
+          <div class="dropdown-divider"></div>
+          <form method="post" action="{{ url_for('auth.logout') }}" class="dropdown-logout">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="dropdown-item dropdown-item-danger" type="submit">Sign Out</button>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <nav class="navigation public-navigation" aria-label="Public navigation">
+      <a href="{{ url_for('main.about') }}">About</a>
+      <a href="{{ url_for('main.user_guide') }}">User guide</a>
+      <a href="{{ url_for('auth.login') }}">Sign in</a>
+    </nav>
+    {% endif %}
+  </header>
+  <main id="main" class="page-shell">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}<div class="flash-stack" aria-live="polite">
+      {% for category, message in messages %}<p class="flash flash-{{ category }}">{{ message }}</p>{% endfor %}
+    </div>{% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+  {% block scripts %}{% endblock %}
+</body>
+
+</html>

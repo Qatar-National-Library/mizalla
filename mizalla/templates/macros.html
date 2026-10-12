@@ -1,0 +1,135 @@
+{# Shared UI fragments.
+
+   ``breadcrumb`` renders a semantic breadcrumb trail. Items are ``(label, href)``
+   pairs; the final item is rendered as the current page and is not a link.
+   A trail of one or fewer items is suppressed: there is no hierarchy to express on
+   a top-level screen such as the portfolio, About or sign-in, and the persistent top
+   bar already provides the way home.
+
+   ``app_switcher`` renders the grant-gated service links, so the desktop bar and the
+   mobile menu cannot drift apart. It is called twice per page - once for each - so
+   it takes the member rather than reaching for ``current_user`` itself.
+
+   ``accordion`` wraps a section in a native <details> element. Native disclosure
+   controls are keyboard accessible and keep working with JavaScript disabled, so no
+   script is involved. Pass ``open=True`` for the one section that should start
+   expanded.
+
+   ``role_groups`` renders one group per role, each with the people holding it. The
+   project screen shows the same membership rows in three places - the delivery
+   team, the external contacts, and the full role map - so the row markup lives
+   here once rather than three times. ``can_manage_members`` is passed in rather
+   than computed: whether the *current* member may change this project's roster is
+   decided by :func:`is_project_pm`, not by anything visible in the group.
+#}
+
+{% macro admin_nav(active_page) %}
+<div class="admin-nav-header" style="margin-bottom: 1.5rem;">
+  <div class="header-action-row" style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 0.8rem;">
+    <div>
+      <p class="eyebrow">SYSTEM MANAGEMENT</p>
+      <h1 style="margin: 0.2rem 0 0; font: 400 clamp(1.8rem, 3.5vw, 2.5rem)/1.1 Georgia, serif;">Administration</h1>
+    </div>
+  </div>
+  <div class="tab-bar admin-tab-bar" role="navigation" aria-label="Admin Navigation">
+    <a href="{{ url_for('admin.settings_list') }}" class="tab{% if active_page == 'settings' %} active{% endif %}"{% if active_page == 'settings' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}>⚙️ System Settings</a>
+    <a href="{{ url_for('admin.member_list') }}" class="tab{% if active_page == 'members' %} active{% endif %}"{% if active_page == 'members' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}>👥 Member Accounts</a>
+    <a href="{{ url_for('admin.server_list') }}" class="tab{% if active_page == 'servers' %} active{% endif %}"{% if active_page == 'servers' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}>🖥️ Server Inventory</a>
+    <a href="{{ url_for('admin.bulk_email_audit') }}" class="tab{% if active_page == 'bulk_email' %} active{% endif %}"{% if active_page == 'bulk_email' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}>✉️ Email Audit</a>
+    <a href="{{ url_for('admin.whatsapp_audit') }}" class="tab{% if active_page == 'whatsapp' %} active{% endif %}"{% if active_page == 'whatsapp' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}>💬 WhatsApp Audit</a>
+    <a href="{{ url_for('admin.sms_audit') }}" class="tab{% if active_page == 'sms' %} active{% endif %}"{% if active_page == 'sms' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}>📱 SMS Audit</a>
+    <a href="{{ url_for('admin.service_audit') }}" class="tab{% if active_page == 'service_audit' %} active{% endif %}"{% if active_page == 'service_audit' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}>📊 Service Audit Log</a>
+  </div>
+</div>
+{% endmacro %}
+
+{% macro breadcrumb(items) %}
+{%- if items|length > 1 -%}
+<nav class="crumb" aria-label="Breadcrumb">
+  <ol>
+    {% for label, href in items %}
+      <li>
+        {%- if href and not loop.last -%}
+          <a href="{{ href }}">{{ label }}</a>
+        {%- else -%}
+          <span aria-current="page">{{ label }}</span>
+        {%- endif -%}
+      </li>
+    {% endfor %}
+  </ol>
+</nav>
+{%- endif -%}
+{% endmacro %}
+
+
+
+{% macro app_switcher(member) %}
+<div class="app-switcher">
+  <a href="{{ url_for('main.project_list') }}" class="app-switcher-link">Projects</a>
+  {% for service in nav_services(member) %}
+    {% if service.enabled %}
+      <a href="{{ service.href }}" class="app-switcher-link">{{ service.label }}</a>
+    {% else %}
+      {# Granted but not yet configured. Not a link, and the reason is the tooltip
+         so a member who was told they had access can see what is still missing. #}
+      <span class="app-switcher-link app-switcher-link-disabled" aria-disabled="true" title="{{ service.reason }}">{{ service.label }}</span>
+    {% endif %}
+  {% endfor %}
+</div>
+{% endmacro %}
+
+
+{% macro accordion(heading, count=None, count_label="items", open=False, tone="") %}
+<details class="accordion{% if tone %} accordion-{{ tone }}{% endif %}"{% if open %} open{% endif %}>
+  <summary class="accordion-head">
+    <span class="accordion-chevron" aria-hidden="true"></span>
+    <span class="accordion-heading">{{ heading }}</span>
+    {% if count is not none %}<span class="accordion-count">{{ count }} {{ count_label }}</span>{% endif %}
+  </summary>
+  <div class="accordion-body">
+    {{ caller() }}
+  </div>
+</details>
+{% endmacro %}
+
+
+{% macro mailto_link(member, label=None) %}
+<a class="person-email" href="mailto:{{ member.email }}">{{ label or member.email }}</a>
+{% endmacro %}
+
+
+{% macro task_link(project_id, task) %}
+<a href="{{ url_for('main.project_detail', project_id=project_id) }}#task-{{ task.id }}">{{ task.name }}</a>
+{% endmacro %}
+
+
+{% macro highlight_badges(task, size="") %}
+{%- if task.is_milestone or task.get_highlight_list() -%}
+<span class="badge-row">
+  {% if task.is_milestone %}<span class="badge badge-milestone{% if size %} badge-{{ size }}{% endif %}">Milestone</span>{% endif %}
+  {% for label in task.get_highlight_list() %}<span class="badge badge-highlight{% if size %} badge-{{ size }}{% endif %}">{{ label }}</span>{% endfor %}
+</span>
+{%- endif -%}
+{% endmacro %}
+
+
+{% macro role_groups(project, role_pairs, role_notes, can_manage_members=false) %}
+{%- for role, label in role_pairs -%}
+<div class="role-group">
+  <h3>{{ label }}{% if role_notes.get(role) %}<span class="group-hint">{{ role_notes[role] }}</span>{% endif %}</h3>
+  {%- for membership in project.memberships if membership.role == role %}
+  <div class="person-row">
+    <div>
+      <strong>{{ membership.member.name }}</strong>{% if is_pm_membership(membership) %}<span class="badge badge-pm badge-small">PM</span>{% endif %} <span>{{ membership.member.email }}{% if membership.responsibility %} · {{ membership.responsibility }}{% endif %}</span>
+      {%- if membership.role == 'team' and membership.team_roles %} <div class="team-roles-tags">{% for trole in membership.get_team_roles_list() %}<span class="role-tag">{{ trole }}</span>{% endfor %}</div>{% endif %}
+    </div>
+    {%- if can_manage_members %}
+    <form method="post" action="{{ url_for('main.membership_delete', project_id=project.id, membership_id=membership.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="text-button danger-text" type="submit" onclick="return confirm('Remove this member\'s {{ label }} role from this project? They keep any other roles they hold here.')">Remove</button></form>
+    {%- endif %}
+  </div>
+  {%- else %}
+  <p class="muted empty-inline">None</p>
+  {%- endfor %}
+</div>
+{%- endfor %}
+{% endmacro %}

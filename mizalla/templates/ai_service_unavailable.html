@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+{{ breadcrumb([("Projects", url_for('main.project_list')), (title, None)]) }}
+
+<div class="page-heading">
+  <p class="eyebrow">NOT CONFIGURED</p>
+  <h1>{{ title }}</h1>
+</div>
+
+<section class="detail-section">
+  <p>This service is not available yet. An administrator needs to set the following in <a href="{{ url_for('admin.settings_list') }}">Settings</a>:</p>
+  <ul>
+    {% for item in service_status.missing %}<li>{{ item }}</li>{% endfor %}
+  </ul>
+  <p class="muted">Until then the form is not shown, because submitting it could only fail.</p>
+</section>
+{% endblock %}

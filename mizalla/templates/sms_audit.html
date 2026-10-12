@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb, admin_nav %}
+{% block title %}SMS Audit · Administration{% endblock %}
+{% block content %}
+{{ breadcrumb([("Projects", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("SMS Audit", None)]) }}
+
+{{ admin_nav('sms') }}
+<div class="bulk-email-admin">
+  <div class="heading-row">
+    <p class="intro-copy">Full audit trail of bulk SMS campaigns: who ran them, which region they were sent through, and the per-recipient results.</p>
+    <div class="button-group">
+      <a class="button button-quiet button-small" href="{{ url_for('admin.sms_audit_export', format='xlsx') }}">Export Excel</a>
+      <a class="button button-quiet button-small" href="{{ url_for('admin.sms_audit_export', format='csv') }}">Export CSV</a>
+    </div>
+  </div>
+  {% if jobs|length == 0 %}
+    <p class="muted empty-inline">No bulk SMS campaigns have been run yet.</p>
+  {% else %}
+    <div class="accordion-stack">
+      {% for job in jobs %}
+        <details class="accordion">
+          <summary class="accordion-head">
+            <span class="accordion-chevron" aria-hidden="true"></span>
+            <div class="accordion-heading audit-row-head">
+              <div class="audit-row-cell" style="flex: 1 1 150px;">
+                <span class="audit-row-label">Job ID</span>
+                <span class="audit-row-value tracking-id" style="font-size:0.75rem;">{{ job.id }}</span>
+              </div>
+              <div class="audit-row-cell" style="flex: 1 1 120px;">
+                <span class="audit-row-label">Created By</span>
+                <span class="audit-row-value">{{ job.created_by_name }}</span>
+              </div>
+              <div class="audit-row-cell" style="flex: 1 1 120px;">
+                <span class="audit-row-label">Sender / Region</span>
+                <span class="audit-row-value">{{ job.sender if job.sender else 'Default' }} ({{ job.region|upper if job.region else '—' }})</span>
+              </div>
+              <div class="audit-row-cell" style="flex: 1 1 130px;">
+                <span class="audit-row-label">Created</span>
+                <span class="audit-row-value">{{ job.created_at.strftime('%Y-%m-%d %H:%M:%S') if job.created_at else '' }}</span>
+              </div>
+              <div class="audit-row-cell" style="flex: 0 0 65px;">
+                <span class="audit-row-label">Duration</span>
+                <span class="audit-row-value">{{ job.duration_seconds if job.duration_seconds else '—' }}s</span>
+              </div>
+              <div class="audit-row-cell" style="flex: 0 0 75px;">
+                <span class="audit-row-label">Sent / Err</span>
+                <span class="audit-row-value">{{ job.sent }} / {{ job.errors }}</span>
+              </div>
+              <div class="audit-row-cell" style="flex: 0 0 80px; align-items: flex-end;">
+                <span class="status-chip {{ 'sent' if job.completed_at else 'error' }}">{{ job.status_label }}</span>
+              </div>
+            </div>
+          </summary>
+          <div class="accordion-body">
+            <h4 class="inline-heading">Recipient Details</h4>
+            <table class="bulk-email-table">
+              <thead>
+                <tr><th>Phone</th><th>Status</th><th>Reason</th><th>Tracking ID</th></tr>
+              </thead>
+              <tbody>
+                {% for recipient in job.recipients %}
+                <tr>
+                  <td>{{ recipient.phone }}</td>
+                  <td><span class="status-chip {{ 'sent' if recipient.status == 'SENT' else 'error' }}">{{ recipient.status }}</span></td>
+                  <td>{{ recipient.reason if recipient.reason else '—' }}</td>
+                  <td><span class="tracking-id">{{ recipient.tracking_id if recipient.tracking_id else '—' }}</span></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

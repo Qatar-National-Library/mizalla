@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb %}
+{% block title %}Vision Test Service{% endblock %}
+{% block content %}<div class="ai-vision">
+{{ breadcrumb([("Projects", url_for('main.project_list')), ("Vision", None)]) }}
+
+<div class="page-heading">
+  <h1>Vision Test Service</h1>
+  <p class="lede">Upload an image to get a description of it, the complete service response, and the fields the administrator mapped.</p>
+</div>
+
+<section class="detail-grid">
+  <div class="detail-section">
+    <form method="post" enctype="multipart/form-data" class="form-stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <label class="file-picker drop-zone" for="image" id="drop-zone-image">
+        <input type="file" id="image" name="image" accept="image/jpeg,image/png,image/bmp,image/gif,image/webp" required>
+        <span class="file-picker-copy">
+          <strong id="image-label">Add an image or drop here</strong>
+          <small>JPG, PNG, BMP, GIF, WEBP · up to 12 MB</small>
+        </span>
+      </label>
+
+      {% if upload_error %}<p class="flash flash-error">{{ upload_error }}</p>{% endif %}
+
+      <div>
+        <label for="mapping" style="font-weight: 600; margin-bottom: 0.3rem; display: block;">Field Mapping JSON <span>OPTIONAL</span></label>
+        <textarea id="mapping" name="mapping" rows="4" class="text-input" style="font-family: monospace; font-size: 0.85rem;" placeholder='{"ID": ""}'>{{ mapping_json }}</textarea>
+        <p class="muted" style="margin-top: 0.3rem; font-size: 0.75rem;">Specify JSON object mapping target fields to OCR text labels or response paths.</p>
+      </div>
+
+      <div class="form-actions">
+        <button class="button button-primary" type="submit">Analyse image</button>
+      </div>
+    </form>
+  </div>
+
+  <aside class="detail-section">
+    <div class="section-heading"><div><p class="eyebrow">ADMIN MAPPING</p><h2>Fields</h2></div></div>
+    {% if mapping_error %}<p class="flash flash-error">{{ mapping_error }}</p>{% endif %}
+    <p class="muted">Each value is tried as a path into the Vision response, then as a label to find in the recognised text, then falls back to the whole recognised text.</p>
+    <table class="bulk-email-table">
+      <thead><tr><th>Field</th><th>Source</th></tr></thead>
+      <tbody>
+        {% for name, value in mapping.items() %}
+        <tr>
+          <td><code>{{ name }}</code></td>
+          <td>{% if value %}<code>{{ value }}</code>{% else %}<span class="muted">whole recognised text</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </aside>
+</section>
+
+{% if result %}
+<section class="detail-section" style="margin-top:1.5rem">
+  <div class="section-heading"><div><p class="eyebrow">RESULT / {{ result.filename }}</p><h2>Description</h2></div></div>
+  {# The service requests OCR only, so this is normally absent rather than broken. #}
+  <p class="vision-caption">{{ result.caption or "This service reads the text in the image. The recognised text and mapped fields are below." }}</p>
+
+  <h3>Mapped fields</h3>
+  <table class="bulk-email-table">
+    <thead><tr><th>Field</th><th>Value</th><th>Resolved by</th></tr></thead>
+    <tbody>
+      {% for name, pair in result.fields.items() %}
+      <tr>
+        <td><code>{{ name }}</code></td>
+        <td><pre class="cell-pre">{{ pair[0] or "(empty)" }}</pre></td>
+        <td><span class="muted">{{ pair[1] }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="detail-section" style="margin-top:1.5rem">
+  <div class="section-heading"><div><p class="eyebrow">FULL RESPONSE</p><h2>Service JSON</h2></div></div>
+  <p class="muted">{{ result.ocr_line_count }} line(s) of text recognised.</p>
+  <details open>
+    <summary>Show JSON</summary>
+    <pre class="json-block">{{ result.json_text }}</pre>
+  </details>
+</section>
+{% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const zone = document.getElementById("drop-zone-image");
+  const input = document.getElementById("image");
+  const label = document.getElementById("image-label");
+  if (!zone || !input) return;
+
+  ["dragenter", "dragover"].forEach((evt) => {
+    zone.addEventListener(evt, (e) => { e.preventDefault(); zone.classList.add("drop-zone--active"); });
+  });
+  ["dragleave", "drop"].forEach((evt) => {
+    zone.addEventListener(evt, (e) => { e.preventDefault(); zone.classList.remove("drop-zone--active"); });
+  });
+  zone.addEventListener("drop", (e) => {
+    const files = e.dataTransfer.files;
+    if (files.length) {
+      input.files = files;
+      input.dispatchEvent(new Event("change"));
+    }
+  });
+  input.addEventListener("change", () => {
+    label.textContent = input.files[0]?.name || "Add an image or drop here";
+  });
+})();
+</script>
+{% endblock %}

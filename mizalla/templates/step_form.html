@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb %}
+{% block title %}Edit step{% endblock %}
+{% block content %}
+{{ breadcrumb([("Projects", url_for('main.project_list')), (project.name, url_for('main.project_detail', project_id=project.id)), (step.task.name, None)]) }}
+<div class="page-heading"><p class="eyebrow">TASK STEP / {{ step.id }}</p><h1>Edit step</h1></div>
+<form method="post" class="form-panel form-stack narrow-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div class="form-columns"><label>Step priority<input type="number" name="priority" min="1" value="{{ step.priority }}" required></label><label>Percentage complete<input type="number" name="percentage_complete" min="0" max="100" value="{{ step.percentage_complete }}" required></label></div><label>Step header<input name="header" maxlength="180" value="{{ step.header }}" required></label><label>Step description<textarea name="description" rows="5">{{ step.description }}</textarea></label><div class="form-actions"><a class="button button-quiet" href="{{ url_for('main.project_detail', project_id=project.id) }}#task-{{ step.task_id }}">Cancel</a><button class="button button-primary" type="submit">Save step</button></div></form>
+{% endblock %}

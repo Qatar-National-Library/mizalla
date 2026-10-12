@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb %}
+{% block title %}Speech Test Service{% endblock %}
+{% block content %}
+{{ breadcrumb([("Projects", url_for('main.project_list')), ("Speech", None)]) }}
+
+<div class="page-heading">
+  <h1>Speech Test Service</h1>
+  <p class="lede">Type text, get an audio clip back, and play it here without leaving the page.</p>
+</div>
+
+<section class="detail-section">
+  <form method="post" class="form-stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <label>Text
+      <textarea name="text" rows="6" maxlength="{{ max_characters }}" required placeholder="Type the text to hear spoken aloud.">{{ spoken_text }}</textarea>
+    </label>
+    <p class="muted"><small id="char-count">0</small> of {{ max_characters }} characters.</small></p>
+
+    <label>Voice
+      <select name="voice">
+        {% for group in voice_groups %}
+        <optgroup label="{{ group.accent }}">
+          {% for entry in group.voices %}
+          <option value="{{ entry.name }}"{% if entry.name == voice %} selected{% endif %}>{{ entry.display }} ({{ entry.gender }})</option>
+          {% endfor %}
+        </optgroup>
+        {% endfor %}
+      </select>
+    </label>
+    <p class="muted"><small>Azure neural voices: 4 English accents with two male and two female each, and 4 Arabic accents. Azure publishes only one male and one female voice per Arabic locale, so each Arabic accent offers both of the voices that exist.</small></p>
+
+    <div class="form-actions">
+      <button class="button button-primary" type="submit">Create audio</button>
+    </div>
+  </form>
+</section>
+
+{% if clip %}
+<section class="detail-section" style="margin-top:1.5rem">
+  <div class="section-heading"><div><p class="eyebrow">RESULT</p><h2>Audio</h2></div></div>
+  <audio controls preload="none" src="{{ url_for('ai.speech_audio', name=clip.name) }}" class="audio-player">Your browser cannot play this audio clip.</audio>
+  <p class="muted">
+    <small>
+      Voice {{ voice_labels.get(clip.voice, clip.voice) }} ({{ clip.voice }}) · {{ clip.characters }} characters · {{ (clip.bytes / 1024) | round | int }} KB.
+      Clips are kept on the server for a short while; older ones for your account are removed automatically.
+    </small>
+  </p>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const area = document.querySelector('textarea[name="text"]');
+  const counter = document.getElementById("char-count");
+  if (!area || !counter) return;
+  const update = () => { counter.textContent = String(area.value.length); };
+  area.addEventListener("input", update);
+  update();
+})();
+</script>
+{% endblock %}

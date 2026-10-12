@@ -1,0 +1,318 @@
+{% extends "base.html" %}
+{% block title %}Bulk SMS{% endblock %}
+{% block content %}<div class="bulk-email">
+<section class="page-heading">
+  <p class="eyebrow">BULK SMS</p>
+  <h1>One message.<br><span>Every phone.</span></h1>
+  <p class="intro-copy">Upload a phone list and send personalized SMS through Pingram. Each recipient gets exactly one SMS.</p>
+</section>
+
+<form id="sms-form" class="composer" enctype="multipart/form-data">
+  {# The Test button posts this form via JS to /test, which validates the token
+     explicitly. Without the field, FormData carries no token and every test
+     send is rejected — so it has to be here, not just on server-rendered forms. #}
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="form-heading"><h2>Compose message</h2><i></i></div>
+
+  <label class="field-label sender-label" for="sender">Sender ID <span>OPTIONAL</span></label>
+  <input class="text-input sender-input" id="sender" name="sender" placeholder="Leave blank to use the account default">
+  <p class="field-helper">Only set this if the number is a dedicated sender on the Pingram account.</p>
+
+  <label class="field-label body-label" for="message" style="margin-top: 16px;">Message <span>UTF-8 supported · 1 SMS max</span></label>
+  <textarea class="text-input body-input" id="message" name="message" required maxlength="160" placeholder="Write your message in any language..."></textarea>
+  <div class="sms-meter" id="sms-meter" data-over="false">
+    <span class="sms-meter-count"><span id="sms-used">0</span> / <span id="sms-budget">160</span></span>
+    <span class="sms-meter-detail" id="sms-detail">GSM-7 · 1 SMS</span>
+  </div>
+  <p class="field-helper">Latin text fits 160 characters in one SMS. Arabic, Cyrillic and emoji switch to a wider encoding that fits only 70.</p>
+
+  <div class="upload-grid">
+    <div class="upload-field">
+      <label class="field-label" for="phone-list">Phone list <span>REQUIRED</span></label>
+      <label class="file-picker drop-zone" for="phone-list" id="drop-zone-list">
+        <span class="upload-symbol sheet-symbol" aria-hidden="true">▤</span>
+        <span class="file-picker-copy"><strong id="list-label">Choose CSV or drop here</strong><small>CSV file with a PHONE column</small></span>
+        <input id="phone-list" name="phone_list" type="file" accept=".csv,text/csv" required>
+      </label>
+      <p class="field-helper">Use <code>{% raw %}{{ COLUMN_NAME }}{% endraw %}</code> in the message to insert row data. Column names are case-insensitive. Missing values become empty.</p>
+    </div>
+    <div class="upload-field">
+      <div class="sms-region" id="sms-region" data-region="{{ region }}" data-host="{{ api_host }}">
+        <span class="sms-region-label">REGION</span>
+        <span class="sms-region-value">{{ region|upper }} · {{ api_host }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="form-footer">
+    <p>Each non-empty value under <strong>PHONE</strong> is sent one SMS. Sends run in the background.</p>
+    <div class="footer-actions">
+      <div class="test-action-group">
+        <input type="text" id="test_recipient" name="test_recipient" class="text-input test-recipient-input" placeholder="Test phone number (+...)...">
+        <button class="test-button" id="test-button" type="button" disabled>Test</button>
+      </div>
+      <button class="send-button" id="send-button" type="submit" disabled>Send SMS</button>
+    </div>
+  </div>
+  <p class="form-error" id="form-error" role="alert" hidden></p>
+</form>
+
+<section class="summary" id="summary" aria-labelledby="summary-title" hidden>
+  <div><p class="eyebrow">CAMPAIGN COMPLETE</p><h2 id="summary-title">Summary</h2></div>
+  <dl class="summary-stats">
+    <div><dt>PROVIDED</dt><dd id="summary-total">0</dd></div>
+    <div><dt>SENT</dt><dd class="sent-count" id="summary-sent">0</dd></div>
+    <div><dt>ERROR</dt><dd class="error-count" id="summary-errors">0</dd></div>
+  </dl>
+</section>
+
+<section class="activity" aria-labelledby="activity-title" id="activity-section" hidden>
+  <div class="activity-heading">
+    <div><p class="eyebrow">DELIVERY LOG</p><h2 id="activity-title">Status</h2></div>
+    <p id="progress-label" class="progress-label">AWAITING CAMPAIGN</p>
+  </div>
+  <div class="progress-track" aria-hidden="true"><span id="progress-bar"></span></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col">TO</th><th scope="col">STATUS</th></tr></thead>
+      <tbody id="status-rows"><tr class="empty-row"><td colspan="2">Recipient results will appear here.</td></tr></tbody>
+    </table>
+  </div>
+  <div class="form-footer" id="export-row" hidden>
+    <div class="footer-actions" style="justify-content: flex-end;">
+      <a class="send-button" id="export-button" href="#" style="text-decoration: none;">Export to Excel</a>
+    </div>
+  </div>
+</section>
+</div>{% endblock %}
+
+{% block scripts %}
+<script>
+// Mirrors the composer's own limit check. The server re-checks on submit and
+// per recipient after substitution, so this is a prompt, not the enforcement.
+const GSM_BASIC = new Set(
+  "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./" +
+  "0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§" +
+  "¿abcdefghijklmnopqrstuvwxyzäöñüà"
+);
+const GSM_EXTENSION = new Set("^{}\\[~]|€\f");
+const GSM_7_PER_SEGMENT = 160;
+const UCS_2_PER_SEGMENT = 70;
+
+const form = document.querySelector("#sms-form");
+const messageInput = document.querySelector("#message");
+const meter = document.querySelector("#sms-meter");
+const usedLabel = document.querySelector("#sms-used");
+const budgetLabel = document.querySelector("#sms-budget");
+const detailLabel = document.querySelector("#sms-detail");
+const sendButton = document.querySelector("#send-button");
+const testButton = document.querySelector("#test-button");
+const testRecipientInput = document.querySelector("#test_recipient");
+const phoneListInput = document.querySelector("#phone-list");
+const formError = document.querySelector("#form-error");
+const rows = document.querySelector("#status-rows");
+const progressLabel = document.querySelector("#progress-label");
+const progressBar = document.querySelector("#progress-bar");
+const summary = document.querySelector("#summary");
+const activitySection = document.getElementById("activity-section");
+const exportRow = document.getElementById("export-row");
+const exportButton = document.getElementById("export-button");
+let currentJobId = null;
+let csvHasPhone = false;
+let testRecipientValid = false;
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const senderInput = document.querySelector("#sender");
+
+function updateButtonStates() {
+  const messageFilled = messageInput ? messageInput.value.trim() !== "" : false;
+  const allRequiredFilled = messageFilled && csvHasPhone;
+
+  sendButton.disabled = !allRequiredFilled;
+  testButton.disabled = !(allRequiredFilled && testRecipientValid);
+}
+
+if (senderInput) senderInput.addEventListener("input", updateButtonStates);
+
+function checkPhoneListFile(file) {
+  if (!file) {
+    csvHasPhone = false;
+    updateButtonStates();
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const text = e.target.result || "";
+    const lines = text.split(/\r\n|\n|\r/);
+    if (lines.length > 0) {
+      const headers = lines[0].split(/[,;\t]/).map((h) => h.replace(/^["']|["']$/g, "").trim().toUpperCase());
+      csvHasPhone = headers.includes("PHONE");
+    } else {
+      csvHasPhone = false;
+    }
+    updateButtonStates();
+  };
+  reader.onerror = () => {
+    csvHasPhone = false;
+    updateButtonStates();
+  };
+  reader.readAsText(file.slice(0, 4096));
+}
+
+// Returns { encoding, budget, units } for the text as typed.
+function measure(text) {
+  const chars = Array.from(text);
+  const isNarrow = chars.every((ch) => GSM_BASIC.has(ch) || GSM_EXTENSION.has(ch));
+  if (!isNarrow) {
+    return { encoding: "UCS-2", budget: UCS_2_PER_SEGMENT, units: chars.length };
+  }
+  const extensionCount = chars.filter((ch) => GSM_EXTENSION.has(ch)).length;
+  return {
+    encoding: "GSM-7",
+    budget: GSM_7_PER_SEGMENT,
+    units: chars.length + extensionCount,
+  };
+}
+
+function updateMeter() {
+  const text = messageInput.value;
+  const { encoding, budget, units } = measure(text);
+  messageInput.maxLength = budget;
+  usedLabel.textContent = units;
+  budgetLabel.textContent = budget;
+  const over = text.length > 0 && units > budget;
+  meter.dataset.over = over ? "true" : "false";
+  const segments = text.length === 0 ? 0 : Math.ceil(units / budget);
+  detailLabel.textContent = over
+    ? `${encoding} · ${segments} SMS — too long`
+    : `${encoding} · ${segments || 0} SMS`;
+  return !over;
+}
+
+messageInput.addEventListener("input", () => {
+  updateMeter();
+  updateButtonStates();
+});
+updateMeter();
+updateButtonStates();
+
+phoneListInput.addEventListener("change", (event) => {
+  const file = event.target.files[0];
+  document.querySelector("#list-label").textContent = file?.name || "Choose CSV or drop here";
+  checkPhoneListFile(file);
+});
+
+testRecipientInput.addEventListener("input", () => {
+  const val = testRecipientInput.value.trim();
+  testRecipientValid = /^\+?[0-9\s\-()]{7,20}$/.test(val);
+  updateButtonStates();
+});
+
+const dropZoneList = document.getElementById("drop-zone-list");
+["dragenter", "dragover"].forEach((evt) => {
+  dropZoneList.addEventListener(evt, (e) => { e.preventDefault(); dropZoneList.classList.add("drop-zone--active"); });
+});
+["dragleave", "drop"].forEach((evt) => {
+  dropZoneList.addEventListener(evt, (e) => { e.preventDefault(); dropZoneList.classList.remove("drop-zone--active"); });
+});
+dropZoneList.addEventListener("drop", (e) => {
+  const files = e.dataTransfer.files;
+  if (files.length) {
+    const input = document.getElementById("phone-list");
+    input.files = files;
+    input.dispatchEvent(new Event("change"));
+  }
+});
+
+function showError(text) {
+  formError.textContent = text;
+  formError.hidden = !text;
+}
+
+function appendResult(result) {
+  if (rows.querySelector(".empty-row")) rows.replaceChildren();
+  const row = document.createElement("tr");
+  const phone = document.createElement("td");
+  phone.className = "recipient-cell";
+  phone.textContent = result.to;
+  const statusCell = document.createElement("td");
+  const status = document.createElement("span");
+  status.className = `status-chip ${result.status.toLowerCase()}`;
+  status.textContent = result.status;
+  statusCell.append(status);
+  if (result.reason) {
+    const reason = document.createElement("span");
+    reason.className = "error-reason";
+    reason.textContent = result.reason;
+    statusCell.append(reason);
+  } else if (result.tracking_id) {
+    const tracking = document.createElement("span");
+    tracking.className = "tracking-id";
+    tracking.textContent = result.tracking_id;
+    statusCell.append(tracking);
+  }
+  row.append(phone, statusCell);
+  rows.append(row);
+}
+
+testButton.addEventListener("click", async () => {
+  showError("");
+  if (!updateMeter()) {
+    showError("Shorten the message to one SMS before testing.");
+    return;
+  }
+  testButton.disabled = true;
+  try {
+    const result = await composerFetch("/apps/sms/test", { method: "POST", body: new FormData(form) });
+    alert(result.message || "Test SMS sent.");
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    updateButtonStates();
+  }
+});
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  showError("");
+  summary.hidden = true;
+  activitySection.hidden = false;
+  rows.replaceChildren();
+  progressBar.style.width = "0%";
+  sendButton.disabled = true;
+  progressLabel.textContent = "PREPARING CAMPAIGN";
+  exportRow.hidden = true;
+
+  try {
+    if (!updateMeter()) throw new Error("The message is longer than one SMS. Shorten it and try again.");
+    const started = await composerFetch("/apps/sms/send", { method: "POST", body: new FormData(form) });
+    currentJobId = started.job_id;
+    exportButton.href = `/apps/sms/jobs/${encodeURIComponent(currentJobId)}/export`;
+
+    let shownResults = 0;
+    let snapshot;
+    do {
+      snapshot = await composerFetch(`/apps/sms/jobs/${encodeURIComponent(currentJobId)}`, { cache: "no-store" });
+      snapshot.results.slice(shownResults).forEach(appendResult);
+      shownResults = snapshot.results.length;
+      const percentage = snapshot.total ? (shownResults / snapshot.total) * 100 : 100;
+      progressBar.style.width = `${percentage}%`;
+      progressLabel.textContent = `${shownResults} / ${snapshot.total} PROCESSED`;
+      if (!snapshot.complete) await delay(700);
+    } while (!snapshot.complete);
+
+    document.querySelector("#summary-total").textContent = snapshot.total;
+    document.querySelector("#summary-sent").textContent = snapshot.sent;
+    document.querySelector("#summary-errors").textContent = snapshot.errors;
+    summary.hidden = false;
+    progressLabel.textContent = "ALL RECIPIENTS PROCESSED";
+    exportRow.hidden = false;
+  } catch (error) {
+    showError(error.message);
+    progressLabel.textContent = "CAMPAIGN INTERRUPTED";
+  } finally {
+    updateButtonStates();
+  }
+});
+</script>
+{% endblock %}
