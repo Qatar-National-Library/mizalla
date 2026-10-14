@@ -36,3 +36,7 @@
   - File system operations: create, delete, move, and edit files and directories across the filesystem
 - **Icon Standard**: Use Lucide icons (`<i data-lucide="..."></i>` with `lucide.createIcons()`) across all projects wherever icons are needed, unless otherwise specifically directed. Icons must use the primary brand green (`var(--green-dark, #103e30)`) on light backgrounds, and white (`#ffffff`) on green or dark backgrounds.
 - **Python Package Management**: When working with Python code, **ALWAYS use `requirements.txt`** for package management (installing, updating, and pinning dependencies with `pip install -r requirements.txt`). Do not introduce or use alternative package managers unless explicitly instructed.
+- **Python Virtual Environment Lifecycle**:
+  - Always use a virtual environment to develop, test, write code, or run Python applications and scripts.
+  - If a virtual environment is not available, create one immediately (default name = `venv`, e.g., `python -m venv venv`).
+  - If Python packages change (new ones added, version changed, package list edited, etc.) as you develop/write code, drop the virtual environment and recreate it cleanly from scratch before reinstalling packages (`pip install -r requirements.txt`).

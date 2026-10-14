@@ -27,3 +27,7 @@ The AI Agent is authorized with full access to run:
 - Credentials are encrypted at rest with Fernet (`mizalla.crypto_vault`).
 - Preserve all existing tests and ensure `python -m pytest` passes.
 - **Python Package Management**: If we are working with Python code, **ALWAYS use `requirements.txt`** for package management (`pip install -r requirements.txt`). Do not use alternative managers unless explicitly instructed.
+- **Python Virtual Environment Lifecycle**:
+  - Always use a virtual environment to develop, test, write code, or run Python applications and scripts.
+  - If a virtual environment is not available, create one immediately (default name = `venv`, e.g., `python -m venv venv`).
+  - If Python packages change (new ones added, version changed, package list edited, etc.) as you develop/write code, drop the virtual environment and recreate it cleanly from scratch before reinstalling packages (`pip install -r requirements.txt`).

@@ -46,3 +46,11 @@ The AI Agent / Antigravity IDE has full, unconditional authorization to run and 
 - When working with Python code, **ALWAYS use `requirements.txt`** for package management.
 - Maintain and update all project dependencies in `requirements.txt`.
 - Install packages via `pip install -r requirements.txt` (or `pip install <package>` and record in `requirements.txt`). Do not introduce or switch to alternative managers (Poetry, Pipenv, Flit, etc.) unless explicitly instructed by the user.
+
+---
+
+## 5. Python Virtual Environment Lifecycle Standard
+- **Always use a Virtual Environment**: Always use a virtual environment to develop, test, write code, or run Python applications and scripts.
+- **Creation when Missing**: If a virtual environment is not available, create one immediately (default name = `venv`, e.g., `python -m venv venv`).
+- **Drop & Recreate on Package Changes**: If Python packages change at any point (new packages added, versions changed, package list edited, or `requirements.txt` updated) during development, drop/delete the existing virtual environment and recreate it cleanly from scratch before reinstalling packages (`pip install -r requirements.txt`).
+
