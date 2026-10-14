@@ -39,3 +39,10 @@ The AI Agent / Antigravity IDE has full, unconditional authorization to run and 
 - Remote Server Orchestration: Agentless AsyncSSH execution engine (`mizalla/asyncssh_engine.py`, `mizalla/remote_exec_client.py`, `mizalla/remote_exec.py`). No remote agents.
 - Database: SQLAlchemy models with encrypted credentials via cryptography/Fernet (`mizalla/crypto_vault.py`).
 - Testing: `python -m pytest` with comprehensive unit and integration test coverage.
+
+---
+
+## 4. Python Package Management Standard
+- When working with Python code, **ALWAYS use `requirements.txt`** for package management.
+- Maintain and update all project dependencies in `requirements.txt`.
+- Install packages via `pip install -r requirements.txt` (or `pip install <package>` and record in `requirements.txt`). Do not introduce or switch to alternative managers (Poetry, Pipenv, Flit, etc.) unless explicitly instructed by the user.

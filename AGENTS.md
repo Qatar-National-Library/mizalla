@@ -26,3 +26,4 @@ The AI Agent is authorized with full access to run:
 - Remote Execution module uses Agentless AsyncSSH (`mizalla.asyncssh_engine`).
 - Credentials are encrypted at rest with Fernet (`mizalla.crypto_vault`).
 - Preserve all existing tests and ensure `python -m pytest` passes.
+- **Python Package Management**: If we are working with Python code, **ALWAYS use `requirements.txt`** for package management (`pip install -r requirements.txt`). Do not use alternative managers unless explicitly instructed.

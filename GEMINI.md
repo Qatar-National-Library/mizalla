@@ -12,3 +12,6 @@ The agent has full access and permission to execute:
 ## Universal Icon Standard
 - Use **Lucide icons** (`data-lucide`) across all projects wherever icons are needed, unless specifically directed otherwise.
 - Green (`var(--green-dark, #103e30)`) on light backgrounds; White (`#ffffff`) on green or dark backgrounds.
+
+## Python Package Management Standard
+- If working with Python code, **ALWAYS use `requirements.txt`** for package management (`pip install -r requirements.txt`). Do not use alternative package managers unless explicitly instructed.

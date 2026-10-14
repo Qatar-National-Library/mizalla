@@ -45,3 +45,4 @@
   - Version control commands: `git`
   - File system operations: create, delete, move, and edit files and directories across the filesystem
 - **Icon Standard**: Use Lucide icons (`<i data-lucide="..."></i>` with `lucide.createIcons()`) across all projects wherever icons are needed, unless otherwise specifically directed. Icons must use the primary brand green (`var(--green-dark, #103e30)`) on light backgrounds, and white (`#ffffff`) on green or dark backgrounds.
+- **Python Package Management**: When working with Python code, **ALWAYS use `requirements.txt`** for package management (installing, updating, and pinning dependencies with `pip install -r requirements.txt`). Do not introduce or use alternative package managers unless explicitly instructed.
