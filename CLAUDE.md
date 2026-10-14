@@ -37,3 +37,11 @@
 - Run tests with `.\.venv\Scripts\python.exe -m pytest -q` from the repository root.
 - Never add default passwords or demo accounts. Bootstrap an administrator with the `create-admin` Flask CLI command.
 - Never commit a usable `SECRET_KEY`; local development generates and persists it in the ignored `instance/.secret_key` file.
+- **Permissions & Execution Access**: Full access is granted to execute:
+  - PowerShell commands and PowerShell scripts (`.ps1`)
+  - CLI, Command Line commands and `.bat` batch scripts
+  - Python CLI, Python commands and `.py` scripts
+  - Package and runtime commands/scripts: `pip`, `npm`, `pnpm`, and `node`
+  - Version control commands: `git`
+  - File system operations: create, delete, move, and edit files and directories across the filesystem
+- **Icon Standard**: Use Lucide icons (`<i data-lucide="..."></i>` with `lucide.createIcons()`) across all projects wherever icons are needed, unless otherwise specifically directed. Icons must use the primary brand green (`var(--green-dark, #103e30)`) on light backgrounds, and white (`#ffffff`) on green or dark backgrounds.

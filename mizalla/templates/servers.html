@@ -7,12 +7,203 @@
 {{ admin_nav('servers') }}
 <section class="detail-grid admin-grid">
   <div class="detail-section">
-    <div class="section-heading"><div><p class="eyebrow">SERVER INVENTORY / {{ servers|length }}</p><h2>Environments</h2></div></div>
-    <div class="directory-list">{% for server in servers %}<article class="server-row"><div class="server-index">{{ "%02d"|format(loop.index) }}</div><div class="directory-copy"><strong>{{ server.name }}</strong><span>{{ server.ip }} · {{ server.operating_system }}</span><small>{{ server.technology_packages or "No technology / packages listed" }}</small>{% if server.test_projects or server.production_projects %}<small>Assigned to {% for project in server.test_projects %}{{ project.name }} (test){% if not loop.last or server.production_projects %}, {% endif %}{% endfor %}{% for project in server.production_projects %}{{ project.name }} (production){% if not loop.last %}, {% endif %}{% endfor %}</small>{% endif %}</div><a class="button button-quiet button-small" href="{{ url_for('admin.server_edit', server_id=server.id) }}">Edit</a><form method="post" action="{{ url_for('admin.server_delete', server_id=server.id) }}" onsubmit="return confirm('Delete this server?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="text-button danger-text" type="submit">Delete</button></form></article>{% else %}<p class="muted empty-inline">No servers recorded.</p>{% endfor %}</div>
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">SERVER INVENTORY / {{ servers|length }}</p>
+        <h2>Environments & Remote Agents</h2>
+      </div>
+    </div>
+    <div class="directory-list" id="server-directory-list">
+      {% for server in servers %}
+      <article class="server-row" id="server-row-{{ server.id }}" data-server-id="{{ server.id }}">
+        <div class="server-index">{{ "%02d"|format(loop.index) }}</div>
+        <div class="directory-copy" style="flex: 1 1 auto;">
+          <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.25rem;">
+            <strong>{{ server.name }}</strong>
+            
+            {# Connection Status Badge #}
+            {% if server.agent_status == 'online' %}
+              <span class="badge status-badge-online" id="status-badge-{{ server.id }}" style="background:#2e7d32; color:#fff; font-size:0.75rem; padding:0.18rem 0.45rem; border-radius:3px; font-weight:600;">CONNECTED</span>
+            {% elif server.agent_status == 'connecting' %}
+              <span class="badge status-badge-connecting" id="status-badge-{{ server.id }}" style="background:#ef6c00; color:#fff; font-size:0.75rem; padding:0.18rem 0.45rem; border-radius:3px; font-weight:600; display:inline-flex; align-items:center; gap:0.35rem;">
+                <span class="status-spinner" style="display:inline-block; width:8px; height:8px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
+                CONNECTING (Retry {{ server.connection_attempts }}/{{ server.max_connection_attempts or 5 }})
+              </span>
+            {% elif server.agent_status == 'failed' %}
+              <span class="badge status-badge-failed" id="status-badge-{{ server.id }}" style="background:#c62828; color:#fff; font-size:0.75rem; padding:0.18rem 0.45rem; border-radius:3px; font-weight:600;">FAILED (5/5 Retries)</span>
+            {% else %}
+              <span class="badge status-badge-offline" id="status-badge-{{ server.id }}" style="background:#757575; color:#fff; font-size:0.75rem; padding:0.18rem 0.45rem; border-radius:3px; font-weight:600;">NOT CONNECTED</span>
+            {% endif %}
+          </div>
+
+          <span>{{ server.ip }} · {{ server.operating_system }}</span>
+          <small id="connection-msg-{{ server.id }}" class="muted" style="display:block; margin-top:0.2rem;">
+            {{ server.connection_message or server.technology_packages or "No technology / packages listed" }}
+          </small>
+
+          {% if server.test_projects or server.production_projects %}
+          <small style="margin-top:0.2rem;">
+            Assigned to 
+            {% for project in server.test_projects %}
+              {{ project.name }} (test){% if not loop.last or server.production_projects %}, {% endif %}
+            {% endfor %}
+            {% for project in server.production_projects %}
+              {{ project.name }} (production){% if not loop.last %}, {% endif %}
+            {% endfor %}
+          </small>
+          {% endif %}
+        </div>
+
+        {# Action controls including RECONNECT button #}
+        <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+          {# RECONNECT Button: Disabled while connecting or already online, enabled when all 5 retries fail #}
+          {% set can_reconnect = server.agent_status in ['failed', 'offline'] %}
+          <button 
+            type="button" 
+            class="button button-small reconnect-btn" 
+            id="reconnect-btn-{{ server.id }}"
+            data-server-id="{{ server.id }}"
+            style="font-size:0.75rem; padding:0.25rem 0.6rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:0.25rem;"
+            {% if not can_reconnect %}disabled title="Reconnect is enabled only after all 5 retries fail"{% endif %}
+            onclick="initiateReconnect({{ server.id }})">
+            <i data-lucide="rotate-cw" class="icon-green"></i> RECONNECT
+          </button>
+
+          <a class="button button-quiet button-small" href="{{ url_for('admin.server_edit', server_id=server.id) }}">Edit & Token</a>
+          
+          <form method="post" action="{{ url_for('admin.server_delete', server_id=server.id) }}" onsubmit="return confirm('Delete this server?')" style="margin:0;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="text-button danger-text" type="submit" style="padding:0.25rem 0.4rem;">Delete</button>
+          </form>
+        </div>
+      </article>
+      {% else %}
+      <p class="muted empty-inline">No servers recorded.</p>
+      {% endfor %}
+    </div>
   </div>
+
   <aside class="detail-section create-panel">
     <div class="section-heading"><div><p class="eyebrow">NEW RECORD</p><h2>Add server</h2></div></div>
-    <form method="post" class="form-stack"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Server name<input name="name" maxlength="160" required></label><label>IP address<input name="ip" maxlength="45" required></label><label>Operating system<input name="operating_system" maxlength="160" required></label><label>Technology / packages<textarea name="technology_packages" rows="4"></textarea></label><button class="button button-primary" type="submit">Create server</button></form>
+    <form method="post" class="form-stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Server name<input name="name" maxlength="160" required placeholder="e.g. Production Web Node 1"></label>
+      <label>IP address<input name="ip" maxlength="45" required placeholder="e.g. 192.168.1.100"></label>
+      <label>Operating system<input name="operating_system" maxlength="160" required placeholder="e.g. Ubuntu 22.04 LTS"></label>
+      <label>Technology / packages<textarea name="technology_packages" rows="4" placeholder="e.g. Nginx, Python 3.12, PostgreSQL client"></textarea></label>
+      <button class="button button-primary" type="submit">Create server</button>
+    </form>
   </aside>
 </section>
+
+<style>
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.reconnect-btn:disabled {
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+  background: rgba(0,0,0,0.06) !important;
+  border-color: rgba(0,0,0,0.15) !important;
+  color: var(--muted) !important;
+}
+.reconnect-btn:not(:disabled) {
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--accent, #1a73e8);
+  color: var(--accent, #1a73e8);
+}
+.reconnect-btn:not(:disabled):hover {
+  background: var(--accent, #1a73e8);
+  color: #fff;
+}
+</style>
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+  const csrfToken = "{{ csrf_token() }}";
+
+  window.initiateReconnect = function(serverId) {
+    const btn = document.getElementById("reconnect-btn-" + serverId);
+    const badge = document.getElementById("status-badge-" + serverId);
+    const msg = document.getElementById("connection-msg-" + serverId);
+
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<i data-lucide="loader" class="icon-green spin"></i> Retrying...';
+      if (window.lucide) lucide.createIcons();
+    }
+    if (badge) {
+      badge.style.background = "#ef6c00";
+      badge.innerHTML = '<span class="status-spinner" style="display:inline-block; width:8px; height:8px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span> CONNECTING (Retry 1/5)';
+    }
+    if (msg) {
+      msg.textContent = "Initiating connection cycle (5 retries with backoff)...";
+    }
+
+    fetch("/apps/admin/servers/" + serverId + "/reconnect", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": csrfToken,
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json"
+      }
+    })
+    .then(r => r.json())
+    .catch(err => console.warn("Reconnect request sent:", err));
+  };
+
+  // Poll connection status for all servers every 2.5 seconds
+  function pollServerStatuses() {
+    const rows = document.querySelectorAll(".server-row[data-server-id]");
+    rows.forEach(row => {
+      const serverId = row.getAttribute("data-server-id");
+      if (!serverId) return;
+
+      fetch("/apps/admin/servers/" + serverId + "/connection-status", {
+        headers: { "Accept": "application/json", "X-Requested-With": "XMLHttpRequest" }
+      })
+      .then(r => r.json())
+      .then(data => {
+        const badge = document.getElementById("status-badge-" + serverId);
+        const btn = document.getElementById("reconnect-btn-" + serverId);
+        const msg = document.getElementById("connection-msg-" + serverId);
+
+        if (!badge || !btn) return;
+
+        if (data.is_online) {
+          badge.style.background = "#2e7d32";
+          badge.innerHTML = "CONNECTED";
+          btn.disabled = true;
+          btn.innerHTML = '<i data-lucide="rotate-cw" class="icon-green"></i> RECONNECT';
+          if (data.connection_message && msg) msg.textContent = data.connection_message;
+        } else if (data.agent_status === "connecting") {
+          badge.style.background = "#ef6c00";
+          badge.innerHTML = `<span class="status-spinner" style="display:inline-block; width:8px; height:8px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span> CONNECTING (Retry ${data.connection_attempts || 1}/${data.max_connection_attempts || 5})`;
+          btn.disabled = true;
+          btn.innerHTML = `<i data-lucide="loader" class="icon-green spin"></i> Retry ${data.connection_attempts || 1}...`;
+          if (data.connection_message && msg) msg.textContent = data.connection_message;
+        } else if (data.agent_status === "failed") {
+          badge.style.background = "#c62828";
+          badge.innerHTML = `FAILED (${data.connection_attempts || 5}/${data.max_connection_attempts || 5} Retries)`;
+          // When all 5 tries fail: enable the RECONNECT button
+          btn.disabled = false;
+          btn.innerHTML = '<i data-lucide="rotate-cw" class="icon-green"></i> RECONNECT';
+          if (data.connection_message && msg) msg.textContent = data.connection_message;
+        } else {
+          badge.style.background = "#757575";
+          badge.innerHTML = "NOT CONNECTED";
+          btn.disabled = false;
+          btn.innerHTML = '<i data-lucide="rotate-cw" class="icon-green"></i> RECONNECT';
+        }
+        if (window.lucide) lucide.createIcons();
+      })
+      .catch(() => {});
+    });
+  }
+
+  setInterval(pollServerStatuses, 2500);
+});
+</script>
 {% endblock %}

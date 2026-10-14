@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb %}
+{% block title %}Access Permissions · {{ group.name }} · Mizalla{% endblock %}
+
+{% block content %}
+{{ breadcrumb([("Projects", url_for('main.project_list')), ("Remote Command Orchestration", url_for('remote_exec.dashboard')), (group.name, url_for('remote_exec.group_edit', group_id=group.id)), ("Access Permissions", None)]) }}
+
+<div class="remote-exec-container" style="max-width: 900px; margin: 0 auto; padding-bottom: 3rem;">
+  <div class="heading-row" style="margin-bottom: 1.5rem;">
+    <p class="eyebrow">SECURITY & AUDIT COMPLIANCE</p>
+    <h1 style="margin: 0.2rem 0 0; font: 400 clamp(1.6rem, 3vw, 2.2rem)/1.15 Georgia, serif;">
+      Access Control: {{ group.name }}
+    </h1>
+    <p class="lede" style="margin-top:0.3rem; color:var(--muted);">
+      Configure per-member permissions. Users with only <code>can_run</code> can execute this workflow without viewing sensitive terminal output or knowing server credentials.
+    </p>
+  </div>
+
+  <form method="post" class="form-stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="detail-section" style="border: 1px solid var(--border-color, #e0e0e0); border-radius: 8px; background: #fff; padding: 1.25rem;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+        <thead>
+          <tr style="border-bottom: 2px solid #eee; text-align: left;">
+            <th style="padding: 0.75rem 0.5rem;">Member</th>
+            <th style="padding: 0.75rem 0.5rem; text-align: center;">Can Run <i data-lucide="play" class="icon-green"></i></th>
+            <th style="padding: 0.75rem 0.5rem; text-align: center;">Can View Logs <i data-lucide="eye" class="icon-green"></i></th>
+            <th style="padding: 0.75rem 0.5rem; text-align: center;">Can Edit & Delete <i data-lucide="pencil" class="icon-green"></i></th>
+            <th style="padding: 0.75rem 0.5rem; text-align: center;">Can Duplicate <i data-lucide="copy" class="icon-green"></i></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for member in members %}
+          {% set perm = perms_by_user.get(member.id) %}
+          <tr style="border-bottom: 1px solid #f0f0f0;">
+            <td style="padding: 0.75rem 0.5rem;">
+              <strong>{{ member.name }}</strong>
+              <div style="font-size: 0.78rem; color: var(--muted);">{{ member.email }}</div>
+            </td>
+            <td style="padding: 0.75rem 0.5rem; text-align: center;">
+              <input type="checkbox" name="can_run_{{ member.id }}" value="1" {% if perm and perm.can_run %}checked{% endif %}>
+            </td>
+            <td style="padding: 0.75rem 0.5rem; text-align: center;">
+              <input type="checkbox" name="can_view_logs_{{ member.id }}" value="1" {% if perm and perm.can_view_logs %}checked{% endif %}>
+            </td>
+            <td style="padding: 0.75rem 0.5rem; text-align: center;">
+              <input type="checkbox" name="can_edit_{{ member.id }}" value="1" {% if perm and perm.can_edit %}checked{% endif %}>
+            </td>
+            <td style="padding: 0.75rem 0.5rem; text-align: center;">
+              <input type="checkbox" name="can_duplicate_{{ member.id }}" value="1" {% if perm and perm.can_duplicate %}checked{% endif %}>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top: 1.5rem;">
+        <a href="{{ url_for('remote_exec.group_edit', group_id=group.id) }}" class="button button-quiet">Back to Group</a>
+        <button type="submit" class="button button-primary">Save Permissions</button>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

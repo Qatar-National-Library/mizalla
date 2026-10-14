@@ -163,10 +163,11 @@ def create_app(test_config: dict | None = None) -> Flask:
     from .bulk_email import bp as bulk_email_bp
     from .bulk_sms import bp as bulk_sms_bp
     from .routes import bp as main_bp
-    from .teams import is_future_teams_meeting
     from .upload_file import bp as upload_file_bp
     from .video_upload import bp as video_upload_bp
     from .whatsapp import bp as whatsapp_bp
+    from .feedback import bp as feedback_bp
+    from .remote_exec import bp as remote_exec_bp
 
     csrf.exempt(api_bp)
     app.register_blueprint(admin_bp)
@@ -179,6 +180,10 @@ def create_app(test_config: dict | None = None) -> Flask:
     app.register_blueprint(ai_bp)
     app.register_blueprint(upload_file_bp)
     app.register_blueprint(video_upload_bp)
+    app.register_blueprint(feedback_bp)
+    app.register_blueprint(remote_exec_bp)
+    
+    from .teams import is_future_teams_meeting
     app.jinja_env.globals["is_future_teams_meeting"] = is_future_teams_meeting
 
     from .access import is_pm_membership

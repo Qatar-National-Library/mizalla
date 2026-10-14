@@ -16,12 +16,12 @@
 
   <div class="tabbed" data-settings-tabs>
     <div class="tab-bar settings-tab-bar" role="tablist" aria-label="Settings Sections" style="margin-bottom: 1.5rem; background: var(--surface); padding: 0.2rem 0.5rem; border: 1px solid var(--line); border-radius: 4px;">
-      <button type="button" class="tab" id="tab-general" role="tab" aria-controls="panel-general" aria-selected="true" tabindex="0">🌐 General & Core</button>
-      <button type="button" class="tab" id="tab-email" role="tab" aria-controls="panel-email" aria-selected="false" tabindex="-1">✉️ Email & Notifications</button>
-      <button type="button" class="tab" id="tab-whatsapp" role="tab" aria-controls="panel-whatsapp" aria-selected="false" tabindex="-1">💬 WhatsApp Service</button>
-      <button type="button" class="tab" id="tab-sms" role="tab" aria-controls="panel-sms" aria-selected="false" tabindex="-1">📱 SMS Service</button>
-      <button type="button" class="tab" id="tab-ai" role="tab" aria-controls="panel-ai" aria-selected="false" tabindex="-1">🤖 Azure AI & Security</button>
-      <button type="button" class="tab" id="tab-storage" role="tab" aria-controls="panel-storage" aria-selected="false" tabindex="-1">📁 Storage & Media</button>
+      <button type="button" class="tab" id="tab-general" role="tab" aria-controls="panel-general" aria-selected="true" tabindex="0"><i data-lucide="globe" class="icon-green"></i> General & Core</button>
+      <button type="button" class="tab" id="tab-email" role="tab" aria-controls="panel-email" aria-selected="false" tabindex="-1"><i data-lucide="mail" class="icon-green"></i> Email & Notifications</button>
+      <button type="button" class="tab" id="tab-whatsapp" role="tab" aria-controls="panel-whatsapp" aria-selected="false" tabindex="-1"><i data-lucide="message-square" class="icon-green"></i> WhatsApp Service</button>
+      <button type="button" class="tab" id="tab-sms" role="tab" aria-controls="panel-sms" aria-selected="false" tabindex="-1"><i data-lucide="smartphone" class="icon-green"></i> SMS Service</button>
+      <button type="button" class="tab" id="tab-ai" role="tab" aria-controls="panel-ai" aria-selected="false" tabindex="-1"><i data-lucide="bot" class="icon-green"></i> Azure AI & Security</button>
+      <button type="button" class="tab" id="tab-storage" role="tab" aria-controls="panel-storage" aria-selected="false" tabindex="-1"><i data-lucide="folder" class="icon-green"></i> Storage & Media</button>
     </div>
 
     {% set settings_by_key = {} %}
@@ -92,15 +92,15 @@
     {# ── Panel 1: General & Core ── #}
     <section class="tab-panel settings-panel" id="panel-general" role="tabpanel" aria-labelledby="tab-general" tabindex="0">
       <div class="card" style="margin-bottom: 1.5rem;">
-        <h2>🌐 General & Core Settings</h2>
+        <h2><i data-lucide="globe" class="icon-green"></i> General & Core Settings</h2>
         <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 1rem;">Primary application endpoints, ticket system integration, and global permissions.</p>
 
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1.5rem;">
           <strong>SECRET_KEY Status:</strong>
           {% if secret_key_configured %}
-            <span style="color: #16a34a; font-weight: 600;">✓ Configured in environment</span>
+            <span style="color: #16a34a; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i data-lucide="check" class="icon-green"></i> Configured in environment</span>
           {% else %}
-            <span style="color: #dc2626; font-weight: 600;">⚠️ Not explicitly configured (Using fallback key)</span>
+            <span style="color: #dc2626; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i data-lucide="alert-triangle" class="icon-green"></i> Not explicitly configured (Using fallback key)</span>
           {% endif %}
         </div>
 
@@ -125,27 +125,27 @@
       <div class="card" style="margin-bottom: 1.5rem;">
         <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
           <div>
-            <h2 style="margin: 0 0 0.3rem 0;">✉️ Email & Notifications</h2>
+            <h2 style="margin: 0 0 0.3rem 0;"><i data-lucide="mail" class="icon-green"></i> Email & Notifications</h2>
             <p style="font-size: 0.9rem; color: #64748b; margin: 0;">SendGrid dispatch configuration, scheduled job intervals, and test accounts.</p>
           </div>
-          <button type="submit" class="button button-secondary" name="action" value="run_jobs" formnovalidate onclick="this.form.action='{{ url_for('admin.run_jobs_now') }}';">⚡ Run Scheduled Jobs Now</button>
+          <button type="submit" class="button button-secondary" name="action" value="run_jobs" formnovalidate onclick="this.form.action='{{ url_for('admin.run_jobs_now') }}';"><i data-lucide="zap" class="icon-green"></i> Run Scheduled Jobs Now</button>
         </div>
 
         <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
           <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; flex: 1; min-width: 250px;">
             <strong>SENDGRID_API_KEY:</strong>
             {% if sendgrid_key_configured %}
-              <span style="color: #16a34a; font-weight: 600;">✓ Configured (Live SendGrid Emails active)</span>
+              <span style="color: #16a34a; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i data-lucide="check" class="icon-green"></i> Configured (Live SendGrid Emails active)</span>
             {% else %}
-              <span style="color: #d97706; font-weight: 600;">ℹ️ Unset (Emails logged locally in memory)</span>
+              <span style="color: #d97706; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i data-lucide="info" class="icon-green"></i> Unset (Emails logged locally in memory)</span>
             {% endif %}
           </div>
           <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; flex: 1; min-width: 250px;">
             <strong>Bulk Email Service:</strong>
             {% if sendgrid_key_configured %}
-              <span style="color: #16a34a; font-weight: 600;">✓ Ready (SendGrid API)</span>
+              <span style="color: #16a34a; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i data-lucide="check" class="icon-green"></i> Ready (SendGrid API)</span>
             {% else %}
-              <span style="color: #d97706; font-weight: 600;">ℹ️ Active (Local Log Fallback)</span>
+              <span style="color: #d97706; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i data-lucide="info" class="icon-green"></i> Active (Local Log Fallback)</span>
             {% endif %}
           </div>
         </div>
@@ -165,16 +165,16 @@
     {# ── Panel 3: WhatsApp Service ── #}
     <section class="tab-panel settings-panel" id="panel-whatsapp" role="tabpanel" aria-labelledby="tab-whatsapp" tabindex="0" hidden>
       <div class="card" style="margin-bottom: 1.5rem;">
-        <h2>💬 WhatsApp Service (GOWA)</h2>
+        <h2><i data-lucide="message-square" class="icon-green"></i> WhatsApp Service (GOWA)</h2>
         <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 1rem;">GOWA MCP server connection details and testing credentials for WhatsApp integration.</p>
 
         <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
           <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; flex: 1; min-width: 250px;">
             <strong>Bulk WhatsApp Service:</strong>
             {% if settings_by_key.get('gowa_mcp_base_url') and settings_by_key.get('gowa_mcp_base_url').value %}
-              <span style="color: #16a34a; font-weight: 600;">✓ Ready (GOWA MCP Server)</span>
+              <span style="color: #16a34a; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i data-lucide="check" class="icon-green"></i> Ready (GOWA MCP Server)</span>
             {% else %}
-              <span style="color: #d97706; font-weight: 600;">ℹ️ Ready (Default GOWA endpoint)</span>
+              <span style="color: #d97706; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i data-lucide="info" class="icon-green"></i> Ready (Default GOWA endpoint)</span>
             {% endif %}
           </div>
         </div>
@@ -184,7 +184,7 @@
             <strong style="font-size: 0.95rem;">WhatsApp Registered Devices:</strong>
             <p style="font-size: 0.85rem; color: #64748b; margin: 0.2rem 0 0 0;">Register new WhatsApp devices via QR code scan and assign member device permissions.</p>
           </div>
-          <a href="{{ url_for('whatsapp.device_list') }}" class="button button-primary button-small" style="text-decoration: none;">📱 Manage Registered Devices</a>
+          <a href="{{ url_for('whatsapp.device_list') }}" class="button button-primary button-small" style="text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem;"><i data-lucide="smartphone" class="icon-white"></i> Manage Registered Devices</a>
         </div>
 
         {{ render_setting('gowa_mcp_base_url') }}
@@ -201,15 +201,15 @@
     {# ── Panel 4: SMS Service ── #}
     <section class="tab-panel settings-panel" id="panel-sms" role="tabpanel" aria-labelledby="tab-sms" tabindex="0" hidden>
       <div class="card" style="margin-bottom: 1.5rem;">
-        <h2>📱 SMS Service (Pingram)</h2>
+        <h2><i data-lucide="smartphone" class="icon-green"></i> SMS Service (Pingram)</h2>
         <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 1rem;">Pingram SMS gateway configuration and testing phone numbers.</p>
 
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1.5rem;">
           <strong>Bulk SMS Service:</strong>
           {% if service_states.get('bulk_sms', {}).get('configured') %}
-            <span style="color: #16a34a; font-weight: 600;">✓ Ready</span>
+            <span style="color: #16a34a; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i data-lucide="check" class="icon-green"></i> Ready</span>
           {% else %}
-            <span style="color: #dc2626; font-weight: 600;">✗ Missing config: {{ service_states.get('bulk_sms', {}).get('missing', []) | join(', ') }}</span>
+            <span style="color: #dc2626; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i data-lucide="x" class="icon-green"></i> Missing config: {{ service_states.get('bulk_sms', {}).get('missing', []) | join(', ') }}</span>
           {% endif %}
         </div>
 
@@ -222,7 +222,7 @@
     {# ── Panel 5: Azure AI & Security ── #}
     <section class="tab-panel settings-panel" id="panel-ai" role="tabpanel" aria-labelledby="tab-ai" tabindex="0" hidden>
       <div class="card" style="margin-bottom: 1.5rem;">
-        <h2>🤖 Azure AI & Security</h2>
+        <h2><i data-lucide="bot" class="icon-green"></i> Azure AI & Security</h2>
         <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 1rem;">Chat document chunking parameters and TLS security settings.</p>
 
         <h3 style="font-size: 1rem; margin: 1rem 0 0.5rem;">Azure Service Status</h3>
@@ -232,9 +232,9 @@
           <li style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; flex: 1; min-width: 220px;">
             <strong>{{ feature_labels.get(feature, feature) }}:</strong>
             {% if state.configured %}
-              <span style="color: #16a34a; font-weight: 600;">✓ Configured</span>
+              <span style="color: #16a34a; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i data-lucide="check" class="icon-green"></i> Configured</span>
             {% else %}
-              <span style="color: #dc2626; font-weight: 600;">✗ Missing — set in .env:</span>
+              <span style="color: #dc2626; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i data-lucide="x" class="icon-green"></i> Missing — set in .env:</span>
               <ul style="margin: .4rem 0 0; padding-left: 1.1rem; font-size: 0.8rem;">
                 {% for name in state.get('missing', []) %}
                 <li><code>{{ name }}</code></li>
@@ -256,24 +256,24 @@
     {# ── Panel 6: Storage & Media ── #}
     <section class="tab-panel settings-panel" id="panel-storage" role="tabpanel" aria-labelledby="tab-storage" tabindex="0" hidden>
       <div class="card" style="margin-bottom: 1.5rem;">
-        <h2>📁 Storage & Media Services</h2>
+        <h2><i data-lucide="folder" class="icon-green"></i> Storage & Media Services</h2>
         <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 1rem;">Document upload storage directory paths and Cloudflare Stream video duration limits.</p>
 
         <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
           <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; flex: 1; min-width: 240px;">
             <strong>Upload File Service:</strong>
             {% if service_states.get('upload_file', {}).get('configured') %}
-              <span style="color: #16a34a; font-weight: 600;">✓ Ready</span>
+              <span style="color: #16a34a; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i data-lucide="check" class="icon-green"></i> Ready</span>
             {% else %}
-              <span style="color: #dc2626; font-weight: 600;">✗ Missing config</span>
+              <span style="color: #dc2626; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i data-lucide="x" class="icon-green"></i> Missing config</span>
             {% endif %}
           </div>
           <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; flex: 1; min-width: 240px;">
             <strong>Video Upload Service:</strong>
             {% if service_states.get('video_upload', {}).get('configured') %}
-              <span style="color: #16a34a; font-weight: 600;">✓ Ready</span>
+              <span style="color: #16a34a; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i data-lucide="check" class="icon-green"></i> Ready</span>
             {% else %}
-              <span style="color: #dc2626; font-weight: 600;">✗ Missing config: {{ service_states.get('video_upload', {}).get('missing', []) | join(', ') }}</span>
+              <span style="color: #dc2626; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i data-lucide="x" class="icon-green"></i> Missing config: {{ service_states.get('video_upload', {}).get('missing', []) | join(', ') }}</span>
             {% endif %}
           </div>
         </div>
@@ -316,6 +316,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (updateHash && history.replaceState) {
       history.replaceState(null, '', '#' + panelId);
+    }
+    if (window.lucide) {
+      lucide.createIcons();
     }
   }
 

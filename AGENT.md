@@ -27,3 +27,11 @@
 - The Project Summary screen (`/projects/<id>/summary`) is read by Stakeholders, Clients, the Project Manager, and any team/vendor role; it is 404 for everyone else. It renders nine native `<details>` accordions collapsed by default plus an always-visible four-tile pulse row (completion, next milestone, needs-attention, next meeting), and a **Full project details** link to the detail view. All roles read-only unless the member holds a project-team role. `mizalla.highlights` drives the summary's badge and milestone rendering.
 - Error handling: `mizalla.__init__` registers 403, 404, 500 and 413 handlers so every `abort(403)` / `abort(404)` from `access.py` renders the styled `error.html` template (which links back to the portfolio) rather than Flask's bare default page. The 404 message deliberately names no project so a hidden record does not leak its existence.
 - Never put a usable `SECRET_KEY` in source control. Use the ignored instance secret locally or environment configuration in deployment.
+- **Permissions & Execution Access**: Full access is granted to run:
+  - PowerShell commands and PowerShell scripts (`.ps1`)
+  - CLI, Command Line commands and `.bat` batch scripts
+  - Python CLI, Python commands and `.py` scripts
+  - Package and runtime scripts: `pip`, `npm`, `pnpm`, and `node`
+  - Version control commands: `git`
+  - File system operations: create, delete, move, and edit files and directories across the filesystem
+- **Icon Standard**: Use Lucide icons (`<i data-lucide="..."></i>` with `lucide.createIcons()`) across all projects wherever icons are needed, unless otherwise specifically directed. Icons must use the primary brand green (`var(--green-dark, #103e30)`) on light backgrounds, and white (`#ffffff`) on green or dark backgrounds.

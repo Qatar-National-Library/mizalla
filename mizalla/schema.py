@@ -42,6 +42,30 @@ SQLITE_ADDITIONS = {
         "meeting_utc_offset_minutes": "INTEGER",
         "external_attendees": "TEXT NOT NULL DEFAULT ''",
     },
+    "server": {
+        "auth_token": "VARCHAR(64)",
+        "agent_status": "VARCHAR(30) NOT NULL DEFAULT 'offline'",
+        "agent_last_seen": "DATETIME",
+        "connection_attempts": "INTEGER NOT NULL DEFAULT 0",
+        "max_connection_attempts": "INTEGER NOT NULL DEFAULT 5",
+        "connection_message": "VARCHAR(255) DEFAULT ''",
+        "os_type": "VARCHAR(20) NOT NULL DEFAULT 'linux'",
+        "os_version": "VARCHAR(120) NOT NULL DEFAULT ''",
+        "admin_notes": "TEXT NOT NULL DEFAULT ''",
+        "ssh_port": "INTEGER NOT NULL DEFAULT 22",
+        "status": "VARCHAR(20) NOT NULL DEFAULT 'available'",
+        "last_checked": "DATETIME",
+    },
+    "command_audit": {
+        "client_ip": "VARCHAR(45) DEFAULT ''",
+        "entry_type": "VARCHAR(20) NOT NULL DEFAULT 'item'",
+        "title": "VARCHAR(180) NOT NULL DEFAULT ''",
+        "executed_command": "TEXT NOT NULL DEFAULT ''",
+        "remote_pid": "INTEGER",
+        "group_id": "INTEGER",
+        "command_item_id": "INTEGER",
+        "step_results": "TEXT NOT NULL DEFAULT ''",
+    },
 }
 
 
@@ -127,8 +151,11 @@ def upgrade_schema() -> bool:
         raise RuntimeError("The built-in additive schema upgrade currently supports SQLite only.")
 
     inspector = inspect(db.engine)
+    existing_tables = set(inspector.get_table_names())
     with db.engine.begin() as connection:
         for table_name, additions in SQLITE_ADDITIONS.items():
+            if table_name not in existing_tables:
+                continue
             existing = {column["name"] for column in inspector.get_columns(table_name)}
             for column_name, definition in additions.items():
                 if column_name not in existing:

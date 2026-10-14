@@ -181,10 +181,59 @@ class Server(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(160), nullable=False)
     ip = db.Column(db.String(45), nullable=False)
-    operating_system = db.Column(db.String(160), nullable=False)
+    operating_system = db.Column(db.String(160), nullable=False, default="Linux")
     technology_packages = db.Column(db.Text, nullable=False, default="")
+    os_type = db.Column(db.String(20), nullable=False, default="linux")  # linux / windows
+    os_version = db.Column(db.String(120), nullable=False, default="")
+    admin_notes = db.Column(db.Text, nullable=False, default="")
+    ssh_port = db.Column(db.Integer, nullable=False, default=22)
+    status = db.Column(db.String(20), nullable=False, default="available")  # available / failed
+    last_checked = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    auth_token = db.Column(db.String(64), unique=True, nullable=True, index=True)
+    agent_status = db.Column(db.String(30), nullable=False, default="offline")
+    agent_last_seen = db.Column(db.DateTime(timezone=True), nullable=True)
+    connection_attempts = db.Column(db.Integer, nullable=False, default=0)
+    max_connection_attempts = db.Column(db.Integer, nullable=False, default=5)
+    connection_message = db.Column(db.String(255), nullable=True, default="")
+
     test_projects = db.relationship("Project", foreign_keys="Project.test_server_id", back_populates="test_server")
     production_projects = db.relationship("Project", foreign_keys="Project.production_server_id", back_populates="production_server")
+    credentials = db.relationship("ServerCredential", back_populates="server", cascade="all, delete-orphan")
+
+    @property
+    def friendly_name(self) -> str:
+        return self.name
+
+    @friendly_name.setter
+    def friendly_name(self, val: str) -> None:
+        self.name = val
+
+    @property
+    def packages_summary(self) -> str:
+        return self.technology_packages
+
+    @packages_summary.setter
+    def packages_summary(self, val: str) -> None:
+        self.technology_packages = val
+
+    @property
+    def is_available(self) -> bool:
+        return self.status == "available"
+
+    @property
+    def default_credential(self):
+        """Returns the admin default credential for this server, if configured."""
+        for cred in self.credentials:
+            if cred.is_default or cred.user_id is None:
+                return cred
+        return self.credentials[0] if self.credentials else None
+
+    def ensure_auth_token(self) -> str:
+        if not self.auth_token:
+            self.auth_token = secrets.token_hex(32)
+        return self.auth_token
+
 
 
 class Task(db.Model):
@@ -512,6 +561,7 @@ FEATURE_SPEECH = "speech"
 FEATURE_CHAT = "chat"
 FEATURE_UPLOAD = "upload_file"
 FEATURE_VIDEO_UPLOAD = "video_upload"
+FEATURE_REMOTE_EXEC = "remote_exec"
 
 #: feature_key -> human label shown in the admin UI and service cards
 FEATURE_LABELS = {
@@ -523,9 +573,294 @@ FEATURE_LABELS = {
     FEATURE_CHAT: "Chat Service",
     FEATURE_UPLOAD: "Upload File",
     FEATURE_VIDEO_UPLOAD: "Video Upload",
+    FEATURE_REMOTE_EXEC: "Remote Command Execution",
 }
 
 FEATURE_KEYS = tuple(FEATURE_LABELS)
+
+
+# ─── Remote Execution & Command Orchestration (AsyncSSH) ─────────────────────
+
+COMMAND_STATUS_PENDING = "pending"
+COMMAND_STATUS_RUNNING = "running"
+COMMAND_STATUS_COMPLETED = "completed"
+COMMAND_STATUS_FAILED = "failed"
+COMMAND_STATUS_TERMINATED = "terminated"
+
+COMMAND_TYPE_REMOTE = "remote"
+COMMAND_TYPE_LOCAL = "local"
+COMMAND_TYPE_UPLOAD = "upload"
+
+VAR_TYPE_TEXT = "text"
+VAR_TYPE_NUMBER = "number"
+VAR_TYPE_BOOLEAN = "boolean"
+
+GROUP_EXEC_SEQUENTIAL = "sequential"
+GROUP_EXEC_PARALLEL = "parallel"
+
+
+class ServerCredential(db.Model):
+    """Encrypted SSH credentials (password and/or private key) for a target server.
+
+    If is_default is True or user_id is None, this credential serves as the Admin
+    server default credential used by any authorized user with run permissions.
+    """
+
+    __tablename__ = "server_credential"
+
+    id = db.Column(db.Integer, primary_key=True)
+    server_id = db.Column(db.Integer, db.ForeignKey("server.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="CASCADE"), nullable=True, index=True)
+    is_default = db.Column(db.Boolean, nullable=False, default=False)
+    username = db.Column(db.String(80), nullable=False, default="")
+    encrypted_password = db.Column(db.Text, nullable=False, default="")
+    encrypted_private_key = db.Column(db.Text, nullable=False, default="")
+    status = db.Column(db.String(20), nullable=False, default="available")  # available / failed
+    last_tested = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    server = db.relationship("Server", back_populates="credentials")
+    user = db.relationship("Member")
+
+    @property
+    def password(self) -> str:
+        from .crypto_vault import decrypt_secret
+        return decrypt_secret(self.encrypted_password)
+
+    @password.setter
+    def password(self, val: str) -> None:
+        from .crypto_vault import encrypt_secret
+        self.encrypted_password = encrypt_secret(val)
+
+    @property
+    def private_key(self) -> str:
+        from .crypto_vault import decrypt_secret
+        return decrypt_secret(self.encrypted_private_key)
+
+    @private_key.setter
+    def private_key(self, val: str) -> None:
+        from .crypto_vault import encrypt_secret
+        self.encrypted_private_key = encrypt_secret(val)
+
+
+class CommandItem(db.Model):
+    """An individual command step (Remote, Local, or File Upload).
+
+    Only runnable against the server it was created for.
+    """
+
+    __tablename__ = "command_item"
+
+    id = db.Column(db.Integer, primary_key=True)
+    server_id = db.Column(db.Integer, db.ForeignKey("server.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = db.Column(db.String(180), nullable=False)
+    command_type = db.Column(db.String(30), nullable=False, default=COMMAND_TYPE_REMOTE)
+    command_content = db.Column(db.Text, nullable=False, default="")
+    created_by_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_on = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
+
+    server = db.relationship("Server", backref=db.backref("command_items", lazy="dynamic"))
+    creator = db.relationship("Member", backref=db.backref("created_command_items", lazy="dynamic"))
+    variables = db.relationship("CommandVariable", back_populates="command_item", cascade="all, delete-orphan")
+    permissions = db.relationship("CommandItemPermission", back_populates="command_item", cascade="all, delete-orphan")
+
+
+class CommandVariable(db.Model):
+    """Placeholder variable ({{ Name }}) for a CommandItem."""
+
+    __tablename__ = "command_variable"
+
+    id = db.Column(db.Integer, primary_key=True)
+    command_item_id = db.Column(db.Integer, db.ForeignKey("command_item.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = db.Column(db.String(80), nullable=False)
+    description = db.Column(db.String(255), nullable=True, default="")
+    var_type = db.Column(db.String(20), nullable=False, default=VAR_TYPE_TEXT)  # text, number, boolean
+    default_value = db.Column(db.Text, nullable=False, default="")
+
+    command_item = db.relationship("CommandItem", back_populates="variables")
+
+
+class CommandGroup(db.Model):
+    """Collection of CommandItems to run sequentially (in a single session) or in parallel.
+
+    Only runnable against the server it was created for.
+    """
+
+    __tablename__ = "command_group"
+
+    id = db.Column(db.Integer, primary_key=True)
+    server_id = db.Column(db.Integer, db.ForeignKey("server.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = db.Column(db.String(180), nullable=False)
+    description = db.Column(db.Text, nullable=False, default="")
+    run_in_parallel = db.Column(db.Boolean, nullable=False, default=False)
+    stop_on_error = db.Column(db.Boolean, nullable=False, default=True)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_on = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
+
+    server = db.relationship("Server", backref=db.backref("command_groups", lazy="dynamic"))
+    creator = db.relationship("Member", backref=db.backref("created_command_groups", lazy="dynamic"))
+    items = db.relationship("CommandGroupItem", back_populates="group", cascade="all, delete-orphan", order_by="CommandGroupItem.sequence_order")
+    permissions = db.relationship("CommandGroupPermission", back_populates="group", cascade="all, delete-orphan")
+
+
+class CommandGroupItem(db.Model):
+    """An individual ordered step linking a CommandGroup to a CommandItem."""
+
+    __tablename__ = "command_group_item"
+
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey("command_group.id", ondelete="CASCADE"), nullable=False, index=True)
+    command_item_id = db.Column(db.Integer, db.ForeignKey("command_item.id", ondelete="CASCADE"), nullable=False, index=True)
+    sequence_order = db.Column(db.Integer, nullable=False, default=0)
+
+    group = db.relationship("CommandGroup", back_populates="items")
+    command_item = db.relationship("CommandItem")
+
+
+class CommandGroupPermission(db.Model):
+    """User access control for running, viewing logs, editing, and duplicating Command Groups."""
+
+    __tablename__ = "command_group_permission"
+
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey("command_group.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="CASCADE"), nullable=False, index=True)
+    can_run = db.Column(db.Boolean, nullable=False, default=True)
+    can_view_logs = db.Column(db.Boolean, nullable=False, default=False)
+    can_edit = db.Column(db.Boolean, nullable=False, default=False)  # includes delete
+    can_create = db.Column(db.Boolean, nullable=False, default=False)
+    can_duplicate = db.Column(db.Boolean, nullable=False, default=False)
+
+    group = db.relationship("CommandGroup", back_populates="permissions")
+    user = db.relationship("Member")
+    __table_args__ = (db.UniqueConstraint("group_id", "user_id"),)
+
+
+class CommandItemPermission(db.Model):
+    """User access control for running, viewing logs, editing, and duplicating Command Items."""
+
+    __tablename__ = "command_item_permission"
+
+    id = db.Column(db.Integer, primary_key=True)
+    command_item_id = db.Column(db.Integer, db.ForeignKey("command_item.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="CASCADE"), nullable=False, index=True)
+    can_run = db.Column(db.Boolean, nullable=False, default=True)
+    can_view_logs = db.Column(db.Boolean, nullable=False, default=False)
+    can_edit = db.Column(db.Boolean, nullable=False, default=False)
+    can_duplicate = db.Column(db.Boolean, nullable=False, default=False)
+
+    command_item = db.relationship("CommandItem", back_populates="permissions")
+    user = db.relationship("Member")
+    __table_args__ = (db.UniqueConstraint("command_item_id", "user_id"),)
+
+
+class CommandAudit(db.Model):
+    """Unified execution audit trail and state for Command Items and Command Groups."""
+
+    __tablename__ = "command_audit"
+
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="CASCADE"), nullable=False, index=True)
+    server_id = db.Column(db.Integer, db.ForeignKey("server.id", ondelete="CASCADE"), nullable=False, index=True)
+    group_id = db.Column(db.Integer, db.ForeignKey("command_group.id", ondelete="SET NULL"), nullable=True, index=True)
+    command_item_id = db.Column(db.Integer, db.ForeignKey("command_item.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    entry_type = db.Column(db.String(20), nullable=False, default="item")  # item / group
+    title = db.Column(db.String(180), nullable=False, default="")
+    command = db.Column(db.Text, nullable=False)
+    executed_command = db.Column(db.Text, nullable=False, default="")
+    remote_pid = db.Column(db.Integer, nullable=True)
+
+    status = db.Column(db.String(30), nullable=False, default=COMMAND_STATUS_PENDING, index=True)
+    start_time = db.Column(db.DateTime(timezone=True), nullable=True)
+    end_time = db.Column(db.DateTime(timezone=True), nullable=True)
+    exit_code = db.Column(db.Integer, nullable=True)
+    full_output = db.Column(db.Text, nullable=False, default="")
+    step_results = db.Column(db.Text, nullable=False, default="")
+    client_ip = db.Column(db.String(45), nullable=True, default="")
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
+
+    user = db.relationship("Member", backref=db.backref("command_audits", lazy="dynamic"))
+    server = db.relationship("Server", backref=db.backref("command_audits", lazy="dynamic"))
+    group = db.relationship("CommandGroup", backref=db.backref("executions", lazy="dynamic"))
+    command_item = db.relationship("CommandItem", backref=db.backref("executions", lazy="dynamic"))
+
+    @property
+    def steps_data(self) -> list[dict]:
+        import json
+        if not self.step_results:
+            return []
+        try:
+            return json.loads(self.step_results)
+        except Exception:
+            return []
+
+    @steps_data.setter
+    def steps_data(self, val: list[dict]) -> None:
+        import json
+        self.step_results = json.dumps(val)
+
+    def get_step_items(self) -> list[dict]:
+        """Returns structured step data for nested accordion display, reconstructing if needed."""
+        steps = self.steps_data
+        if steps:
+            return steps
+        if self.entry_type == "group" and self.group:
+            parsed_steps = []
+            output_text = self.full_output or ""
+            for gi in self.group.items:
+                if not gi.command_item:
+                    continue
+                c = gi.command_item
+                tag = f"[{self.group.name}] [{c.name}]"
+                step_lines = [l.replace(tag, "").strip() for l in output_text.splitlines() if tag in l]
+                step_out = "\n".join(step_lines).strip()
+                status = "completed" if (self.status == "completed" and (self.exit_code == 0 or self.exit_code is None)) else ("failed" if self.status == "failed" else "pending")
+                parsed_steps.append({
+                    "item_id": c.id,
+                    "name": c.name,
+                    "command_type": c.command_type,
+                    "command_content": c.command_content,
+                    "status": status,
+                    "exit_code": self.exit_code,
+                    "output": step_out or ("(Executed with group)" if self.status == "completed" else ""),
+                })
+            return parsed_steps
+        return []
+
+    @property
+    def has_output(self) -> bool:
+        return bool(self.full_output and self.full_output.strip())
+
+    @property
+    def last_10_lines_output(self) -> str:
+        """Returns the last 10 lines of the output for concise accordion display."""
+        if not self.full_output:
+            return ""
+        lines = self.full_output.splitlines()
+        return "\n".join(lines[-10:])
+
+    @property
+    def last_lines_output(self) -> str:
+        return self.last_10_lines_output
+
+    @property
+    def is_success(self) -> bool:
+        return self.status == COMMAND_STATUS_COMPLETED and (self.exit_code == 0 or self.exit_code is None)
+
+    @property
+    def duration_seconds(self) -> float | None:
+        """Duration in seconds if completed, or elapsed time from start if running."""
+        if not self.start_time:
+            return None
+        now_or_end = self.end_time or datetime.now(timezone.utc)
+        start = self.start_time
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        if now_or_end.tzinfo is None:
+            now_or_end = now_or_end.replace(tzinfo=timezone.utc)
+        return max(0.0, (now_or_end - start).total_seconds())
+
 
 
 class AppFeatureAccess(db.Model):
@@ -704,4 +1039,66 @@ class ServiceAuditLog(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
 
     actor = db.relationship("Member", foreign_keys=[actor_id])
+
+
+# ─── Utility App Feedback & Suggestions ────────────────────────────────────
+
+FEEDBACK_TARGET_EXISTING = "existing"
+FEEDBACK_TARGET_NEW = "new"
+
+FEEDBACK_STATUS_ACTIVE = "active"
+FEEDBACK_STATUS_HIDDEN = "hidden"
+
+
+class UtilityAppFeedback(db.Model):
+    """Member feedback, ratings, and suggestions for utility applications.
+
+    Logged-in members can rate (1-10) and suggest improvements to utility apps
+    they have access to (target_type='existing'), or request entirely new utility
+    apps (target_type='new').
+
+    Admins can review these on the Admin UI dashboard, hide/unhide entries, and
+    record administrative notes/comments. Entries are preserved rather than deleted.
+    """
+
+    __tablename__ = "utility_app_feedback"
+
+    id = db.Column(db.Integer, primary_key=True)
+    target_type = db.Column(db.String(20), nullable=False, default=FEEDBACK_TARGET_EXISTING, index=True)
+    # feature_key matches FEATURE_KEYS if target_type is 'existing', or empty if 'new'
+    feature_key = db.Column(db.String(40), nullable=True, index=True)
+    # Human label of the app or title of the requested app
+    app_title = db.Column(db.String(180), nullable=False)
+    # Rating 1-10 for existing utility apps; None for new app suggestions
+    rating = db.Column(db.Integer, nullable=True)
+    # Optional or descriptive comments / improvement suggestions
+    comments = db.Column(db.Text, nullable=False, default="")
+    
+    # Author
+    member_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="SET NULL"), nullable=True, index=True)
+    member_name = db.Column(db.String(120), nullable=False, default="")
+    member_email = db.Column(db.String(254), nullable=False, default="")
+
+    # Admin moderation & notes
+    status = db.Column(db.String(20), nullable=False, default=FEEDBACK_STATUS_ACTIVE, index=True)  # active / hidden
+    admin_notes = db.Column(db.Text, nullable=False, default="")
+    admin_reviewed_by_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="SET NULL"), nullable=True)
+    admin_reviewed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    member = db.relationship("Member", foreign_keys=[member_id], backref="feedbacks")
+    admin_reviewer = db.relationship("Member", foreign_keys=[admin_reviewed_by_id])
+
+    __table_args__ = (
+        db.CheckConstraint("rating IS NULL OR (rating >= 1 AND rating <= 10)"),
+        db.CheckConstraint(f"target_type IN ('{FEEDBACK_TARGET_EXISTING}', '{FEEDBACK_TARGET_NEW}')"),
+        db.CheckConstraint(f"status IN ('{FEEDBACK_STATUS_ACTIVE}', '{FEEDBACK_STATUS_HIDDEN}')"),
+    )
+
+    @property
+    def is_hidden(self) -> bool:
+        return self.status == FEEDBACK_STATUS_HIDDEN
+
 

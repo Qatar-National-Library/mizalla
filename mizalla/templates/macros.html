@@ -32,13 +32,14 @@
     </div>
   </div>
   <div class="tab-bar admin-tab-bar" role="navigation" aria-label="Admin Navigation">
-    <a href="{{ url_for('admin.settings_list') }}" class="tab{% if active_page == 'settings' %} active{% endif %}"{% if active_page == 'settings' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}>⚙️ System Settings</a>
-    <a href="{{ url_for('admin.member_list') }}" class="tab{% if active_page == 'members' %} active{% endif %}"{% if active_page == 'members' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}>👥 Member Accounts</a>
-    <a href="{{ url_for('admin.server_list') }}" class="tab{% if active_page == 'servers' %} active{% endif %}"{% if active_page == 'servers' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}>🖥️ Server Inventory</a>
-    <a href="{{ url_for('admin.bulk_email_audit') }}" class="tab{% if active_page == 'bulk_email' %} active{% endif %}"{% if active_page == 'bulk_email' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}>✉️ Email Audit</a>
-    <a href="{{ url_for('admin.whatsapp_audit') }}" class="tab{% if active_page == 'whatsapp' %} active{% endif %}"{% if active_page == 'whatsapp' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}>💬 WhatsApp Audit</a>
-    <a href="{{ url_for('admin.sms_audit') }}" class="tab{% if active_page == 'sms' %} active{% endif %}"{% if active_page == 'sms' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}>📱 SMS Audit</a>
-    <a href="{{ url_for('admin.service_audit') }}" class="tab{% if active_page == 'service_audit' %} active{% endif %}"{% if active_page == 'service_audit' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}>📊 Service Audit Log</a>
+    <a href="{{ url_for('admin.settings_list') }}" class="tab{% if active_page == 'settings' %} active{% endif %}"{% if active_page == 'settings' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}><i data-lucide="settings" class="icon-green"></i> System Settings</a>
+    <a href="{{ url_for('admin.member_list') }}" class="tab{% if active_page == 'members' %} active{% endif %}"{% if active_page == 'members' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}><i data-lucide="users" class="icon-green"></i> Member Accounts</a>
+    <a href="{{ url_for('admin.server_list') }}" class="tab{% if active_page == 'servers' %} active{% endif %}"{% if active_page == 'servers' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}><i data-lucide="server" class="icon-green"></i> Server Inventory</a>
+    <a href="{{ url_for('admin.bulk_email_audit') }}" class="tab{% if active_page == 'bulk_email' %} active{% endif %}"{% if active_page == 'bulk_email' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}><i data-lucide="mail" class="icon-green"></i> Email Audit</a>
+    <a href="{{ url_for('admin.whatsapp_audit') }}" class="tab{% if active_page == 'whatsapp' %} active{% endif %}"{% if active_page == 'whatsapp' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}><i data-lucide="message-square" class="icon-green"></i> WhatsApp Audit</a>
+    <a href="{{ url_for('admin.sms_audit') }}" class="tab{% if active_page == 'sms' %} active{% endif %}"{% if active_page == 'sms' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}><i data-lucide="smartphone" class="icon-green"></i> SMS Audit</a>
+    <a href="{{ url_for('admin.service_audit') }}" class="tab{% if active_page == 'service_audit' %} active{% endif %}"{% if active_page == 'service_audit' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}><i data-lucide="bar-chart-2" class="icon-green"></i> Service Audit Log</a>
+    <a href="{{ url_for('admin.feedback_dashboard') }}" class="tab{% if active_page == 'feedback' %} active{% endif %}"{% if active_page == 'feedback' %} aria-current="page" aria-selected="true"{% else %} aria-selected="false"{% endif %}><i data-lucide="lightbulb" class="icon-green"></i> Feedback & Ratings</a>
   </div>
 </div>
 {% endmacro %}

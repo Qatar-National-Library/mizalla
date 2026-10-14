@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb %}
+{% block title %}Execution Log: {{ audit.title }} · Mizalla{% endblock %}
+
+{% block content %}
+{{ breadcrumb([("Projects", url_for('main.project_list')), ("Remote Command Orchestration", url_for('remote_exec.dashboard')), ("Execution Log #" ~ audit.id, None)]) }}
+
+<div class="remote-exec-container" style="max-width: 1200px; margin: 0 auto; padding-bottom: 3rem;">
+  <div class="heading-row" style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 1.5rem; flex-wrap:wrap; gap:1rem;">
+    <div>
+      <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+        <span class="tag" style="background:{% if audit.entry_type == 'group' %}#e8f0fe{% else %}#f1f3f4{% endif %}; color:{% if audit.entry_type == 'group' %}#1967d2{% else %}#3c4043{% endif %}; font-weight:700; font-size:0.75rem; padding:0.2rem 0.5rem; border-radius:4px;">
+          [{{ "COMMAND GROUP" if audit.entry_type == 'group' else "COMMAND ITEM" }}]
+        </span>
+        <h1 style="margin: 0; font: 400 clamp(1.5rem, 2.5vw, 2rem)/1.15 Georgia, serif;">
+          {{ audit.title or "Command Execution Log" }}
+        </h1>
+      </div>
+      <p style="margin: 0.4rem 0 0; font-size: 0.85rem; color: var(--muted);">
+        Server: <strong>{{ audit.server.name if audit.server else "N/A" }} ({{ audit.server.ip if audit.server else "" }})</strong> · 
+        Triggered: <strong>{{ audit.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') if audit.created_at else '' }}</strong> · 
+        Duration: <strong>{{ "%.2f"|format(audit.duration_seconds) if audit.duration_seconds is not none else "--" }}s</strong>
+      </p>
+    </div>
+
+    <!-- Status Badge & Back Button -->
+    <div style="display:flex; align-items:center; gap:0.75rem;">
+      <div id="full-log-main-badge">
+        {% if audit.status in ['pending', 'running'] %}
+        <span style="display:inline-flex; align-items:center; gap:0.4rem; background:#ef6c00; color:#fff; font-size:0.85rem; font-weight:700; padding:0.35rem 0.75rem; border-radius:14px;">
+          <span class="status-spinner" style="display:inline-block; width:10px; height:10px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
+          RUNNING
+        </span>
+        {% elif audit.is_success %}
+        <span style="background:#2e7d32; color:#fff; font-size:0.85rem; font-weight:700; padding:0.35rem 0.75rem; border-radius:14px; display:inline-flex; align-items:center; gap:0.35rem;">
+          <i data-lucide="check" class="icon-white"></i> SUCCESS (Exit 0)
+        </span>
+        {% else %}
+        <span style="background:#c62828; color:#fff; font-size:0.85rem; font-weight:700; padding:0.35rem 0.75rem; border-radius:14px; display:inline-flex; align-items:center; gap:0.35rem;">
+          <i data-lucide="x" class="icon-white"></i> FAILED (Exit {{ audit.exit_code or 1 }})
+        </span>
+        {% endif %}
+      </div>
+
+      <a href="{{ url_for('remote_exec.dashboard') }}" class="button button-quiet" style="display:inline-flex; align-items:center; gap:0.35rem;">
+        <i data-lucide="arrow-left" class="icon-green"></i> Back to Dashboard
+      </a>
+    </div>
+  </div>
+
+  {% if audit.entry_type == 'group' %}
+  <!-- ════════════════════════════════════════════════════════════════════════ -->
+  <!-- COMMAND GROUP ACCORDION (Unified Group Look)                            -->
+  <!-- ════════════════════════════════════════════════════════════════════════ -->
+  <div class="group-log-accordion" style="border: 1px solid var(--border-color, #e0e0e0); border-radius: 8px; overflow: hidden; background: #fff; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+    
+    <!-- Accordion Head: Command Group Name, Details & Status -->
+    <div class="accordion-head group-accordion-head" onclick="toggleGroupLogAccordion()" style="display:flex; justify-content:space-between; align-items:center; padding: 1rem 1.25rem; background: #fafafa; cursor: pointer; user-select: none; border-bottom: 1px solid #e0e0e0;">
+      <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
+        <span class="chevron" id="group-log-chevron" style="display:inline-flex; align-items:center; transition:transform 0.2s ease; color:var(--muted); transform: rotate(180deg);"><i data-lucide="chevron-down" class="icon-green"></i></span>
+        <strong style="font-size: 1.1rem; color: #202124;">{{ audit.title or (audit.group.name if audit.group else "Command Group") }}</strong>
+        <span class="tag" style="font-size:0.75rem; background:#e8f0fe; color:#1967d2; padding:0.15rem 0.45rem; border-radius:3px; font-weight:600; display:inline-flex; align-items:center; gap:0.25rem;">
+          {% if audit.group and audit.group.run_in_parallel %}<i data-lucide="zap" class="icon-green"></i> Parallel Execution{% else %}<i data-lucide="link" class="icon-green"></i> Sequential Execution{% endif %}
+        </span>
+        <span class="tag" style="font-size:0.75rem; background:#f0f4f8; color:#333; padding:0.15rem 0.45rem; border-radius:3px;">
+          {{ audit.server.name if audit.server else "Target Server" }}
+        </span>
+
+        <!-- Running indicator with SPINNER next to Command Group Name -->
+        <span class="group-running-indicator" id="group-running-indicator" style="display:{% if audit.status in ['pending', 'running'] %}inline-flex{% else %}none{% endif %}; align-items:center; gap:0.35rem; background:#ef6c00; color:#fff; font-size:0.75rem; font-weight:700; padding:0.15rem 0.5rem; border-radius:4px;">
+          <span class="status-spinner" style="display:inline-block; width:10px; height:10px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
+          RUNNING
+        </span>
+      </div>
+
+      <!-- Right-aligned overall status icon -->
+      <div id="group-status-icon" style="display:flex; align-items:center;">
+        {% if audit.status in ['pending', 'running'] %}
+        <span style="color:#ef6c00; display:inline-flex; align-items:center;" title="In Progress"><i data-lucide="loader" class="icon-green spin"></i></span>
+        {% elif audit.is_success %}
+        <span title="Completed Successfully"><i data-lucide="check" class="icon-green"></i></span>
+        {% else %}
+        <span title="Failed"><i data-lucide="x" class="icon-green"></i></span>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Accordion Body: Command Items as nested accordions -->
+    <div class="accordion-body" id="group-log-body" style="display: block; padding: 1rem 1.25rem; background: #fff;">
+      <p style="font-size: 0.82rem; color: var(--muted); margin: 0 0 1rem;">
+        The Command Items below reflect each step executed in this group. Click an item to expand or collapse its log output.
+      </p>
+
+      <div class="group-step-items-container" style="display: flex; flex-direction: column; gap: 0.65rem;">
+        {% for step in audit.get_step_items() %}
+        {% set is_step_running = (step.status == 'running') %}
+        {% set is_step_completed = (step.status == 'completed' or (step.exit_code == 0 and step.status != 'pending')) %}
+        {% set is_step_failed = (step.status == 'failed' or (step.exit_code is not none and step.exit_code != 0)) %}
+        {% set is_step_pending = (not is_step_running and not is_step_completed and not is_step_failed) %}
+        
+        <div class="nested-item-accordion" id="group-step-{{ step.item_id }}" data-item-id="{{ step.item_id }}" style="border: 1px solid #e0e0e0; border-radius: 6px; background: #fff; overflow:hidden; transition: all 0.2s ease; {% if is_step_pending %}opacity: 0.55; background: #fbfbfb;{% elif is_step_running %}border-color: #f59f00; background: #fffdf5;{% endif %}">
+          
+          <!-- Nested Command Item Accordion Head -->
+          <div class="nested-accordion-head" id="group-step-head-{{ step.item_id }}" onclick="toggleStepAccordion({{ step.item_id }})" style="display:flex; justify-content:space-between; align-items:center; padding: 0.65rem 1rem; cursor: pointer; user-select: none; background: #fafafa; transition: background 0.15s ease;">
+            <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+              <span class="chevron" id="group-step-chevron-{{ step.item_id }}" style="display:inline-flex; align-items:center; transition:transform 0.2s ease; color:var(--muted); transform: {% if is_step_running or (loop.first and step.output) %}rotate(90deg){% else %}rotate(0deg){% endif %};"><i data-lucide="chevron-right" class="icon-green"></i></span>
+              <span style="font-size:0.75rem; color:#888; font-weight:600;">#{{ loop.index }}</span>
+              <strong style="font-size:0.95rem;" class="step-item-name">{{ step.name }}</strong>
+              <span class="tag" style="font-size:0.7rem; text-transform:uppercase; background:rgba(0,0,0,0.06); padding:0.15rem 0.4rem; border-radius:3px;">
+                {{ step.command_type }}
+              </span>
+            </div>
+
+            <!-- Status next to Command Item Name: SPINNER + RUNNING / Green Tick / Red Cross / Disabled Pending -->
+            <div class="step-status-indicator" id="group-step-status-{{ step.item_id }}" style="display:flex; align-items:center; gap:0.4rem; font-size:0.8rem;">
+              <span class="step-running-badge" id="step-running-{{ step.item_id }}" style="display:{% if is_step_running %}inline-flex{% else %}none{% endif %}; align-items:center; gap:0.3rem; color:#ef6c00; font-weight:700;">
+                <span class="status-spinner" style="display:inline-block; width:9px; height:9px; border:2px solid #ef6c00; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
+                RUNNING
+              </span>
+              <span class="step-success-badge" id="step-success-{{ step.item_id }}" style="display:{% if is_step_completed %}inline{% else %}none{% endif %};" title="Success (Exit 0)"><i data-lucide="check" class="icon-green"></i></span>
+              <span class="step-failure-badge" id="step-failure-{{ step.item_id }}" style="display:{% if is_step_failed %}inline{% else %}none{% endif %};" title="Failed (Exit Code {{ step.exit_code }})"><i data-lucide="x" class="icon-green"></i></span>
+              <span class="step-pending-badge" id="step-pending-{{ step.item_id }}" style="display:{% if is_step_pending %}inline{% else %}none{% endif %}; color:#888; font-size:0.8rem;" title="Not Started / Disabled">(Disabled - Pending)</span>
+            </div>
+          </div>
+
+          <!-- Nested Command Item Accordion Body: Command Log Output -->
+          <div class="nested-accordion-body" id="group-step-body-{{ step.item_id }}" style="display: {% if is_step_running or (loop.first and step.output) %}block{% else %}none{% endif %}; padding: 0.85rem 1rem; border-top: 1px solid #eee; background: #1e1e1e; color: #f0f0f0;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+              <span style="font-size:0.75rem; color:#aaa; font-family:monospace; text-transform:uppercase;">Command Log Output</span>
+              {% if step.exit_code is not none %}
+              <span style="font-size:0.75rem; color:{% if step.exit_code == 0 %}#81c784{% else %}#e57373{% endif %}; font-family:monospace;">Exit Code: {{ step.exit_code }}</span>
+              {% endif %}
+            </div>
+            <pre class="step-log-output" id="step-log-output-{{ step.item_id }}" style="margin:0; font-family:monospace; font-size:0.85rem; line-height:1.5; color:#dcdcdc; background:transparent; max-height:400px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;">{{ step.output or "(No output captured for this step)" }}</pre>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Collapsible Combined Terminal Output Section -->
+  <div style="background:#1e1e1e; border-radius:8px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.15); margin-top: 1.5rem;">
+    <div style="display:flex; justify-content:space-between; align-items:center; background:#2d2d2d; padding:0.6rem 1rem; border-bottom:1px solid #444;">
+      <span style="font-size:0.8rem; color:#aaa; font-family:monospace;">Combined Raw Terminal Output</span>
+      <button type="button" class="button button-quiet button-small" onclick="copyFullLog()" id="copy-log-btn" style="color:#64b5f6; font-size:0.75rem; padding:0.2rem 0.5rem; border-color:#555; display:inline-flex; align-items:center; gap:0.25rem;">
+        <i data-lucide="clipboard" class="icon-white"></i> Copy Combined Log
+      </button>
+    </div>
+    <pre id="terminal-content" style="margin:0; padding:1.25rem; font-family:monospace; font-size:0.85rem; line-height:1.5; color:#dcdcdc; background:#1e1e1e; max-height:450px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;">{{ audit.full_output or "(No output captured)" }}</pre>
+  </div>
+
+  {% else %}
+  <!-- ════════════════════════════════════════════════════════════════════════ -->
+  <!-- SINGLE COMMAND ITEM AUDIT VIEW                                          -->
+  <!-- ════════════════════════════════════════════════════════════════════════ -->
+  <div style="background:#f4f6f8; border:1px solid #e0e0e0; border-radius:6px; padding:0.85rem 1rem; margin-bottom:1rem;">
+    <span style="font-size:0.75rem; color:#666; text-transform:uppercase; font-weight:600; display:block; margin-bottom:0.3rem;">Executed Command String (Variables Injected)</span>
+    <pre style="margin:0; font-family:monospace; font-size:0.85rem; white-space:pre-wrap; word-break:break-all; color:#202124;">{{ audit.executed_command or audit.command }}</pre>
+  </div>
+
+  <div style="background:#1e1e1e; border-radius:8px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+    <div style="display:flex; justify-content:space-between; align-items:center; background:#2d2d2d; padding:0.6rem 1rem; border-bottom:1px solid #444;">
+      <span style="font-size:0.8rem; color:#aaa; font-family:monospace;">Terminal Stdout / Stderr</span>
+      <button type="button" class="button button-quiet button-small" onclick="copyFullLog()" id="copy-log-btn" style="color:#64b5f6; font-size:0.75rem; padding:0.2rem 0.5rem; border-color:#555; display:inline-flex; align-items:center; gap:0.25rem;">
+        <i data-lucide="clipboard" class="icon-white"></i> Copy Log
+      </button>
+    </div>
+    <pre id="terminal-content" style="margin:0; padding:1.25rem; font-family:monospace; font-size:0.85rem; line-height:1.5; color:#dcdcdc; background:#1e1e1e; max-height:650px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;">{{ audit.full_output or "(No output captured)" }}</pre>
+  </div>
+  {% endif %}
+
+</div>
+
+<style>
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+</style>
+
+<script>
+function copyFullLog() {
+  const content = document.getElementById("terminal-content").innerText;
+  navigator.clipboard.writeText(content).then(() => {
+    const btn = document.getElementById("copy-log-btn");
+    const orig = btn.innerHTML;
+    btn.innerHTML = 'Copied! <i data-lucide="check" class="icon-white"></i>';
+    if (window.lucide) lucide.createIcons();
+    setTimeout(() => { 
+      btn.innerHTML = orig; 
+      if (window.lucide) lucide.createIcons();
+    }, 2000);
+  });
+}
+
+function toggleGroupLogAccordion() {
+  const body = document.getElementById("group-log-body");
+  const chevron = document.getElementById("group-log-chevron");
+  if (!body) return;
+  const isHidden = (body.style.display === "none" || body.style.display === "");
+  body.style.display = isHidden ? "block" : "none";
+  if (chevron) {
+    chevron.style.transform = isHidden ? "rotate(180deg)" : "rotate(0deg)";
+  }
+}
+
+function toggleStepAccordion(itemId) {
+  const body = document.getElementById("group-step-body-" + itemId);
+  const chevron = document.getElementById("group-step-chevron-" + itemId);
+  if (!body) return;
+  const isHidden = (body.style.display === "none" || body.style.display === "");
+  body.style.display = isHidden ? "block" : "none";
+  if (chevron) {
+    chevron.style.transform = isHidden ? "rotate(90deg)" : "rotate(0deg)";
+  }
+}
+
+{% if audit.status in ['pending', 'running'] %}
+// ─── Live Polling for Running Group Audit ───────────────────────────────────
+async function pollFullLogStatus() {
+  try {
+    const resp = await fetch("/apps/remote-exec/active-status");
+    if (!resp.ok) return;
+    const data = await resp.json();
+
+    const currentAuditId = {{ audit.id }};
+    const runningAudits = data.running_audits || [];
+    const activeAudit = runningAudits.find(a => a.id === currentAuditId);
+
+    if (!activeAudit) {
+      // Completed, reload once to show final exit state
+      window.location.reload();
+      return;
+    }
+
+    if (activeAudit.steps) {
+      activeAudit.steps.forEach(step => {
+        const itemCard = document.getElementById("group-step-" + step.item_id);
+        const runningBadge = document.getElementById("step-running-" + step.item_id);
+        const successBadge = document.getElementById("step-success-" + step.item_id);
+        const failureBadge = document.getElementById("step-failure-" + step.item_id);
+        const pendingBadge = document.getElementById("step-pending-" + step.item_id);
+        const logOutput = document.getElementById("step-log-output-" + step.item_id);
+
+        const isStepRunning = (step.status === "running");
+        const isStepSuccess = (step.status === "completed" || (step.exit_code === 0 && step.status !== "pending"));
+        const isStepFailed = (step.status === "failed" || (step.exit_code !== null && step.exit_code !== undefined && step.exit_code !== 0));
+        const isStepPending = (!isStepRunning && !isStepSuccess && !isStepFailed);
+
+        if (runningBadge) runningBadge.style.display = isStepRunning ? "inline-flex" : "none";
+        if (successBadge) successBadge.style.display = isStepSuccess ? "inline" : "none";
+        if (failureBadge) failureBadge.style.display = isStepFailed ? "inline" : "none";
+        if (pendingBadge) pendingBadge.style.display = isStepPending ? "inline" : "none";
+
+        if (itemCard) {
+          if (isStepPending) {
+            itemCard.style.opacity = "0.55";
+            itemCard.style.background = "#fbfbfb";
+            itemCard.style.borderColor = "#e0e0e0";
+          } else if (isStepRunning) {
+            itemCard.style.opacity = "1";
+            itemCard.style.background = "#fffdf5";
+            itemCard.style.borderColor = "#f59f00";
+          } else {
+            itemCard.style.opacity = "1";
+            itemCard.style.background = "#fff";
+            itemCard.style.borderColor = isStepSuccess ? "#81c784" : "#e57373";
+          }
+        }
+
+        if (logOutput && step.output) {
+          logOutput.textContent = step.output;
+        }
+      });
+
+      if (window.lucide) {
+        lucide.createIcons();
+      }
+    }
+  } catch (err) {
+    // Ignore transient poll errors
+  }
+}
+
+setInterval(pollFullLogStatus, 2000);
+{% endif %}
+
+document.addEventListener("DOMContentLoaded", function() {
+  if (window.lucide) lucide.createIcons();
+});
+</script>
+{% endblock %}

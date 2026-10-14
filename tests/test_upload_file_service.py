@@ -628,4 +628,4 @@ def test_upload_file_without_base_url_has_plain_success_message(app, client, upl
     assert upload(client, "simple.docx").status_code == 302
     body = client.get("/apps/upload-file").get_data(as_text=True)
     assert "Uploaded simple.docx." in body
-    assert "https://" not in body and "http://" not in body
+    assert '<a href="https://' not in body and '<a href="http://' not in body

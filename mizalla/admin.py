@@ -3,10 +3,11 @@
 import io
 import ipaddress
 import os
+from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 
-from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, send_file, url_for
+from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import current_user, login_required
 
 from .azure_ai import service_status
@@ -16,6 +17,10 @@ from .jobs import run_all_scheduled_jobs
 from .models import (
     FEATURE_KEYS,
     FEATURE_LABELS,
+    FEEDBACK_STATUS_ACTIVE,
+    FEEDBACK_STATUS_HIDDEN,
+    FEEDBACK_TARGET_EXISTING,
+    FEEDBACK_TARGET_NEW,
     AppFeatureAccess,
     AppSetting,
     BulkEmailJob,
@@ -24,6 +29,7 @@ from .models import (
     Member,
     Server,
     ServiceAuditLog,
+    UtilityAppFeedback,
 )
 from .settings import (
     BOOLEAN_SETTING_KEYS,
@@ -674,4 +680,199 @@ def service_audit_export():
     wb.save(output)
     output.seek(0)
     return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name="service_audit_trail.xlsx")
+
+
+# ─── Utility Application Feedback & Suggestions Moderation ─────────────────
+
+@bp.route("/feedback")
+@admin_required
+def feedback_dashboard():
+    """Admin dashboard for viewing, monitoring, and moderating utility app feedback."""
+    app_filter = request.args.get("app", "").strip()
+    target_filter = request.args.get("target", "").strip()
+    status_filter = request.args.get("status", "").strip()
+
+    query = UtilityAppFeedback.query.order_by(UtilityAppFeedback.created_at.desc())
+    if app_filter:
+        query = query.filter_by(feature_key=app_filter)
+    if target_filter:
+        query = query.filter_by(target_type=target_filter)
+    if status_filter:
+        query = query.filter_by(status=status_filter)
+
+    feedbacks = query.all()
+
+    # Calculate overall metrics
+    all_existing = UtilityAppFeedback.query.filter_by(target_type=FEEDBACK_TARGET_EXISTING).all()
+    overall_existing_count = len(all_existing)
+    rated = [fb.rating for fb in all_existing if fb.rating is not None]
+    overall_avg_display = round(sum(rated) / len(rated), 1) if rated else None
+
+    overall_new_count = UtilityAppFeedback.query.filter_by(target_type=FEEDBACK_TARGET_NEW).count()
+
+    # Stats per feature key
+    stats_by_key = {}
+    for key in FEATURE_KEYS:
+        app_feedbacks = [fb for fb in all_existing if fb.feature_key == key]
+        ratings = [fb.rating for fb in app_feedbacks if fb.rating is not None]
+        avg = round(sum(ratings) / len(ratings), 1) if ratings else None
+        stats_by_key[key] = {
+            "avg_rating": avg,
+            "total_count": len(app_feedbacks),
+        }
+
+    return render_template(
+        "feedback_admin.html",
+        feedbacks=feedbacks,
+        overall_avg_display=overall_avg_display,
+        overall_existing_count=overall_existing_count,
+        overall_new_count=overall_new_count,
+        feature_keys=FEATURE_KEYS,
+        stats_by_key=stats_by_key,
+        app_filter=app_filter,
+        feature_labels=FEATURE_LABELS,
+        target_filter=target_filter,
+        status_filter=status_filter,
+    )
+
+
+@bp.post("/feedback/<int:feedback_id>/status")
+@admin_required
+def feedback_toggle_status(feedback_id: int):
+    """Toggle visibility status of a feedback entry between active and hidden."""
+    feedback = db.session.get(UtilityAppFeedback, feedback_id)
+    if not feedback:
+        return jsonify(error="Feedback not found"), 404
+
+    new_status = request.form.get("status", "").strip().lower()
+    if new_status not in (FEEDBACK_STATUS_ACTIVE, FEEDBACK_STATUS_HIDDEN):
+        return jsonify(error="Invalid status"), 400
+
+    feedback.status = new_status
+    feedback.admin_reviewed_by_id = current_user.id
+    feedback.admin_reviewed_at = datetime.now(timezone.utc)
+    db.session.commit()
+
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.is_json:
+        return jsonify(success=True, status=feedback.status)
+
+    flash("Feedback visibility updated.", "success")
+    return redirect(url_for("admin.feedback_dashboard"))
+
+
+@bp.post("/feedback/<int:feedback_id>/notes")
+@admin_required
+def feedback_save_notes(feedback_id: int):
+    """Record internal admin notes/comments against user feedback."""
+    feedback = db.session.get(UtilityAppFeedback, feedback_id)
+    if not feedback:
+        return jsonify(error="Feedback not found"), 404
+
+    admin_notes = request.form.get("admin_notes", "").strip()
+    feedback.admin_notes = admin_notes
+    feedback.admin_reviewed_by_id = current_user.id
+    feedback.admin_reviewed_at = datetime.now(timezone.utc)
+    db.session.commit()
+
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.is_json:
+        return jsonify(
+            success=True,
+            admin_notes=feedback.admin_notes,
+            reviewer_name=current_user.name,
+            reviewed_at=feedback.admin_reviewed_at.strftime("%Y-%m-%d %H:%M") if feedback.admin_reviewed_at else "",
+        )
+
+    flash("Admin notes saved.", "success")
+    return redirect(url_for("admin.feedback_dashboard"))
+
+
+@bp.get("/feedback/export")
+@admin_required
+def feedback_export():
+    """Export feedback submissions to Excel (.xlsx) or CSV."""
+    import csv
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    export_format = request.args.get("format", "xlsx").lower()
+    app_filter = request.args.get("app", "").strip()
+    target_filter = request.args.get("target", "").strip()
+    status_filter = request.args.get("status", "").strip()
+
+    query = UtilityAppFeedback.query.order_by(UtilityAppFeedback.created_at.desc())
+    if app_filter:
+        query = query.filter_by(feature_key=app_filter)
+    if target_filter:
+        query = query.filter_by(target_type=target_filter)
+    if status_filter:
+        query = query.filter_by(status=status_filter)
+
+    feedbacks = query.all()
+
+    if export_format == "csv":
+        text = io.StringIO()
+        writer = csv.writer(text)
+        writer.writerow([
+            "ID", "Submitted (UTC)", "Category", "Utility App", "Rating (1-10)",
+            "User Comments", "Member Name", "Member Email", "Status",
+            "Admin Notes", "Reviewed By", "Reviewed At"
+        ])
+        for fb in feedbacks:
+            writer.writerow([
+                fb.id,
+                fb.created_at.strftime("%Y-%m-%d %H:%M") if fb.created_at else "",
+                "New Proposal" if fb.target_type == FEEDBACK_TARGET_NEW else "Existing Review",
+                FEATURE_LABELS.get(fb.feature_key, fb.app_title),
+                fb.rating if fb.rating is not None else "",
+                fb.comments or "",
+                fb.member_name or (fb.member.name if fb.member else ""),
+                fb.member_email or (fb.member.email if fb.member else ""),
+                fb.status,
+                fb.admin_notes or "",
+                fb.admin_reviewer.name if fb.admin_reviewer else "",
+                fb.admin_reviewed_at.strftime("%Y-%m-%d %H:%M") if fb.admin_reviewed_at else "",
+            ])
+        output = io.BytesIO(text.getvalue().encode("utf-8-sig"))
+        output.seek(0)
+        return send_file(output, mimetype="text/csv", as_attachment=True, download_name="utility_app_feedback.csv")
+
+    # Excel format
+    output = io.BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Utility App Feedback"
+    ws.append([
+        "ID", "Submitted (UTC)", "Category", "Utility App", "Rating (1-10)",
+        "User Comments", "Member Name", "Member Email", "Status",
+        "Admin Notes", "Reviewed By", "Reviewed At"
+    ])
+    for fb in feedbacks:
+        ws.append([
+            fb.id,
+            fb.created_at.strftime("%Y-%m-%d %H:%M") if fb.created_at else "",
+            "New Proposal" if fb.target_type == FEEDBACK_TARGET_NEW else "Existing Review",
+            FEATURE_LABELS.get(fb.feature_key, fb.app_title),
+            fb.rating if fb.rating is not None else "",
+            fb.comments or "",
+            fb.member_name or (fb.member.name if fb.member else ""),
+            fb.member_email or (fb.member.email if fb.member else ""),
+            fb.status,
+            fb.admin_notes or "",
+            fb.admin_reviewer.name if fb.admin_reviewer else "",
+            fb.admin_reviewed_at.strftime("%Y-%m-%d %H:%M") if fb.admin_reviewed_at else "",
+        ])
+
+    for row in ws.iter_rows(min_row=1, max_row=1):
+        for cell in row:
+            if cell.value:
+                cell.font = Font(bold=True)
+
+    wb.save(output)
+    output.seek(0)
+    return send_file(
+        output,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name="utility_app_feedback.xlsx",
+    )
 

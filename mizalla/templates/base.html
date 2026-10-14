@@ -7,6 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Mizalla{% endblock %} · Fieldnotes</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
   <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </head>
 
@@ -27,13 +28,16 @@
       <span class="nav-separator" aria-hidden="true">|</span>
       <a href="{{ url_for('admin.member_list') }}">Administration</a>
       {% endif %}
-      <button class="icon-button hamburger" id="hamburger" aria-label="Open menu" aria-expanded="false">&#9776;</button>
+      <button type="button" class="nav-feedback-btn" id="open-feedback-btn" aria-label="Give feedback or suggest utility app"><i data-lucide="lightbulb" class="icon-white"></i> Feedback</button>
+      <button class="icon-button hamburger" id="hamburger" aria-label="Open menu" aria-expanded="false"><i data-lucide="menu" class="icon-white"></i></button>
       <div class="hamburger-menu" id="hamburger-menu" hidden>
         {{ app_switcher(current_user) }}
         <a href="{{ url_for('main.about') }}">About</a>
         <a href="{{ url_for('main.user_guide') }}">User guide</a>
+        <button type="button" class="hamburger-feedback-btn" id="hamburger-feedback-btn"><i data-lucide="lightbulb" class="icon-white"></i> Feedback & Suggestions</button>
         {% if current_user.is_admin %}
         <a href="{{ url_for('admin.member_list') }}">Administration</a>
+        <a href="{{ url_for('admin.feedback_dashboard') }}">Feedback Moderation</a>
         {% endif %}
       </div>
     </nav>
@@ -41,13 +45,15 @@
       <div class="user-dropdown">
         <button class="user-dropdown-toggle" id="user-dropdown-toggle" aria-haspopup="true" aria-expanded="false">
           <span class="account-name">{{ current_user.name }}</span>
-          <span class="dropdown-arrow" aria-hidden="true">&#9662;</span>
+          <span class="dropdown-arrow" aria-hidden="true"><i data-lucide="chevron-down" class="icon-white"></i></span>
         </button>
         <div class="user-dropdown-menu" id="user-dropdown-menu" hidden>
           <div class="dropdown-header">
             <span class="dropdown-user-name">{{ current_user.name }}</span>
             <span class="dropdown-user-email">{{ current_user.email }}</span>
           </div>
+          <div class="dropdown-divider"></div>
+          <button type="button" class="dropdown-item" id="dropdown-feedback-btn" style="text-align: left; width: 100%; background: none; border: none; font: inherit; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;"><i data-lucide="lightbulb" class="icon-green"></i> Give Feedback & Suggestions</button>
           <div class="dropdown-divider"></div>
           <a href="{{ url_for('admin.settings_list') }}" class="dropdown-item">Settings</a>
           <a href="{{ url_for('admin.member_edit', member_id=current_user.id) }}" class="dropdown-item">Edit Profile</a>
@@ -58,6 +64,8 @@
           <a href="{{ url_for('admin.bulk_email_audit') }}" class="dropdown-item">Bulk Email Audit</a>
           <a href="{{ url_for('admin.whatsapp_audit') }}" class="dropdown-item">WhatsApp Audit</a>
           <a href="{{ url_for('admin.sms_audit') }}" class="dropdown-item">SMS Audit</a>
+          <a href="{{ url_for('admin.service_audit') }}" class="dropdown-item">Service Audit Log</a>
+          <a href="{{ url_for('admin.feedback_dashboard') }}" class="dropdown-item">Feedback Moderation</a>
           {% endif %}
           <div class="dropdown-divider"></div>
           <form method="post" action="{{ url_for('auth.logout') }}" class="dropdown-logout">
@@ -83,7 +91,102 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
+  {% if current_user.is_authenticated %}
+  <!-- Feedback / Suggestion Dialog Modal -->
+  <dialog id="feedback-modal" class="feedback-dialog" aria-labelledby="feedback-modal-title">
+    <div class="feedback-dialog-content">
+      <div class="feedback-dialog-header">
+        <h3 id="feedback-modal-title" style="margin: 0; font-size: 1.25rem; font-weight: 600;">Feedback & Suggestions</h3>
+        <button type="button" class="feedback-dialog-close" id="feedback-modal-close" aria-label="Close dialog"><i data-lucide="x" class="icon-green"></i></button>
+      </div>
+      
+      <!-- Target type selector: Rate existing utility app vs request new app -->
+      <div class="feedback-type-tabs" style="display: flex; gap: 0.5rem; margin: 1rem 0; border-bottom: 1px solid var(--border-color, #e0e0e0); padding-bottom: 0.5rem;">
+        <button type="button" id="tab-feedback-existing" class="button button-small feedback-tab-btn active" style="font-size: 0.85rem;">
+          Rate Utility App
+        </button>
+        <button type="button" id="tab-feedback-new" class="button button-small button-quiet feedback-tab-btn" style="font-size: 0.85rem;">
+          Request New Utility App
+        </button>
+      </div>
+
+      <form id="feedback-form" method="POST" action="{{ url_for('feedback.submit_feedback') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="target_type" id="feedback-target-type" value="existing">
+
+        <!-- Existing Utility App Rating Section -->
+        <div id="section-feedback-existing">
+          <div style="margin-bottom: 1rem;">
+            <label for="feedback-app-select" style="display: block; font-weight: 500; margin-bottom: 0.3rem; font-size: 0.9rem;">
+              Select Utility App <span style="color: #c62828;">*</span>
+            </label>
+            <select id="feedback-app-select" name="feature_key" style="width: 100%; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--border-color, #ccc); font-size: 0.9rem;">
+              <option value="">-- Choose an application you have access to --</option>
+            </select>
+            <div id="feedback-app-status-note" style="font-size: 0.8rem; color: var(--muted-color, #666); margin-top: 0.3rem;" hidden></div>
+          </div>
+
+          <div style="margin-bottom: 1rem;">
+            <label style="display: block; font-weight: 500; margin-bottom: 0.4rem; font-size: 0.9rem;">
+              Functionality Rating (1-10) <span style="color: #c62828;">*</span>
+            </label>
+            <div class="rating-scale" id="feedback-rating-scale" style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+              {% for i in range(1, 11) %}
+                <button type="button" class="rating-pill-btn" data-value="{{ i }}" style="flex: 1 1 32px; height: 36px; min-width: 32px; border: 1px solid var(--border-color, #ccc); background: #fdfdfd; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 0.9rem; transition: all 0.15s ease;">
+                  {{ i }}
+                </button>
+              {% endfor %}
+            </div>
+            <input type="hidden" name="rating" id="feedback-rating-input" value="">
+            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted-color, #888); margin-top: 0.25rem;">
+              <span>1 = Poor</span>
+              <span>5 = Average</span>
+              <span>10 = Excellent</span>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 1rem;">
+            <label for="feedback-comments-existing" style="display: block; font-weight: 500; margin-bottom: 0.3rem; font-size: 0.9rem;">
+              Suggestions / Comments <span style="font-size: 0.8rem; color: var(--muted-color, #888); font-weight: normal;">(Optional)</span>
+            </label>
+            <textarea id="feedback-comments-existing" name="comments_existing" rows="3" placeholder="Share what you like or suggest how we can improve this utility app..." style="width: 100%; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--border-color, #ccc); font-family: inherit; font-size: 0.9rem; box-sizing: border-box;"></textarea>
+          </div>
+        </div>
+
+        <!-- Request New Utility App Section -->
+        <div id="section-feedback-new" hidden>
+          <div style="margin-bottom: 1rem;">
+            <label for="feedback-app-title" style="display: block; font-weight: 500; margin-bottom: 0.3rem; font-size: 0.9rem;">
+              New Utility App Name / Title <span style="color: #c62828;">*</span>
+            </label>
+            <input type="text" id="feedback-app-title" name="app_title" placeholder="e.g. Document Translator, Image Resizer..." style="width: 100%; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--border-color, #ccc); font-size: 0.9rem; box-sizing: border-box;">
+          </div>
+
+          <div style="margin-bottom: 1rem;">
+            <label for="feedback-comments-new" style="display: block; font-weight: 500; margin-bottom: 0.3rem; font-size: 0.9rem;">
+              Description & Requested Functionality <span style="color: #c62828;">*</span>
+            </label>
+            <textarea id="feedback-comments-new" name="comments_new" rows="4" placeholder="Describe what functionality you need and how this new utility app will help your workflow..." style="width: 100%; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--border-color, #ccc); font-family: inherit; font-size: 0.9rem; box-sizing: border-box;"></textarea>
+          </div>
+        </div>
+
+        <div id="feedback-error-msg" style="color: #c62828; font-size: 0.85rem; margin-bottom: 0.8rem;" hidden></div>
+        <div id="feedback-success-msg" style="color: #2e7d32; font-size: 0.85rem; margin-bottom: 0.8rem;" hidden></div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 1.2rem;">
+          <button type="button" class="button button-quiet" id="feedback-cancel-btn">Cancel</button>
+          <button type="submit" class="button" id="feedback-submit-btn">Submit Feedback</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+  {% endif %}
   {% block scripts %}{% endblock %}
+  <script>
+    if (window.lucide) {
+      lucide.createIcons();
+    }
+  </script>
 </body>
 
 </html>

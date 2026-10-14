@@ -1,0 +1,1077 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb %}
+{% block title %}Remote Command Orchestration · Mizalla{% endblock %}
+
+{% block content %}
+{{ breadcrumb([("Projects", url_for('main.project_list')), ("Remote Command Orchestration", None)]) }}
+
+<div class="remote-exec-container" style="max-width: 1400px; margin: 0 auto; padding-bottom: 3rem;">
+  
+  <!-- Header -->
+  <div class="heading-row" style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 2rem; flex-wrap:wrap; gap:1rem;">
+    <div>
+      <p class="eyebrow" style="letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: var(--muted); margin-bottom: 0.3rem;">AGENTLESS INFRASTRUCTURE</p>
+      <h1 style="margin: 0; font: 400 clamp(1.8rem, 3.5vw, 2.4rem)/1.15 Georgia, serif;">Remote Command Orchestration</h1>
+      <p class="lede" style="margin-top:0.5rem; color: var(--muted); font-size: 1.05rem;">
+        Cross-platform AsyncSSH command execution across Ubuntu, RedHat, and Windows. Single-session workflows, variable templating, and role-based log auditing.
+      </p>
+    </div>
+    <div style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap;">
+      <button type="button" class="button button-secondary" onclick="openNewItemModal()">+ New Command Item</button>
+      <a href="{{ url_for('remote_exec.group_create') }}" class="button button-primary">+ New Command Group</a>
+    </div>
+  </div>
+
+  <!-- Section 1: Server Cards Grid -->
+  <section style="margin-bottom: 2.5rem;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
+      <h2 style="font-size: 1.25rem; font-weight: 600; margin: 0;">Configured Target Servers</h2>
+      <span class="live-polling-badge" style="font-size: 0.8rem; color: var(--muted); display: flex; align-items: center; gap: 0.4rem;">
+        <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#2e7d32; animation: pulse 2s infinite;"></span>
+        Live Status Sync
+      </span>
+    </div>
+
+    <div class="server-cards-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.25rem;">
+      {% for server in servers %}
+      <div class="server-card detail-section" id="server-card-{{ server.id }}" style="margin: 0; display: flex; flex-direction: column; justify-content: space-between; border-radius: 8px; border: 1px solid var(--border-color, #e0e0e0); background: var(--color-surface, #fff); padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+        <div>
+          <!-- Card Header -->
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 0.75rem;">
+            <div>
+              <h3 style="margin:0; font-size: 1.15rem; font-weight: 600;">{{ server.name }}</h3>
+              <div style="display:flex; align-items:center; gap: 0.5rem; margin-top: 0.25rem;">
+                <span class="tag tag-mono" style="font-family:monospace; font-size:0.8rem; background:rgba(0,0,0,0.05); padding: 0.15rem 0.4rem; border-radius:3px;">{{ server.ip }}</span>
+                <span class="tag" style="font-size:0.75rem; text-transform:uppercase; background:rgba(26,115,232,0.1); color:#1a73e8; padding: 0.15rem 0.4rem; border-radius:3px; font-weight:600;">
+                  {% if server.os_type == 'windows' %}🪟 Windows{% else %}🐧 Linux{% endif %}
+                </span>
+              </div>
+            </div>
+            
+            <!-- Available / Failed Tag -->
+            <div>
+              {% if server.is_available %}
+              <span class="badge-status-available" id="badge-status-{{ server.id }}" style="background: #2e7d32; color: #fff; font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 12px; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i data-lucide="check" class="icon-white"></i> AVAILABLE
+              </span>
+              {% else %}
+              <span class="badge-status-failed" id="badge-status-{{ server.id }}" style="background: #c62828; color: #fff; font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 12px; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i data-lucide="x" class="icon-white"></i> FAILED
+              </span>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Packages & Telemetry -->
+          <p style="font-size: 0.85rem; color: var(--muted); margin: 0.5rem 0 0.25rem; line-height: 1.4;">
+            <strong>Packages:</strong> {{ server.packages_summary or "No packages summary recorded." }}
+          </p>
+
+          <!-- Administrator Notes -->
+          {% if server.admin_notes %}
+          <p style="font-size: 0.82rem; color: var(--muted); margin: 0.25rem 0 0.75rem; font-style: italic;">
+            "{{ server.admin_notes }}"
+          </p>
+          {% endif %}
+        </div>
+
+        <div>
+          <!-- Card Footer Controls -->
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color, #eee);">
+            <button type="button" class="button button-quiet button-small" onclick="copyServerPassword({{ server.id }})" style="font-size:0.8rem; display:inline-flex; align-items:center; gap:0.35rem;">
+              <i data-lucide="clipboard" class="icon-green"></i> <span id="copy-btn-text-{{ server.id }}">Copy Password</span>
+            </button>
+            <button type="button" class="button button-quiet button-small" onclick="toggleFallbackForm({{ server.id }})" style="font-size:0.8rem; display:inline-flex; align-items:center; gap:0.35rem;">
+              <i data-lucide="key" class="icon-green"></i> Credentials
+            </button>
+          </div>
+
+          <!-- Inline Credential Fallback Form (Toggled or shown on failure) -->
+          <div id="fallback-form-container-{{ server.id }}" style="display: {% if not server.is_available %}block{% else %}none{% endif %}; margin-top: 0.75rem; background: #fafafa; border: 1px dashed #ccc; padding: 0.75rem; border-radius: 6px;">
+            <p style="margin: 0 0 0.4rem; font-size: 0.8rem; font-weight: 600; color: #c62828; display:flex; align-items:center; gap:0.3rem;">
+              <i data-lucide="alert-triangle" class="icon-green"></i> SSH Connection Needed / Update Credentials
+            </p>
+            <div style="display:flex; flex-direction:column; gap:0.4rem;">
+              <input type="text" id="fb-user-{{ server.id }}" placeholder="SSH Username (e.g. root, ubuntu)" style="font-size:0.82rem; padding:0.35rem; border:1px solid #ccc; border-radius:3px;">
+              <input type="password" id="fb-pass-{{ server.id }}" placeholder="SSH Password" style="font-size:0.82rem; padding:0.35rem; border:1px solid #ccc; border-radius:3px;">
+              <button type="button" class="button button-primary button-small" onclick="testAndSaveFallback({{ server.id }})" id="fb-btn-{{ server.id }}" style="margin-top:0.2rem; font-size:0.8rem; display:inline-flex; align-items:center; justify-content:center; gap:0.35rem;">
+                Connect / Test <i data-lucide="plug" class="icon-white"></i>
+              </button>
+              <div id="fb-msg-{{ server.id }}" style="font-size:0.75rem; display:none;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% else %}
+      <p class="muted">No servers configured. Add servers from the Admin Infrastructure view.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- Section 2: Command Groups & Command Items Tabs / Two Columns -->
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; margin-bottom: 2.5rem;">
+    
+    <!-- Command Groups -->
+    <section class="detail-section" style="margin: 0;">
+      <div class="section-heading" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
+        <div>
+          <p class="eyebrow" style="font-size:0.75rem; color:var(--muted); margin:0;">SEQUENTIAL & PARALLEL</p>
+          <h2 style="font-size:1.2rem; margin:0;">Command Groups</h2>
+        </div>
+        <a href="{{ url_for('remote_exec.group_create') }}" class="button button-secondary button-small">+ New Group</a>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap: 0.75rem;">
+        {% for grp in command_groups %}
+        {% set is_grp_running = grp.id in running_group_ids %}
+        <div class="group-card target-entity-card accordion-item" id="group-card-{{ grp.id }}" data-group-id="{{ grp.id }}" style="border: 1px solid var(--border-color, #e0e0e0); border-radius: 6px; overflow: hidden; background: #fff;">
+          <!-- Command Group Accordion Head -->
+          <div class="accordion-header group-accordion-head" onclick="toggleGroupAccordion({{ grp.id }})" style="display:flex; justify-content:space-between; align-items:center; padding: 0.85rem 1rem; background: #fff; cursor: pointer; user-select: none; transition: background 0.15s ease;">
+            <div style="display:flex; align-items:center; gap: 0.6rem; flex-wrap:wrap;">
+              <span class="chevron" id="group-chevron-{{ grp.id }}" style="display:inline-flex; align-items:center; transition:transform 0.2s ease; color:var(--muted); transform: {% if is_grp_running %}rotate(180deg){% else %}rotate(0deg){% endif %};"><i data-lucide="chevron-down" class="icon-green"></i></span>
+              <strong style="font-size: 1.05rem;">{{ grp.name }}</strong>
+              <span class="tag" style="font-size:0.7rem; background:#f0f4f8; color:#333; padding:0.1rem 0.35rem; border-radius:3px;">
+                {{ grp.server.name if grp.server else "Server" }}
+              </span>
+              <span class="tag" style="font-size:0.7rem; background:rgba(0,0,0,0.06); padding:0.1rem 0.35rem; border-radius:3px; display:inline-flex; align-items:center; gap:0.25rem;">
+                {% if grp.run_in_parallel %}<i data-lucide="zap" class="icon-green"></i> Parallel{% else %}<i data-lucide="link" class="icon-green"></i> Sequential{% endif %}
+              </span>
+              <span class="tag" style="font-size:0.7rem; background:#eee; color:#666; padding:0.1rem 0.35rem; border-radius:3px;">
+                {{ grp.items|length }} items
+              </span>
+
+              <!-- SPINNER with RUNNING indicator next to Command Group Name -->
+              <div class="running-indicator-badge" id="group-running-{{ grp.id }}" style="display:{% if is_grp_running %}inline-flex{% else %}none{% endif %}; align-items:center; gap:0.4rem; background: #ef6c00; color: #fff; font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 4px;">
+                <span class="status-spinner" style="display:inline-block; width:10px; height:10px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
+                RUNNING
+              </div>
+            </div>
+
+            <!-- Action Buttons & Running State -->
+            <div class="action-btn-group" id="group-btns-{{ grp.id }}" style="display:flex; align-items:center; gap:0.35rem;" onclick="event.stopPropagation();">
+              <button type="button" class="button button-small run-trigger-btn" onclick="openRunModal('group', {{ grp.id }})" style="font-weight:600; background: #1a73e8; color: #fff; display:inline-flex; align-items:center; gap:0.3rem; {% if is_grp_running %}pointer-events:none; opacity:0.5;{% endif %}" {% if is_grp_running %}disabled{% endif %}>
+                <i data-lucide="play" class="icon-white"></i> Run
+              </button>
+              
+              {% if user_can_duplicate_group(grp) %}
+              <form method="post" action="{{ url_for('remote_exec.duplicate_group', group_id=grp.id) }}" style="margin:0; display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="button button-quiet button-small" title="Duplicate this Command Group and all its items" style="display:inline-flex; align-items:center; gap:0.25rem; {% if is_grp_running %}pointer-events:none; opacity:0.5;{% endif %}" {% if is_grp_running %}disabled{% endif %}>
+                  <i data-lucide="copy" class="icon-green"></i> Duplicate
+                </button>
+              </form>
+              {% endif %}
+
+              {% if user_can_edit_group(grp) %}
+              <a href="{{ url_for('remote_exec.group_edit', group_id=grp.id) }}" class="button button-quiet button-small" style="display:inline-flex; align-items:center; gap:0.25rem; {% if is_grp_running %}pointer-events:none; opacity:0.5;{% endif %}">
+                <i data-lucide="pencil" class="icon-green"></i> Edit
+              </a>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Accordion Body: Command Items as nested accordions -->
+          <div class="accordion-body group-accordion-body" id="group-body-{{ grp.id }}" style="display: {% if is_grp_running %}block{% else %}none{% endif %}; padding: 0.85rem 1rem; border-top: 1px solid #eee; background: #fcfcfc;">
+            {% if grp.description %}
+            <p style="font-size:0.82rem; color:var(--muted); margin:0 0 0.75rem;">{{ grp.description }}</p>
+            {% endif %}
+
+            <div class="group-items-list" id="group-items-container-{{ grp.id }}" style="display:flex; flex-direction:column; gap:0.5rem;">
+              {% for gi in grp.items %}
+              {% set c = gi.command_item %}
+              {% if c %}
+              <div class="nested-item-accordion" id="group-{{ grp.id }}-item-{{ c.id }}" data-item-id="{{ c.id }}" style="border: 1px solid #e0e0e0; border-radius: 4px; background: #fff; overflow:hidden;">
+                <!-- Nested Command Item Accordion Head -->
+                <div class="nested-accordion-head" id="group-{{ grp.id }}-item-head-{{ c.id }}" onclick="toggleNestedAccordion('group-{{ grp.id }}-item-body-{{ c.id }}', 'group-{{ grp.id }}-item-chevron-{{ c.id }}')" style="display:flex; justify-content:space-between; align-items:center; padding: 0.55rem 0.85rem; cursor: pointer; user-select: none; background: #fafafa; transition: background 0.15s ease;">
+                  <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                    <span class="chevron" id="group-{{ grp.id }}-item-chevron-{{ c.id }}" style="display:inline-flex; align-items:center; transition:transform 0.2s ease; color:var(--muted);"><i data-lucide="chevron-right" class="icon-green"></i></span>
+                    <span style="font-size:0.75rem; color:#888; font-weight:600;">#{{ loop.index }}</span>
+                    <strong style="font-size:0.9rem;" class="step-item-name">{{ c.name }}</strong>
+                    <span class="tag" style="font-size:0.65rem; text-transform:uppercase; background:rgba(0,0,0,0.06); padding:0.1rem 0.3rem; border-radius:3px;">
+                      {{ c.command_type }}
+                    </span>
+                  </div>
+
+                  <!-- Step Status Indicator: SPINNER + RUNNING / Green Tick / Red Cross / Disabled Pending -->
+                  <div class="step-status-indicator" id="group-{{ grp.id }}-item-status-{{ c.id }}" style="display:flex; align-items:center; gap:0.35rem; font-size:0.75rem;">
+                    <!-- Running spinner badge -->
+                    <span class="step-running-badge" id="group-{{ grp.id }}-item-running-{{ c.id }}" style="display:none; align-items:center; gap:0.3rem; color:#ef6c00; font-weight:700;">
+                      <span class="status-spinner" style="display:inline-block; width:9px; height:9px; border:2px solid #ef6c00; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
+                      RUNNING
+                    </span>
+                    <!-- Completed success tick -->
+                    <span class="step-success-badge" id="group-{{ grp.id }}-item-success-{{ c.id }}" style="display:none; color:#2e7d32;" title="Completed Successfully"><i data-lucide="check" class="icon-green"></i></span>
+                    <!-- Completed failure cross -->
+                    <span class="step-failure-badge" id="group-{{ grp.id }}-item-failure-{{ c.id }}" style="display:none; color:#c62828;" title="Failed"><i data-lucide="x" class="icon-green"></i></span>
+                    <!-- Not yet started / pending (disabled) -->
+                    <span class="step-pending-badge" id="group-{{ grp.id }}-item-pending-{{ c.id }}" style="color:#aaa; font-size:0.75rem;">Ready</span>
+                  </div>
+                </div>
+
+                <!-- Nested Command Item Accordion Body: Script & Output Log -->
+                <div class="nested-accordion-body" id="group-{{ grp.id }}-item-body-{{ c.id }}" style="display:none; padding: 0.65rem 0.85rem; border-top: 1px solid #eee; background: #fff;">
+                  <div style="font-size:0.75rem; color:#666; margin-bottom:0.3rem; font-weight:600;">Command Script:</div>
+                  <pre style="margin:0; font-family:monospace; font-size:0.8rem; background:#1e1e1e; color:#dcdcdc; padding:0.6rem; border-radius:4px; max-height:200px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;">{{ c.command_content or "(File Upload Step)" }}</pre>
+                  <div class="step-live-log-container" id="group-{{ grp.id }}-item-log-{{ c.id }}" style="display:none; margin-top:0.5rem;">
+                    <div style="font-size:0.75rem; color:#666; margin-bottom:0.3rem; font-weight:600;">Live Execution Output:</div>
+                    <pre class="step-live-log" style="margin:0; font-family:monospace; font-size:0.8rem; background:#222; color:#a5d6a7; padding:0.6rem; border-radius:4px; max-height:200px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;"></pre>
+                  </div>
+                </div>
+              </div>
+              {% endif %}
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        {% else %}
+        <p class="muted" style="font-size:0.9rem;">No Command Groups created yet.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <!-- Command Items -->
+    <section class="detail-section" style="margin: 0;">
+      <div class="section-heading" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
+        <div>
+          <p class="eyebrow" style="font-size:0.75rem; color:var(--muted); margin:0;">MODULAR STEPS</p>
+          <h2 style="font-size:1.2rem; margin:0;">Command Items</h2>
+        </div>
+        <button type="button" class="button button-secondary button-small" onclick="openNewItemModal()" style="display:inline-flex; align-items:center; gap:0.25rem;"><i data-lucide="plus" class="icon-green"></i> New Item</button>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap: 0.75rem;">
+        {% for item in command_items %}
+        {% set is_item_running = item.id in running_item_ids %}
+        <div class="item-card target-entity-card" id="item-card-{{ item.id }}" data-item-id="{{ item.id }}" style="border: 1px solid var(--border-color, #e0e0e0); border-radius: 6px; padding: 0.85rem 1rem; background: #fff;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:0.5rem;">
+            <div>
+              <div style="display:flex; align-items:center; gap: 0.5rem;">
+                <strong style="font-size: 1rem;">{{ item.name }}</strong>
+                <span class="tag" style="font-size:0.7rem; background:#f0f4f8; color:#333; padding:0.1rem 0.35rem; border-radius:3px;">
+                  {{ item.server.name if item.server else "Server" }}
+                </span>
+                <span class="tag" style="font-size:0.7rem; text-transform:uppercase; background:rgba(0,0,0,0.06); padding:0.1rem 0.35rem; border-radius:3px;">
+                  {{ item.command_type }}
+                </span>
+              </div>
+              <code style="font-size:0.8rem; color:#444; display:block; margin-top:0.3rem; max-width: 320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                {{ item.command_content or "(File Upload Step)" }}
+              </code>
+            </div>
+
+            <!-- Action Buttons & Running State -->
+            <div class="action-btn-group" id="item-btns-{{ item.id }}" style="display:flex; align-items:center; gap:0.35rem;">
+              <button type="button" class="button button-small run-trigger-btn" onclick="openRunModal('item', {{ item.id }})" style="font-weight:600; background: #1a73e8; color: #fff; display:inline-flex; align-items:center; gap:0.3rem; {% if is_item_running %}pointer-events:none; opacity:0.5;{% endif %}" {% if is_item_running %}disabled{% endif %}>
+                <i data-lucide="play" class="icon-white"></i> Run
+              </button>
+
+              {% if user_can_duplicate_item(item) %}
+              <form method="post" action="{{ url_for('remote_exec.duplicate_item', item_id=item.id) }}" style="margin:0; display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="button button-quiet button-small" title="Duplicate this Command Item" style="display:inline-flex; align-items:center; gap:0.25rem; {% if is_item_running %}disabled style="pointer-events:none; opacity:0.5;"{% endif %}>
+                  <i data-lucide="copy" class="icon-green"></i> Duplicate
+                </button>
+              </form>
+              {% endif %}
+
+              {% if user_can_edit_item(item) %}
+              <button type="button" class="button button-quiet button-small" onclick="openEditItemModal({{ item.id }})" style="display:inline-flex; align-items:center; gap:0.25rem; {% if is_item_running %}pointer-events:none; opacity:0.5;{% endif %}" {% if is_item_running %}disabled{% endif %}>
+                <i data-lucide="pencil" class="icon-green"></i> Edit
+              </button>
+              {% endif %}
+            </div>
+
+            <!-- SPINNER with RUNNING indicator -->
+            <div class="running-indicator-badge" id="item-running-{{ item.id }}" style="display:{% if is_item_running %}inline-flex{% else %}none{% endif %}; align-items:center; gap:0.4rem; background: #ef6c00; color: #fff; font-size: 0.8rem; font-weight: 700; padding: 0.3rem 0.7rem; border-radius: 4px;">
+              <span class="status-spinner" style="display:inline-block; width:10px; height:10px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
+              RUNNING
+            </div>
+          </div>
+        </div>
+        {% else %}
+        <p class="muted" style="font-size:0.9rem;">No Command Items created yet.</p>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <!-- Section 3: Historical Command Accordions (Paginated 25 per page) -->
+  <section class="detail-section" style="margin: 0;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.25rem; flex-wrap:wrap; gap:1rem;">
+      <div>
+        <p class="eyebrow" style="font-size:0.75rem; color:var(--muted); margin:0;">EXECUTION AUDIT LOG</p>
+        <h2 style="font-size:1.35rem; margin:0;">Execution History</h2>
+      </div>
+      <div style="font-size:0.85rem; color:var(--muted);">
+        Page {{ current_page }} of {{ total_pages }}
+      </div>
+    </div>
+
+    <!-- Accordion List -->
+    <div class="accordion-history-container" style="display: flex; flex-direction: column; gap: 0.75rem;">
+      {% for audit in history_audits %}
+      <div class="accordion-item" id="accordion-row-{{ audit.id }}" style="border: 1px solid var(--border-color, #e0e0e0); border-radius: 6px; overflow: hidden; background: #fff;">
+        
+        <!-- Accordion Header -->
+        <div class="accordion-header" style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.25rem; background: #fdfdfd; cursor: {% if audit.has_output and logs_allowed[audit.id] %}pointer{% else %}default{% endif %}; border-bottom: 1px solid transparent; transition: background 0.15s ease;"
+             {% if audit.has_output and logs_allowed[audit.id] %}onclick="toggleAccordion({{ audit.id }})"{% endif %}>
+          
+          <!-- Left: Type Badge & Title & Command -->
+          <div style="display:flex; align-items:center; gap: 0.75rem; flex-wrap:wrap; flex: 1 1 auto;">
+            <!-- Badge: Command Item vs Command Group -->
+            {% if audit.entry_type == 'group' %}
+            <span class="tag" style="background:#e8f0fe; color:#1967d2; font-weight:700; font-size:0.75rem; padding: 0.2rem 0.5rem; border-radius:4px;">
+              [Command Group]
+            </span>
+            {% else %}
+            <span class="tag" style="background:#f1f3f4; color:#3c4043; font-weight:700; font-size:0.75rem; padding: 0.2rem 0.5rem; border-radius:4px;">
+              [Command Item]
+            </span>
+            {% endif %}
+
+            <strong style="font-size: 0.95rem; color: #202124;">{{ audit.title or "Executed Command" }}</strong>
+
+            <code style="font-size:0.8rem; background:rgba(0,0,0,0.04); padding:0.15rem 0.4rem; border-radius:3px; max-width:340px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+              {{ audit.executed_command or audit.command }}
+            </code>
+          </div>
+
+          <!-- Right: Timing, Re-run, Status Indicator (Tick / Cross / Spinner) -->
+          <div style="display:flex; align-items:center; gap: 1rem; flex-wrap:wrap;" onclick="event.stopPropagation();">
+            <span style="font-size: 0.8rem; color: var(--muted);">
+              {{ audit.created_at.strftime('%Y-%m-%d %H:%M') if audit.created_at else '' }}
+              {% if audit.duration_seconds is not none %}
+              · <strong>{{ "%.1f"|format(audit.duration_seconds) }}s</strong>
+              {% endif %}
+            </span>
+
+            <!-- Re-run Button -->
+            {% if audit.command_item_id or audit.group_id %}
+            <button type="button" class="button button-quiet button-small" onclick="openRunModal('{{ audit.entry_type }}', {{ audit.command_item_id or audit.group_id }})" style="font-size:0.75rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.25rem;">
+              <i data-lucide="rotate-cw" class="icon-green"></i> Re-run
+            </button>
+            {% endif %}
+
+            <!-- Right-aligned Status Indicator -->
+            <div id="audit-status-badge-{{ audit.id }}">
+              {% if audit.status in ['pending', 'running'] %}
+              <span style="display:inline-flex; align-items:center; gap:0.35rem; color:#ef6c00; font-weight:700; font-size:0.85rem;">
+                <span class="status-spinner" style="display:inline-block; width:10px; height:10px; border:2px solid #ef6c00; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
+                RUNNING
+              </span>
+              {% elif audit.is_success %}
+              <span title="Success (Exit Code 0)"><i data-lucide="check" class="icon-green"></i></span>
+              {% else %}
+              <span title="Failed (Exit Code {{ audit.exit_code or 1 }})"><i data-lucide="x" class="icon-green"></i></span>
+              {% endif %}
+            </div>
+
+            <!-- Chevron indicator if expandable -->
+            {% if audit.has_output and logs_allowed[audit.id] %}
+            <span class="chevron-icon" id="chevron-{{ audit.id }}" style="display:inline-flex; align-items:center; color:var(--muted); transition: transform 0.2s ease;"><i data-lucide="chevron-down" class="icon-green"></i></span>
+            {% elif not logs_allowed[audit.id] %}
+            <span style="display:inline-flex; align-items:center;" title="View logs permission restricted"><i data-lucide="lock" class="icon-green"></i></span>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Accordion Body -->
+        {% if logs_allowed[audit.id] %}
+        <div class="accordion-body" id="accordion-body-{{ audit.id }}" style="display: none; padding: 0.85rem 1.25rem; background: {% if audit.entry_type == 'group' %}#fdfdfd{% else %}#1e1e1e{% endif %}; color: {% if audit.entry_type == 'group' %}#202124{% else %}#f0f0f0{% endif %}; border-top: 1px solid var(--border-color, #e0e0e0);">
+          {% if audit.entry_type == 'group' %}
+          <!-- Command Items Nested Accordions for Group Execution -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+            <span style="font-size: 0.75rem; color: #666; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em;">Group Steps & Command Output</span>
+            <a href="{{ url_for('remote_exec.get_audit_full_log', audit_id=audit.id) }}" target="_blank" class="button button-quiet button-small" style="font-size: 0.75rem; color: #1a73e8; padding: 0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.25rem;">
+              <i data-lucide="external-link" class="icon-green"></i> View Combined Full Log
+            </a>
+          </div>
+
+          <div class="audit-nested-steps-container" id="audit-steps-container-{{ audit.id }}" style="display: flex; flex-direction: column; gap: 0.5rem;">
+            {% for step in audit.get_step_items() %}
+            <div class="nested-item-accordion" id="audit-{{ audit.id }}-step-{{ step.item_id }}" style="border: 1px solid #e0e0e0; border-radius: 4px; background: #fff; overflow:hidden;">
+              <!-- Step Accordion Head -->
+              <div class="nested-accordion-head" id="audit-{{ audit.id }}-step-head-{{ step.item_id }}" onclick="toggleNestedAccordion('audit-{{ audit.id }}-step-body-{{ step.item_id }}', 'audit-{{ audit.id }}-step-chevron-{{ step.item_id }}')" style="display:flex; justify-content:space-between; align-items:center; padding: 0.55rem 0.85rem; cursor: pointer; user-select: none; background: #fafafa; transition: background 0.15s ease;">
+                <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                  <span class="chevron" id="audit-{{ audit.id }}-step-chevron-{{ step.item_id }}" style="display:inline-flex; align-items:center; transition:transform 0.2s ease; color:var(--muted);"><i data-lucide="chevron-right" class="icon-green"></i></span>
+                  <span style="font-size:0.75rem; color:#888; font-weight:600;">#{{ loop.index }}</span>
+                  <strong style="font-size:0.9rem;" class="step-item-name">{{ step.name }}</strong>
+                  <span class="tag" style="font-size:0.65rem; text-transform:uppercase; background:rgba(0,0,0,0.06); padding:0.1rem 0.3rem; border-radius:3px;">
+                    {{ step.command_type }}
+                  </span>
+                </div>
+
+                <!-- Status indicator for this Command Item -->
+                <div class="step-status-indicator" id="audit-{{ audit.id }}-step-status-{{ step.item_id }}" style="display:flex; align-items:center; gap:0.35rem; font-size:0.75rem;">
+                  {% if step.status == 'running' %}
+                  <span style="display:inline-flex; align-items:center; gap:0.3rem; color:#ef6c00; font-weight:700;">
+                    <span class="status-spinner" style="display:inline-block; width:9px; height:9px; border:2px solid #ef6c00; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
+                    RUNNING
+                  </span>
+                  {% elif step.status == 'completed' or (step.exit_code == 0 and step.status != 'pending') %}
+                  <span title="Success (Exit 0)"><i data-lucide="check" class="icon-green"></i></span>
+                  {% elif step.status == 'failed' or (step.exit_code is not none and step.exit_code != 0) %}
+                  <span title="Failed (Exit Code {{ step.exit_code }})"><i data-lucide="x" class="icon-green"></i></span>
+                  {% else %}
+                  <span style="color:#888; font-size:0.75rem;" title="Step Not Started / Disabled">(Disabled - Pending)</span>
+                  {% endif %}
+                </div>
+              </div>
+
+              <!-- Step Accordion Body: Log for this specific command -->
+              <div class="nested-accordion-body" id="audit-{{ audit.id }}-step-body-{{ step.item_id }}" style="display:none; padding: 0.75rem 1rem; border-top: 1px solid #eee; background: #1e1e1e; color: #f0f0f0;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem;">
+                  <span style="font-size:0.7rem; color:#888; text-transform:uppercase; font-family:monospace;">Command Log Output</span>
+                  {% if step.exit_code is not none %}
+                  <span style="font-size:0.7rem; color:{% if step.exit_code == 0 %}#81c784{% else %}#e57373{% endif %}; font-family:monospace;">Exit Code: {{ step.exit_code }}</span>
+                  {% endif %}
+                </div>
+                <pre class="step-log-output" style="margin:0; font-family:monospace; font-size:0.8rem; line-height:1.45; white-space:pre-wrap; word-break:break-all; max-height:260px; overflow-y:auto; color:#e0e0e0; background:transparent;">{{ step.output or "(No output captured for this step)" }}</pre>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+
+          {% else %}
+          <!-- Single Command Item Output Preview (Last 10 Lines) -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+            <span style="font-size: 0.75rem; color: #999; text-transform: uppercase; letter-spacing: 0.05em;">Log Output Preview (Last 10 Lines)</span>
+            <a href="{{ url_for('remote_exec.get_audit_full_log', audit_id=audit.id) }}" target="_blank" class="button button-quiet button-small" style="font-size: 0.75rem; color: #64b5f6; border-color: #444; padding: 0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.25rem;">
+              <i data-lucide="external-link" class="icon-white"></i> View Full Log
+            </a>
+          </div>
+          <pre id="log-content-{{ audit.id }}" style="margin: 0; font-family: monospace; font-size: 0.82rem; white-space: pre-wrap; word-break: break-all; max-height: 250px; overflow-y: auto; color: #e6e6e6; line-height: 1.45;">Loading last 10 lines...</pre>
+          {% endif %}
+        </div>
+        {% elif not logs_allowed[audit.id] %}
+        <div style="display: none;" id="accordion-body-{{ audit.id }}"></div>
+        {% endif %}
+
+      </div>
+      {% else %}
+      <p class="muted">No execution history recorded yet.</p>
+      {% endfor %}
+    </div>
+
+    <!-- Pagination Controls -->
+    {% if total_pages > 1 %}
+    <div style="display:flex; justify-content:center; align-items:center; gap:0.5rem; margin-top: 1.5rem;">
+      {% if current_page > 1 %}
+      <a href="{{ url_for('remote_exec.dashboard', page=current_page - 1) }}" class="button button-quiet button-small">← Previous</a>
+      {% endif %}
+      <span style="font-size:0.85rem; color:var(--muted); padding: 0 0.5rem;">Page {{ current_page }} of {{ total_pages }}</span>
+      {% if current_page < total_pages %}
+      <a href="{{ url_for('remote_exec.dashboard', page=current_page + 1) }}" class="button button-quiet button-small">Next →</a>
+      {% endif %}
+    </div>
+    {% endif %}
+  </section>
+
+</div>
+
+<!-- ─── Dynamic Variable Run Modal ──────────────────────────────────────── -->
+<dialog id="run-modal" class="modal-dialog" style="border:none; border-radius:8px; padding:0; max-width:540px; width:90%; box-shadow:0 10px 30px rgba(0,0,0,0.25);">
+  <div style="padding: 1.5rem; background:#fff; border-radius:8px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 1.25rem;">
+      <div>
+        <p class="eyebrow" id="run-modal-type-eyebrow" style="margin:0; font-size:0.75rem; color:var(--muted);">RUN COMMAND</p>
+        <h3 id="run-modal-title" style="margin:0.2rem 0 0; font-size:1.3rem;">Execute</h3>
+        <p id="run-modal-server" style="margin:0.2rem 0 0; font-size:0.85rem; color:var(--muted);"></p>
+      </div>
+      <button type="button" onclick="closeRunModal()" style="background:none; border:none; font-size:1.5rem; cursor:pointer; color:#888;">&times;</button>
+    </div>
+
+    <form id="run-modal-form" onsubmit="submitRunModal(event)">
+      <input type="hidden" id="run-entry-type" value="">
+      <input type="hidden" id="run-target-id" value="">
+
+      <!-- Container for dynamic variables -->
+      <div id="run-variables-container" style="display:flex; flex-direction:column; gap:0.85rem; margin-bottom: 1.25rem;">
+        <!-- Injected via JS -->
+      </div>
+
+      <!-- File Upload Input if step contains upload -->
+      <div id="run-upload-container" style="display:none; margin-bottom: 1.25rem; background:#f9f9f9; padding:0.85rem; border:1px dashed #ccc; border-radius:6px;">
+        <label style="display:block; font-weight:600; font-size:0.85rem; margin-bottom:0.35rem;">
+          Select Files to Upload (will land in target server current directory)
+        </label>
+        <input type="file" id="run-upload-files" name="files" multiple style="font-size:0.85rem;">
+      </div>
+
+      <div id="run-modal-error" style="color:#c62828; font-size:0.85rem; margin-bottom:0.75rem; display:none;"></div>
+
+      <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
+        <button type="button" class="button button-quiet" onclick="closeRunModal()">Cancel</button>
+        <button type="submit" class="button button-primary" id="run-submit-btn" style="display:inline-flex; align-items:center; gap:0.35rem;">Run Now <i data-lucide="rocket" class="icon-white"></i></button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+<!-- ─── New / Edit Command Item Modal ────────────────────────────────────── -->
+<dialog id="item-modal" class="modal-dialog" style="border:none; border-radius:8px; padding:0; max-width:620px; width:90%; box-shadow:0 10px 30px rgba(0,0,0,0.25);">
+  <div style="padding: 1.5rem; background:#fff; border-radius:8px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 1.25rem;">
+      <h3 id="item-modal-heading" style="margin:0; font-size:1.3rem;">Command Item</h3>
+      <button type="button" onclick="closeItemModal()" style="background:none; border:none; cursor:pointer; color:var(--green-dark); padding:0;"><i data-lucide="x" class="icon-green"></i></button>
+    </div>
+
+    <form method="post" action="{{ url_for('remote_exec.save_item') }}" class="form-stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="item_id" id="edit-item-id" value="">
+
+      <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+        <label style="flex:2 1 240px;">
+          Item Name
+          <input type="text" name="name" id="item-input-name" required placeholder="e.g. Restart App, Pull Git Repo" style="width:100%; padding:0.45rem; border:1px solid #ccc; border-radius:4px;">
+        </label>
+        <label style="flex:1 1 180px;">
+          Target Server
+          <select name="server_id" id="item-input-server" required style="width:100%; padding:0.45rem; border:1px solid #ccc; border-radius:4px;">
+            <option value="">-- Choose Server --</option>
+            {% for s in servers %}
+            <option value="{{ s.id }}">{{ s.name }} ({{ s.ip }})</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+
+      <label>
+        Command Type
+        <select name="command_type" id="item-input-type" onchange="toggleItemTypeFields()" style="width:100%; padding:0.45rem; border:1px solid #ccc; border-radius:4px;">
+          <option value="remote">Run Remote Command(s) (Target Server via AsyncSSH)</option>
+          <option value="local">Run Local Command(s) (PyWA Server Subprocess)</option>
+          <option value="upload">Upload Files (Upload to Target Server Current Directory)</option>
+        </select>
+      </label>
+
+      <div id="item-command-container">
+        <label>
+          Command(s) Script
+          <textarea name="command_content" id="item-input-content" rows="4" placeholder="Enter shell commands. Use &#123;&#123; Variable-Name &#125;&#125; for dynamic values..." style="width:100%; padding:0.45rem; font-family:monospace; border:1px solid #ccc; border-radius:4px;"></textarea>
+        </label>
+      </div>
+
+      <!-- Variables Builder -->
+      <fieldset style="border: 1px solid #e0e0e0; border-radius: 6px; padding: 0.85rem; margin-top: 0.5rem;">
+        <legend style="font-size:0.85rem; font-weight:600; padding: 0 0.4rem;">Placeholder Variables (Optional)</legend>
+        <div id="item-vars-container" style="display:flex; flex-direction:column; gap:0.5rem;">
+          <!-- Dynamically added -->
+        </div>
+        <button type="button" class="button button-quiet button-small" onclick="addVariableRow()" style="margin-top:0.5rem;">+ Add Variable</button>
+      </fieldset>
+
+      <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.25rem;">
+        <button type="button" class="button button-quiet" onclick="closeItemModal()">Cancel</button>
+        <button type="submit" class="button button-primary">Save Command Item</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+<style>
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes pulse {
+  0% { opacity: 0.4; }
+  50% { opacity: 1; }
+  100% { opacity: 0.4; }
+}
+</style>
+
+<script>
+const csrfToken = "{{ csrf_token() }}";
+
+// ─── Clipboard Copy Password ──────────────────────────────────────────────
+async function copyServerPassword(serverId) {
+  const btnText = document.getElementById("copy-btn-text-" + serverId);
+  try {
+    const resp = await fetch("/apps/remote-exec/servers/" + serverId + "/password");
+    const data = await resp.json();
+    if (data.success && data.password) {
+      await navigator.clipboard.writeText(data.password);
+      if (btnText) {
+        const orig = btnText.innerHTML;
+        btnText.innerHTML = 'Copied! <i data-lucide="check" class="icon-white"></i>';
+        if (window.lucide) lucide.createIcons();
+        setTimeout(() => { btnText.innerHTML = orig; if (window.lucide) lucide.createIcons(); }, 2000);
+      }
+    } else {
+      alert("No password configured.");
+    }
+  } catch (err) {
+    alert("Could not copy password: " + err);
+  }
+}
+
+// ─── Inline Fallback Credentials ──────────────────────────────────────────
+function toggleFallbackForm(serverId) {
+  const c = document.getElementById("fallback-form-container-" + serverId);
+  if (c) c.style.display = (c.style.display === "none") ? "block" : "none";
+}
+
+async function testAndSaveFallback(serverId) {
+  const user = document.getElementById("fb-user-" + serverId).value;
+  const pass = document.getElementById("fb-pass-" + serverId).value;
+  const msg = document.getElementById("fb-msg-" + serverId);
+  const btn = document.getElementById("fb-btn-" + serverId);
+  const badge = document.getElementById("badge-status-" + serverId);
+
+  if (!user) {
+    alert("Please enter an SSH username.");
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Testing Connection...";
+  msg.style.display = "none";
+
+  const formData = new FormData();
+  formData.append("csrf_token", csrfToken);
+  formData.append("username", user);
+  formData.append("password", pass);
+
+  try {
+    const resp = await fetch("/apps/remote-exec/servers/" + serverId + "/fallback-credential", {
+      method: "POST",
+      body: formData,
+    });
+    const data = await resp.json();
+    if (data.success) {
+      msg.style.color = "#2e7d32";
+      msg.textContent = data.message;
+      msg.style.display = "block";
+      if (badge) {
+        badge.className = "badge-status-available";
+        badge.style.background = "#2e7d32";
+        badge.innerHTML = '<i data-lucide="check" class="icon-white"></i> AVAILABLE';
+        if (window.lucide) lucide.createIcons();
+      }
+      setTimeout(() => toggleFallbackForm(serverId), 2000);
+    } else {
+      msg.style.color = "#c62828";
+      msg.textContent = data.error || "Connection failed.";
+      msg.style.display = "block";
+    }
+  } catch (err) {
+    msg.style.color = "#c62828";
+    msg.textContent = "Network error: " + err;
+    msg.style.display = "block";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Connect / Test 🔌";
+  }
+}
+
+// ─── Accordion Toggles & Lazy Loading ─────────────────────────────────────
+function toggleGroupAccordion(groupId) {
+  const body = document.getElementById("group-body-" + groupId);
+  const chevron = document.getElementById("group-chevron-" + groupId);
+  if (!body) return;
+  const isHidden = (body.style.display === "none" || body.style.display === "");
+  body.style.display = isHidden ? "block" : "none";
+  if (chevron) {
+    chevron.style.transform = isHidden ? "rotate(180deg)" : "rotate(0deg)";
+  }
+}
+
+function toggleNestedAccordion(bodyId, chevronId) {
+  const body = document.getElementById(bodyId);
+  const chevron = document.getElementById(chevronId);
+  if (!body) return;
+  const isHidden = (body.style.display === "none" || body.style.display === "");
+  body.style.display = isHidden ? "block" : "none";
+  if (chevron) {
+    chevron.style.transform = isHidden ? "rotate(90deg)" : "rotate(0deg)";
+  }
+}
+
+async function toggleAccordion(auditId) {
+  const body = document.getElementById("accordion-body-" + auditId);
+  const chevron = document.getElementById("chevron-" + auditId);
+  const logContent = document.getElementById("log-content-" + auditId);
+
+  if (!body) return;
+
+  if (body.style.display === "none" || body.style.display === "") {
+    body.style.display = "block";
+    if (chevron) chevron.style.transform = "rotate(180deg)";
+
+    // Fetch last 10 lines only if single command item preview element exists
+    if (logContent) {
+      try {
+        const resp = await fetch("/apps/remote-exec/commands/" + auditId + "/last-10");
+        const data = await resp.json();
+        if (data.success) {
+          logContent.textContent = data.last_10 || "(No text output)";
+        } else {
+          logContent.textContent = data.error || "Error loading logs.";
+        }
+      } catch (err) {
+        logContent.textContent = "Error fetching log preview: " + err;
+      }
+    }
+  } else {
+    body.style.display = "none";
+    if (chevron) chevron.style.transform = "rotate(0deg)";
+  }
+}
+
+// ─── Dynamic Variable Run Modal ───────────────────────────────────────────
+async function openRunModal(entryType, targetId) {
+  const modal = document.getElementById("run-modal");
+  const typeEyebrow = document.getElementById("run-modal-type-eyebrow");
+  const title = document.getElementById("run-modal-title");
+  const server = document.getElementById("run-modal-server");
+  const container = document.getElementById("run-variables-container");
+  const uploadContainer = document.getElementById("run-upload-container");
+  const err = document.getElementById("run-modal-error");
+
+  document.getElementById("run-entry-type").value = entryType;
+  document.getElementById("run-target-id").value = targetId;
+  container.innerHTML = "Loading variables...";
+  err.style.display = "none";
+
+  modal.showModal();
+
+  try {
+    const resp = await fetch("/apps/remote-exec/run-modal/" + entryType + "/" + targetId);
+    const data = await resp.json();
+    if (!data.success) {
+      container.innerHTML = `<span style="color:#c62828;">${data.error || "Could not load item."}</span>`;
+      return;
+    }
+
+    typeEyebrow.textContent = (entryType === "group") ? "RUN COMMAND GROUP" : "RUN COMMAND ITEM";
+    title.textContent = data.title;
+    server.textContent = "Target Server: " + data.server_name;
+    uploadContainer.style.display = data.has_upload ? "block" : "none";
+
+    container.innerHTML = "";
+    if (data.variables.length === 0) {
+      container.innerHTML = "<p style='font-size:0.85rem; color:#666; margin:0;'>No variable inputs needed for this execution.</p>";
+    } else {
+      data.variables.forEach(v => {
+        const row = document.createElement("div");
+        row.style.display = "flex";
+        row.style.flexDirection = "column";
+        row.style.gap = "0.2rem";
+
+        const label = document.createElement("label");
+        label.style.fontSize = "0.85rem";
+        label.style.fontWeight = "600";
+        const descSpan = v.description ? ("<span style='font-size:0.75rem; color:#888; font-weight:normal;'>(" + v.description + ")</span>") : "";
+        label.innerHTML = "<code>&#123;&#123; " + v.name + " &#125;&#125;</code> " + descSpan;
+        row.appendChild(label);
+
+        if (v.var_type === "boolean") {
+          const chkLabel = document.createElement("label");
+          chkLabel.style.display = "flex";
+          chkLabel.style.alignItems = "center";
+          chkLabel.style.gap = "0.4rem";
+          chkLabel.style.fontSize = "0.85rem";
+          const chk = document.createElement("input");
+          chk.type = "checkbox";
+          chk.name = "var_" + v.name;
+          chk.checked = (v.default_value === "true" || v.default_value === "1");
+          chkLabel.appendChild(chk);
+          chkLabel.appendChild(document.createTextNode("Enabled"));
+          row.appendChild(chkLabel);
+        } else {
+          const input = document.createElement("input");
+          input.type = (v.var_type === "number") ? "number" : "text";
+          input.name = "var_" + v.name;
+          input.value = v.default_value || "";
+          input.style.padding = "0.4rem";
+          input.style.border = "1px solid #ccc";
+          input.style.borderRadius = "4px";
+          input.style.fontSize = "0.85rem";
+          row.appendChild(input);
+        }
+
+        container.appendChild(row);
+      });
+    }
+  } catch (e) {
+    container.innerHTML = "Error loading modal data: " + e;
+  }
+}
+
+function closeRunModal() {
+  const modal = document.getElementById("run-modal");
+  if (modal) modal.close();
+}
+
+async function submitRunModal(e) {
+  e.preventDefault();
+  const entryType = document.getElementById("run-entry-type").value;
+  const targetId = document.getElementById("run-target-id").value;
+  const form = document.getElementById("run-modal-form");
+  const err = document.getElementById("run-modal-error");
+  const btn = document.getElementById("run-submit-btn");
+
+  btn.disabled = true;
+  btn.textContent = "Dispatching...";
+  err.style.display = "none";
+
+  const formData = new FormData(form);
+  formData.append("csrf_token", csrfToken);
+
+  try {
+    const resp = await fetch("/apps/remote-exec/run/" + entryType + "/" + targetId, {
+      method: "POST",
+      body: formData,
+    });
+    const data = await resp.json();
+    if (data.success) {
+      closeRunModal();
+      // Instantly trigger live polling refresh
+      pollActiveStatus();
+      // Reload page after brief delay to show the new accordion row
+      setTimeout(() => { window.location.reload(); }, 1200);
+    } else {
+      err.textContent = data.error || "Failed to dispatch command.";
+      err.style.display = "block";
+    }
+  } catch (e) {
+    err.textContent = "Network error: " + e;
+    err.style.display = "block";
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Run Now <i data-lucide="rocket" class="icon-white"></i>';
+    if (window.lucide) lucide.createIcons();
+  }
+}
+
+// ─── Command Item Modal Helpers ───────────────────────────────────────────
+function openNewItemModal() {
+  document.getElementById("edit-item-id").value = "";
+  document.getElementById("item-modal-heading").textContent = "New Command Item";
+  document.getElementById("item-input-name").value = "";
+  document.getElementById("item-input-content").value = "";
+  document.getElementById("item-vars-container").innerHTML = "";
+  toggleItemTypeFields();
+  document.getElementById("item-modal").showModal();
+}
+
+function openEditItemModal(itemId) {
+  openNewItemModal();
+  document.getElementById("edit-item-id").value = itemId;
+  document.getElementById("item-modal-heading").textContent = "Edit Command Item";
+  // Pre-fill item data if available
+}
+
+function closeItemModal() {
+  document.getElementById("item-modal").close();
+}
+
+function toggleItemTypeFields() {
+  const type = document.getElementById("item-input-type").value;
+  const c = document.getElementById("item-command-container");
+  if (c) c.style.display = (type === "upload") ? "none" : "block";
+}
+
+function addVariableRow(name="", desc="", type="text", def="") {
+  const c = document.getElementById("item-vars-container");
+  const row = document.createElement("div");
+  row.style.display = "flex";
+  row.style.gap = "0.4rem";
+  row.style.alignItems = "center";
+  row.innerHTML = `
+    <input type="text" name="var_name[]" value="${name}" placeholder="Name (e.g. Hostname)" required style="flex:1; padding:0.3rem; font-size:0.8rem; border:1px solid #ccc; border-radius:3px;">
+    <input type="text" name="var_desc[]" value="${desc}" placeholder="Description" style="flex:1; padding:0.3rem; font-size:0.8rem; border:1px solid #ccc; border-radius:3px;">
+    <select name="var_type[]" style="font-size:0.8rem; padding:0.3rem; border:1px solid #ccc; border-radius:3px;">
+      <option value="text" ${type==='text'?'selected':''}>Text</option>
+      <option value="number" ${type==='number'?'selected':''}>Number</option>
+      <option value="boolean" ${type==='boolean'?'selected':''}>Boolean</option>
+    </select>
+    <input type="text" name="var_default[]" value="${def}" placeholder="Default" style="flex:1; padding:0.3rem; font-size:0.8rem; border:1px solid #ccc; border-radius:3px;">
+    <button type="button" onclick="this.parentElement.remove()" style="background:none; border:none; color:#c62828; cursor:pointer; font-weight:bold;"><i data-lucide="x" class="icon-green"></i></button>
+  `;
+  c.appendChild(row);
+  if (window.lucide) lucide.createIcons();
+}
+
+// ─── Live Polling: Spinner with RUNNING and Disabled Buttons ──────────────
+async function pollActiveStatus() {
+  try {
+    const resp = await fetch("/apps/remote-exec/active-status");
+    if (!resp.ok) return;
+    const data = await resp.json();
+
+    const runningGroupIds = new Set(data.running_group_ids || []);
+    const runningItemIds = new Set(data.running_item_ids || []);
+    const runningGroupSteps = data.running_group_steps || {};
+
+    // Update Command Groups
+    document.querySelectorAll(".group-card[data-group-id]").forEach(card => {
+      const gid = parseInt(card.getAttribute("data-group-id"), 10);
+      const btnGroup = document.getElementById("group-btns-" + gid);
+      const spinnerBadge = document.getElementById("group-running-" + gid);
+      const isRunning = runningGroupIds.has(gid);
+
+      if (btnGroup) {
+        btnGroup.querySelectorAll("button, a").forEach(el => {
+          if (isRunning) {
+            el.setAttribute("disabled", "true");
+            el.style.pointerEvents = "none";
+            el.style.opacity = "0.5";
+          } else {
+            el.removeAttribute("disabled");
+            el.style.pointerEvents = "";
+            el.style.opacity = "";
+          }
+        });
+      }
+      if (spinnerBadge) {
+        spinnerBadge.style.display = isRunning ? "inline-flex" : "none";
+      }
+
+      // If running, ensure group accordion body is visible so user sees the progress
+      if (isRunning) {
+        const groupBody = document.getElementById("group-body-" + gid);
+        if (groupBody && (groupBody.style.display === "none" || groupBody.style.display === "")) {
+          groupBody.style.display = "block";
+          const chev = document.getElementById("group-chevron-" + gid);
+          if (chev) chev.style.transform = "rotate(180deg)";
+        }
+      }
+
+      // Update per-step status within this group listing if step data is available
+      const gInfo = runningGroupSteps[String(gid)];
+      if (gInfo && gInfo.steps) {
+        gInfo.steps.forEach(step => {
+          const itemCard = document.getElementById("group-" + gid + "-item-" + step.item_id);
+          const runningBadge = document.getElementById("group-" + gid + "-item-running-" + step.item_id);
+          const successBadge = document.getElementById("group-" + gid + "-item-success-" + step.item_id);
+          const failureBadge = document.getElementById("group-" + gid + "-item-failure-" + step.item_id);
+          const pendingBadge = document.getElementById("group-" + gid + "-item-pending-" + step.item_id);
+          const logContainer = document.getElementById("group-" + gid + "-item-log-" + step.item_id);
+
+          const isStepRunning = (step.status === "running");
+          const isStepSuccess = (step.status === "completed" || (step.exit_code === 0 && step.status !== "pending"));
+          const isStepFailed = (step.status === "failed" || (step.exit_code !== null && step.exit_code !== undefined && step.exit_code !== 0));
+          const isStepPending = (!isStepRunning && !isStepSuccess && !isStepFailed);
+
+          if (runningBadge) runningBadge.style.display = isStepRunning ? "inline-flex" : "none";
+          if (successBadge) successBadge.style.display = isStepSuccess ? "inline" : "none";
+          if (failureBadge) failureBadge.style.display = isStepFailed ? "inline" : "none";
+          if (pendingBadge) pendingBadge.style.display = isStepPending ? "inline" : "none";
+
+          if (itemCard) {
+            if (isStepPending) {
+              itemCard.style.opacity = "0.55";
+              itemCard.style.background = "#fbfbfb";
+              itemCard.style.borderColor = "#e0e0e0";
+            } else if (isStepRunning) {
+              itemCard.style.opacity = "1";
+              itemCard.style.background = "#fffdf5";
+              itemCard.style.borderColor = "#f59f00";
+            } else {
+              itemCard.style.opacity = "1";
+              itemCard.style.background = "#fff";
+              itemCard.style.borderColor = isStepSuccess ? "#81c784" : "#e57373";
+            }
+          }
+
+          if (logContainer && step.output) {
+            logContainer.style.display = "block";
+            const pre = logContainer.querySelector("pre");
+            if (pre) pre.textContent = step.output;
+          }
+        });
+      }
+    });
+
+    // Update Command Items
+    document.querySelectorAll(".item-card[data-item-id]").forEach(card => {
+      const iid = parseInt(card.getAttribute("data-item-id"), 10);
+      const btnGroup = document.getElementById("item-btns-" + iid);
+      const spinnerBadge = document.getElementById("item-running-" + iid);
+      const isRunning = runningItemIds.has(iid);
+
+      if (btnGroup) {
+        btnGroup.querySelectorAll("button, a").forEach(el => {
+          if (isRunning) {
+            el.setAttribute("disabled", "true");
+            el.style.pointerEvents = "none";
+            el.style.opacity = "0.5";
+          } else {
+            el.removeAttribute("disabled");
+            el.style.pointerEvents = "";
+            el.style.opacity = "";
+          }
+        });
+      }
+      if (spinnerBadge) {
+        spinnerBadge.style.display = isRunning ? "inline-flex" : "none";
+      }
+    });
+
+    // Update Execution History for running audits
+    if (data.running_audits && data.running_audits.length > 0) {
+      data.running_audits.forEach(aud => {
+        // Update audit row status badge
+        const statusBadge = document.getElementById("audit-status-badge-" + aud.id);
+        if (statusBadge) {
+          statusBadge.innerHTML = `<span style="display:inline-flex; align-items:center; gap:0.35rem; color:#ef6c00; font-weight:700; font-size:0.85rem;"><span class="status-spinner" style="display:inline-block; width:10px; height:10px; border:2px solid #ef6c00; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span> RUNNING</span>`;
+        }
+        // Update nested steps if this is a group audit
+        if (aud.entry_type === "group" && aud.steps) {
+          aud.steps.forEach(step => {
+            const stepStatus = document.getElementById(`audit-${aud.id}-step-status-${step.item_id}`);
+            const stepItem = document.getElementById(`audit-${aud.id}-step-${step.item_id}`);
+            const stepBody = document.getElementById(`audit-${aud.id}-step-body-${step.item_id}`);
+
+            const isStepRunning = (step.status === "running");
+            const isStepSuccess = (step.status === "completed" || (step.exit_code === 0 && step.status !== "pending"));
+            const isStepFailed = (step.status === "failed" || (step.exit_code !== null && step.exit_code !== undefined && step.exit_code !== 0));
+
+            if (stepStatus) {
+              if (isStepRunning) {
+                stepStatus.innerHTML = `<span style="display:inline-flex; align-items:center; gap:0.3rem; color:#ef6c00; font-weight:700;"><span class="status-spinner" style="display:inline-block; width:9px; height:9px; border:2px solid #ef6c00; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span> RUNNING</span>`;
+              } else if (isStepSuccess) {
+                stepStatus.innerHTML = `<span title="Success (Exit 0)"><i data-lucide="check" class="icon-green"></i></span>`;
+              } else if (isStepFailed) {
+                stepStatus.innerHTML = `<span title="Failed (Exit Code ${step.exit_code})"><i data-lucide="x" class="icon-green"></i></span>`;
+              } else {
+                stepStatus.innerHTML = `<span style="color:#888; font-size:0.75rem;">(Disabled - Pending)</span>`;
+              }
+            }
+
+            if (stepItem) {
+              if (!isStepRunning && !isStepSuccess && !isStepFailed) {
+                stepItem.style.opacity = "0.55";
+              } else {
+                stepItem.style.opacity = "1";
+              }
+            }
+
+            if (stepBody && step.output) {
+              const pre = stepBody.querySelector(".step-log-output");
+              if (pre) pre.textContent = step.output;
+            }
+          });
+        }
+      });
+    }
+
+    if (window.lucide) {
+      lucide.createIcons();
+    }
+
+  } catch (err) {
+    // Ignore background polling errors
+  }
+}
+
+// Poll every 2.5 seconds
+setInterval(pollActiveStatus, 2500);
+document.addEventListener("DOMContentLoaded", function() {
+  if (window.lucide) lucide.createIcons();
+  pollActiveStatus();
+});
+</script>
+{% endblock %}

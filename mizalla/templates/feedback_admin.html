@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb, admin_nav %}
+{% block title %}Feedback & Suggestions · Administration{% endblock %}
+{% block content %}
+{{ breadcrumb([("Projects", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Feedback & Suggestions", None)]) }}
+
+{{ admin_nav('feedback') }}
+
+<div class="feedback-admin">
+  <div class="heading-row" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+    <div>
+      <p class="intro-copy" style="margin:0;">Monitor utility application user satisfaction, 1-10 ratings, feedback comments, and requests for new utility apps.</p>
+    </div>
+    <div class="button-group">
+      <a class="button button-quiet button-small" href="{{ url_for('admin.feedback_export', format='xlsx', app=app_filter, target=target_filter, status=status_filter) }}">Export Excel</a>
+      <a class="button button-quiet button-small" href="{{ url_for('admin.feedback_export', format='csv', app=app_filter, target=target_filter, status=status_filter) }}">Export CSV</a>
+    </div>
+  </div>
+
+  <!-- Summary Metric Cards -->
+  <div class="feedback-stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+    <div class="stat-card" style="background: var(--surface-bg, #fff); border: 1px solid var(--border-color, #e0e0e0); border-radius: 8px; padding: 1.2rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+      <div class="stat-label" style="font-size: 0.85rem; text-transform: uppercase; color: var(--muted-color, #666); letter-spacing: 0.05em; margin-bottom: 0.4rem;">Overall Satisfaction</div>
+      <div class="stat-value" style="font-size: 2rem; font-weight: 700; color: #1a73e8; display: flex; align-items: baseline; gap: 0.3rem;">
+        {% if overall_avg_display is not none %}
+          {{ overall_avg_display }} <span style="font-size: 1rem; color: var(--muted-color, #888); font-weight: normal;">/ 10</span>
+        {% else %}
+          <span style="font-size: 1.3rem; color: var(--muted-color, #888);">No ratings yet</span>
+        {% endif %}
+      </div>
+      <div style="font-size: 0.8rem; color: var(--muted-color, #666); margin-top: 0.3rem;">Across all evaluated utility apps</div>
+    </div>
+
+    <div class="stat-card" style="background: var(--surface-bg, #fff); border: 1px solid var(--border-color, #e0e0e0); border-radius: 8px; padding: 1.2rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+      <div class="stat-label" style="font-size: 0.85rem; text-transform: uppercase; color: var(--muted-color, #666); letter-spacing: 0.05em; margin-bottom: 0.4rem;">App Ratings & Reviews</div>
+      <div class="stat-value" style="font-size: 2rem; font-weight: 700; color: #2e7d32;">
+        {{ overall_existing_count }}
+      </div>
+      <div style="font-size: 0.8rem; color: var(--muted-color, #666); margin-top: 0.3rem;">Submissions on existing utilities</div>
+    </div>
+
+    <div class="stat-card" style="background: var(--surface-bg, #fff); border: 1px solid var(--border-color, #e0e0e0); border-radius: 8px; padding: 1.2rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+      <div class="stat-label" style="font-size: 0.85rem; text-transform: uppercase; color: var(--muted-color, #666); letter-spacing: 0.05em; margin-bottom: 0.4rem;">New App Proposals</div>
+      <div class="stat-value" style="font-size: 2rem; font-weight: 700; color: #e65100;">
+        {{ overall_new_count }}
+      </div>
+      <div style="font-size: 0.8rem; color: var(--muted-color, #666); margin-top: 0.3rem;">Requests for new utility applications</div>
+    </div>
+  </div>
+
+  <!-- Utility App Scoreboard -->
+  <div class="panel app-panel" style="margin-bottom: 2rem; border: 1px solid var(--border-color, #e0e0e0); border-radius: 8px; padding: 1.2rem; background: var(--surface-bg, #fff);">
+    <h3 style="margin: 0 0 1rem; font-size: 1.15rem; font-weight: 600;">Utility App Scoreboard</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem;">
+      {% for key in feature_keys %}
+        {% set st = stats_by_key.get(key) %}
+        <div style="border: 1px solid var(--border-color, #eee); border-radius: 6px; padding: 0.8rem 1rem; display: flex; justify-content: space-between; align-items: center; background: {% if app_filter == key %}rgba(26,115,232,0.06){% else %}var(--panel-sub-bg, #fafafa){% endif %};">
+          <div>
+            <div style="font-weight: 600; font-size: 0.95rem;">{{ feature_labels.get(key, key) }}</div>
+            <div style="font-size: 0.8rem; color: var(--muted-color, #666); margin-top: 0.2rem;">
+              {% if st and st.total_count %}
+                {{ st.total_count }} review{% if st.total_count > 1 %}s{% endif %}
+              {% else %}
+                No reviews yet
+              {% endif %}
+            </div>
+          </div>
+          <div>
+            {% if st and st.avg_rating is not none %}
+              <span class="badge" style="background: {% if st.avg_rating >= 8 %}#2e7d32{% elif st.avg_rating >= 5 %}#f57c00{% else %}#c62828{% endif %}; color: #fff; font-size: 0.95rem; font-weight: 700; padding: 0.3rem 0.6rem; border-radius: 4px;">
+                ★ {{ st.avg_rating }}/10
+              </span>
+            {% else %}
+              <span class="badge" style="background: #e0e0e0; color: #666; font-size: 0.85rem; padding: 0.2rem 0.5rem; border-radius: 4px;">—</span>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Filters Bar -->
+  <form method="GET" action="{{ url_for('admin.feedback_dashboard') }}" style="display: flex; gap: 1rem; align-items: center; background: rgba(0,0,0,0.02); padding: 0.8rem 1rem; border-radius: 6px; margin-bottom: 1.5rem; flex-wrap: wrap; border: 1px solid var(--border-color, #e0e0e0);">
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+      <label for="app-select" style="font-weight: 500; font-size: 0.9rem;">Utility App:</label>
+      <select id="app-select" name="app" onchange="this.form.submit()" style="padding: 0.35rem 0.7rem; border-radius: 4px; border: 1px solid var(--border-color, #ccc); font-size: 0.9rem;">
+        <option value="">All Utility Apps</option>
+        {% for key, label in feature_labels.items() %}
+          <option value="{{ key }}"{% if app_filter == key %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+      <label for="target-select" style="font-weight: 500; font-size: 0.9rem;">Category:</label>
+      <select id="target-select" name="target" onchange="this.form.submit()" style="padding: 0.35rem 0.7rem; border-radius: 4px; border: 1px solid var(--border-color, #ccc); font-size: 0.9rem;">
+        <option value="">All Categories</option>
+        <option value="existing"{% if target_filter == 'existing' %} selected{% endif %}>Existing App Ratings & Feedback</option>
+        <option value="new"{% if target_filter == 'new' %} selected{% endif %}>New App Proposals</option>
+      </select>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+      <label for="status-select" style="font-weight: 500; font-size: 0.9rem;">Status:</label>
+      <select id="status-select" name="status" onchange="this.form.submit()" style="padding: 0.35rem 0.7rem; border-radius: 4px; border: 1px solid var(--border-color, #ccc); font-size: 0.9rem;">
+        <option value="">All Statuses (Active & Hidden)</option>
+        <option value="active"{% if status_filter == 'active' %} selected{% endif %}>Active (Visible)</option>
+        <option value="hidden"{% if status_filter == 'hidden' %} selected{% endif %}>Hidden</option>
+      </select>
+    </div>
+
+    {% if app_filter or target_filter or status_filter %}
+      <a href="{{ url_for('admin.feedback_dashboard') }}" class="button button-quiet button-small" style="text-decoration:none;">Clear Filters</a>
+    {% endif %}
+  </form>
+
+  <!-- Feedback Stream List -->
+  {% if feedbacks|length == 0 %}
+    <div style="background: var(--surface-bg, #fff); border: 1px dashed var(--border-color, #ccc); border-radius: 8px; padding: 3rem; text-align: center;">
+      <p class="muted" style="margin: 0; font-size: 1.05rem;">No feedback or suggestions match the selected filters.</p>
+    </div>
+  {% else %}
+    <div class="feedback-card-list" style="display: flex; flex-direction: column; gap: 1.2rem;">
+      {% for fb in feedbacks %}
+        <div id="feedback-card-{{ fb.id }}" class="feedback-item-card" style="background: var(--surface-bg, #fff); border: 1px solid {% if fb.is_hidden %}#ffcdd2{% else %}var(--border-color, #e0e0e0){% endif %}; border-radius: 8px; padding: 1.3rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); opacity: {% if fb.is_hidden %}0.78{% else %}1{% endif %};">
+          <!-- Card Header -->
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.8rem; margin-bottom: 0.8rem;">
+            <div style="display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap;">
+              <h4 style="margin: 0; font-size: 1.15rem; font-weight: 600;">
+                {{ feature_labels.get(fb.feature_key, fb.app_title) }}
+              </h4>
+              {% if fb.target_type == 'new' %}
+                <span class="badge" style="background: #e65100; color: #fff; font-size: 0.75rem; text-transform: uppercase; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.25rem;">
+                  <i data-lucide="rocket" class="icon-white"></i> New App Proposal
+                </span>
+              {% else %}
+                <span class="badge" style="background: #e8f0fe; color: #1967d2; font-size: 0.75rem; text-transform: uppercase; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 3px;">
+                  Utility Review
+                </span>
+              {% endif %}
+
+              {% if fb.is_hidden %}
+                <span id="badge-status-{{ fb.id }}" class="badge" style="background: #d32f2f; color: #fff; font-size: 0.75rem; text-transform: uppercase; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 3px;">
+                  Hidden
+                </span>
+              {% else %}
+                <span id="badge-status-{{ fb.id }}" class="badge" style="background: #e8f5e9; color: #2e7d32; font-size: 0.75rem; text-transform: uppercase; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 3px;">
+                  Active
+                </span>
+              {% endif %}
+            </div>
+
+            <!-- Rating badge if existing app -->
+            {% if fb.rating is not none %}
+              <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <span style="font-size: 0.85rem; color: var(--muted-color, #666);">User Rating:</span>
+                <span class="badge" style="background: {% if fb.rating >= 8 %}#2e7d32{% elif fb.rating >= 5 %}#f57c00{% else %}#c62828{% endif %}; color: #fff; font-size: 1rem; font-weight: 700; padding: 0.25rem 0.6rem; border-radius: 4px;">
+                  ★ {{ fb.rating }} / 10
+                </span>
+              </div>
+            {% endif %}
+          </div>
+
+          <!-- Member info and timestamp -->
+          <div style="font-size: 0.85rem; color: var(--muted-color, #666); margin-bottom: 1rem; display: flex; gap: 1.5rem; flex-wrap: wrap;">
+            <div>
+              <strong>User:</strong> {{ fb.member_name or (fb.member.name if fb.member else 'Unknown User') }}
+              {% if fb.member_email or (fb.member and fb.member.email) %}
+                <span style="color: #888;">({{ fb.member_email or fb.member.email }})</span>
+              {% endif %}
+            </div>
+            <div>
+              <strong>Submitted:</strong> {{ fb.created_at.strftime('%Y-%m-%d %H:%M') if fb.created_at else '' }}
+            </div>
+            {% if fb.updated_at and fb.created_at and fb.updated_at != fb.created_at %}
+              <div>
+                <strong>Updated:</strong> {{ fb.updated_at.strftime('%Y-%m-%d %H:%M') }}
+              </div>
+            {% endif %}
+          </div>
+
+          <!-- User Comments -->
+          <div style="background: var(--panel-sub-bg, #f8f9fa); border-left: 3px solid #1a73e8; padding: 0.8rem 1rem; border-radius: 0 4px 4px 0; margin-bottom: 1.2rem;">
+            <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--muted-color, #666); font-weight: 600; margin-bottom: 0.3rem;">
+              User Comments & Suggestions:
+            </div>
+            <div style="white-space: pre-wrap; font-size: 0.95rem; line-height: 1.5; color: var(--text-color, #222);">
+              {% if fb.comments %}{{ fb.comments }}{% else %}<em class="muted">No written comments provided.</em>{% endif %}
+            </div>
+          </div>
+
+          <!-- Admin Moderation & Notes Section -->
+          <div style="border-top: 1px dashed var(--border-color, #e0e0e0); padding-top: 1rem; display: flex; flex-direction: column; gap: 0.8rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.8rem;">
+              <span style="font-weight: 600; font-size: 0.9rem; color: var(--text-color, #333);">
+                Admin Workflow & Moderation Notes:
+              </span>
+
+              <!-- Hide / Keep toggle button (Deletion is prohibited) -->
+              <form method="POST" action="{{ url_for('admin.feedback_toggle_status', feedback_id=fb.id) }}" style="margin: 0; display: inline-flex;" onsubmit="return handleToggleStatus(event, {{ fb.id }});">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% if fb.is_hidden %}
+                  <input type="hidden" name="status" value="active">
+                  <button type="submit" class="button button-small" style="background: #2e7d32; color: #fff; border: none; font-size: 0.85rem; padding: 0.3rem 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem;">
+                    <i data-lucide="eye" class="icon-white"></i> Unhide & Keep Active
+                  </button>
+                {% else %}
+                  <input type="hidden" name="status" value="hidden">
+                  <button type="submit" class="button button-small" style="background: #d32f2f; color: #fff; border: none; font-size: 0.85rem; padding: 0.3rem 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem;">
+                    <i data-lucide="eye-off" class="icon-white"></i> Hide Feedback
+                  </button>
+                {% endif %}
+              </form>
+            </div>
+
+            <!-- Admin Notes Form -->
+            <form method="POST" action="{{ url_for('admin.feedback_save_notes', feedback_id=fb.id) }}" style="display: flex; flex-direction: column; gap: 0.5rem; margin: 0;" onsubmit="return handleSaveNotes(event, {{ fb.id }});">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <textarea name="admin_notes" id="admin-notes-{{ fb.id }}" rows="2" placeholder="Record internal administrator notes, follow-up actions, or remarks against this feedback..." style="width: 100%; padding: 0.5rem 0.75rem; border-radius: 4px; border: 1px solid var(--border-color, #ccc); font-family: inherit; font-size: 0.9rem; box-sizing: border-box;">{{ fb.admin_notes }}</textarea>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span id="notes-status-{{ fb.id }}" style="font-size: 0.8rem; color: var(--muted-color, #666);">
+                  {% if fb.admin_reviewer and fb.admin_reviewed_at %}
+                    Reviewed by {{ fb.admin_reviewer.name }} on {{ fb.admin_reviewed_at.strftime('%Y-%m-%d %H:%M') }}
+                  {% endif %}
+                </span>
+                <button type="submit" class="button button-small button-quiet" style="align-self: flex-end; font-size: 0.85rem;">
+                  Save Admin Notes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+
+<script>
+async function handleToggleStatus(event, feedbackId) {
+  event.preventDefault();
+  const form = event.target;
+  const formData = new FormData(form);
+  try {
+    const resp = await fetch(form.action, {
+      method: "POST",
+      body: formData,
+      headers: {
+        "X-Requested-With": "XMLHttpRequest"
+      }
+    });
+    const data = await resp.json();
+    if (data.success) {
+      window.location.reload();
+    } else {
+      alert(data.error || "Failed to update status");
+    }
+  } catch (err) {
+    form.submit();
+  }
+}
+
+async function handleSaveNotes(event, feedbackId) {
+  event.preventDefault();
+  const form = event.target;
+  const formData = new FormData(form);
+  const statusEl = document.getElementById("notes-status-" + feedbackId);
+  try {
+    const resp = await fetch(form.action, {
+      method: "POST",
+      body: formData,
+      headers: {
+        "X-Requested-With": "XMLHttpRequest"
+      }
+    });
+    const data = await resp.json();
+    if (data.success) {
+      if (statusEl) {
+        statusEl.textContent = `Reviewed by ${data.reviewer_name} on ${data.reviewed_at} (Saved!)`;
+        statusEl.style.color = "#2e7d32";
+      }
+    } else {
+      alert(data.error || "Failed to save admin notes");
+    }
+  } catch (err) {
+    form.submit();
+  }
+}
+</script>
+{% endblock %}

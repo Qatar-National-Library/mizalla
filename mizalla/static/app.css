@@ -1181,3 +1181,179 @@ progress::-moz-progress-bar { background: var(--green); }
   .guide-index { position: static; }
   .guide-chapter { grid-template-columns: 32px minmax(0, 1fr); gap: .6rem; }
 }
+
+/* ========================================================================== */
+/* *** feedback_admin.html & Feedback Modal *** */
+
+.nav-feedback-btn {
+  background: rgba(255, 255, 255, 0.12);
+  color: #c7d6cd;
+  border: 1px solid #4a7560;
+  border-radius: 4px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  transition: all 0.18s ease;
+}
+.nav-feedback-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  border-color: #a9d0b6;
+}
+
+.hamburger-feedback-btn {
+  background: none;
+  border: none;
+  text-align: left;
+  color: #c7d6cd;
+  font-size: 0.86rem;
+  padding: 0.5rem 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.hamburger-feedback-btn:hover {
+  color: #ffffff;
+}
+
+/* Feedback Dialog / Modal */
+.feedback-dialog {
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+  max-width: 540px;
+  width: 92vw;
+  box-sizing: border-box;
+}
+
+.feedback-dialog::backdrop {
+  background: rgba(16, 62, 48, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.feedback-dialog-content {
+  padding: 1.5rem;
+}
+
+.feedback-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.8rem;
+}
+
+.feedback-dialog-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 0.2rem;
+}
+.feedback-dialog-close:hover {
+  color: var(--ink);
+}
+
+.rating-pill-btn {
+  user-select: none;
+}
+.rating-pill-btn:hover {
+  border-color: #1a73e8 !important;
+  color: #1a73e8 !important;
+}
+.rating-pill-btn.active {
+  background: #1a73e8 !important;
+  color: #ffffff !important;
+  border-color: #1a73e8 !important;
+}
+
+.feedback-item-card {
+  transition: box-shadow 0.15s ease;
+}
+.feedback-item-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* ==========================================================================
+   LUCIDE ICONS STYLING
+   Same green color as header background (--green-dark: #103e30) on light backgrounds,
+   White (#ffffff) on green or dark backgrounds
+   ========================================================================== */
+i[data-lucide],
+svg.lucide {
+  width: 1.15em;
+  height: 1.15em;
+  display: inline-block;
+  vertical-align: -0.16em;
+  stroke: var(--green-dark, #103e30);
+  stroke-width: 2.25px;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: stroke 0.15s ease;
+}
+
+/* Explicit green icon class */
+.icon-green,
+.icon-green svg.lucide,
+i[data-lucide].icon-green {
+  stroke: var(--green-dark, #103e30) !important;
+}
+
+/* Icons on green or dark backgrounds -> WHITE */
+.icon-white,
+.icon-white svg.lucide,
+i[data-lucide].icon-white,
+.topbar svg.lucide,
+.topbar i[data-lucide],
+.hamburger svg.lucide,
+.hamburger-menu svg.lucide,
+.button-primary svg.lucide,
+.button-primary i[data-lucide],
+.badge-status-available svg.lucide,
+.badge-status-available i[data-lucide],
+.badge-status-failed svg.lucide,
+.badge-status-failed i[data-lucide],
+.running-indicator-badge svg.lucide,
+.group-running-indicator svg.lucide,
+.tag-dark svg.lucide,
+[style*="background: #1a73e8"] svg.lucide,
+[style*="background:#1a73e8"] svg.lucide,
+[style*="background: #2e7d32"] svg.lucide,
+[style*="background:#2e7d32"] svg.lucide,
+[style*="background: #c62828"] svg.lucide,
+[style*="background:#c62828"] svg.lucide,
+[style*="background: #ef6c00"] svg.lucide,
+[style*="background:#ef6c00"] svg.lucide,
+[style*="background:#1e1e1e"] svg.lucide,
+[style*="background: #1e1e1e"] svg.lucide,
+[style*="background:#2d2d2d"] svg.lucide,
+[style*="background: #2d2d2d"] svg.lucide,
+[style*="background: var(--green-dark)"] svg.lucide,
+[style*="background:var(--green-dark)"] svg.lucide,
+[style*="background: var(--green)"] svg.lucide,
+[style*="background:var(--green)"] svg.lucide {
+  stroke: #ffffff !important;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spin,
+svg.lucide.spin,
+i[data-lucide].spin {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+
