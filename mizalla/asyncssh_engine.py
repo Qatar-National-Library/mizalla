@@ -517,7 +517,7 @@ async def _probe_docker(conn, os_type: str = "linux", cmds: Optional[List[str]] 
 
 
 async def _probe_kubernetes(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
-    """Determine if Kubernetes (kubectl/kubelet/k3s) is installed and running."""
+    """Determine if Kubernetes (kubectl) is installed."""
     k8s_ver = ""
     is_running = False
 
@@ -526,13 +526,13 @@ async def _probe_kubernetes(conn, os_type: str = "linux", cmds: Optional[List[st
             try:
                 res = await conn.run(cmd, check=False, timeout=5.0)
                 out = res.stdout.strip()
-                if "kubectl version" in cmd or "k3s --version" in cmd or "kubelet --version" in cmd:
+                if "kubectl" in cmd:
                     if res.exit_status == 0 and out:
                         m = re.search(r"v\d+\.\d+[\.\d\w\-]*", out)
                         if m:
                             k8s_ver = f"Kubernetes {m.group(0)}"
-                elif "kubelet" in cmd or "k3s" in cmd or "cluster-info" in cmd:
-                    if res.exit_status == 0:
+                        else:
+                            k8s_ver = "Kubernetes"
                         is_running = True
             except Exception:
                 pass
@@ -542,8 +542,7 @@ async def _probe_kubernetes(conn, os_type: str = "linux", cmds: Optional[List[st
             if res_k.exit_status == 0 and res_k.stdout.strip():
                 m = re.search(r"v\d+\.\d+[\.\d\w\-]*", res_k.stdout)
                 k8s_ver = f"Kubernetes {m.group(0)}" if m else "Kubernetes"
-                run_res = await conn.run("pgrep -x kubelet 2>/dev/null || pgrep -x k3s 2>/dev/null || kubectl cluster-info 2>/dev/null", check=False, timeout=5.0)
-                is_running = (run_res.exit_status == 0)
+                is_running = True
         except Exception:
             pass
 
