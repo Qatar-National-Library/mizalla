@@ -35,24 +35,36 @@ from mizalla.models import (
     CommandVariable,
     Member,
     Server,
+    ServerAccess,
     ServerCredential,
 )
 from mizalla.remote_exec_client import (
+    get_connectable_servers_for_user,
     get_effective_credential,
+    user_can_add_group,
+    user_can_add_item,
+    user_can_delete_group,
+    user_can_delete_item,
     user_can_duplicate_group,
     user_can_duplicate_item,
     user_can_edit_group,
     user_can_edit_item,
+    user_can_edit_server,
     user_can_run_group,
     user_can_run_item,
+    user_can_view_group,
     user_can_view_group_logs,
+    user_can_view_item,
     user_can_view_item_logs,
+    user_can_view_server,
 )
 
 PASSWORD = "test-password-123"
 
 
 def make_member(name="Test User", email="user@example.com", is_admin=False, **kwargs):
+    kwargs.setdefault("can_add_command_items", True)
+    kwargs.setdefault("can_add_command_groups", True)
     member = Member(name=name, email=email, is_admin=is_admin, **kwargs)
     member.set_password(PASSWORD)
     db.session.add(member)
@@ -60,9 +72,23 @@ def make_member(name="Test User", email="user@example.com", is_admin=False, **kw
     return member
 
 
-def make_server(name="Production Node 1", ip="192.168.1.50", os_type="linux", os_version="Ubuntu 22.04 LTS"):
-    server = Server(name=name, ip=ip, os_type=os_type, os_version=os_version, status="available")
+def make_server(name="Production Node 1", ip="192.168.1.50", os_type="linux", os_version="Ubuntu 22.04 LTS", connected_user=None, with_cred=False):
+    server = Server(name=name, ip=ip, os_type=os_type, os_version=os_version, status="available", last_checked=datetime.now(timezone.utc))
     db.session.add(server)
+    db.session.flush()
+    if with_cred:
+        cred = ServerCredential(server_id=server.id, username="root", is_default=True)
+        cred.password = "root_pass"
+        db.session.add(cred)
+    if connected_user:
+        sa = ServerAccess(
+            server_id=server.id,
+            member_id=connected_user.id,
+            can_view=True,
+            connection_status="available",
+            last_connected_at=datetime.now(timezone.utc),
+        )
+        db.session.add(sa)
     db.session.commit()
     return server
 
@@ -196,7 +222,7 @@ def test_command_item_creation_and_duplication(app, client):
     with app.app_context():
         u = make_member("Developer", "dev@example.com")
         sync_member_features(u, [FEATURE_REMOTE_EXEC])
-        s = make_server()
+        s = make_server(connected_user=u, with_cred=True)
         s_id = s.id
         u_id = u.id
 
@@ -244,7 +270,7 @@ def test_command_group_creation_and_duplication_with_subitems(app, client):
     with app.app_context():
         u = make_member("Lead", "lead@example.com")
         sync_member_features(u, [FEATURE_REMOTE_EXEC])
-        s = make_server()
+        s = make_server(connected_user=u, with_cred=True)
         s_id = s.id
         u_id = u.id
 
@@ -761,5 +787,234 @@ def test_remote_exec_dashboard_displays_server_ram_disk_and_core_tags(client, ap
     # Lucide icons standard
     assert 'data-lucide="cpu"' in html
     assert 'data-lucide="hard-drive"' in html
+
+
+# ─── 11. Reconnect, Copy Password Security & Permissions Matrix Tests ───────
+
+def test_server_reconnect_verify_endpoint(client, app):
+    """Test POST /apps/remote-exec/servers/<id>/verify updates last_connected_at and telemetry."""
+    with app.app_context():
+        user = make_member(name="Verify User", email="verify_user@example.com")
+        sync_member_features(user, [FEATURE_REMOTE_EXEC])
+        server = make_server(name="Verify Server", ip="10.0.0.100")
+        cred = ServerCredential(server_id=server.id, user_id=user.id, username="testuser")
+        cred.password = "secretpass"
+        db.session.add(cred)
+        # Give view access
+        sa = ServerAccess(server_id=server.id, member_id=user.id, can_view=True, connection_status="unverified")
+        db.session.add(sa)
+        db.session.commit()
+        server_id = server.id
+        user_id = user.id
+
+    login(client, "verify_user@example.com")
+
+    # Mock test_ssh_connection success
+    mock_telemetry = {
+        "operating_system": "Ubuntu 22.04 LTS",
+        "os_version": "Ubuntu 22.04 LTS",
+        "ram_total": "16.0 GB",
+        "ram_used": "4.0 GB",
+        "ram_percent": 25.0,
+        "disk_total": "200.0 GB",
+        "disk_used": "50.0 GB",
+        "disk_percent": 25.0,
+        "tag_lines": ["drupal: Drupal 10"],
+        "k8s_pods": [{"name": "web-pod-1", "status": "Running", "age": "2d", "namespace": "default"}],
+    }
+
+    with patch("mizalla.remote_exec.test_ssh_connection", new_callable=AsyncMock) as mock_ssh:
+        mock_ssh.return_value = (True, "Connected", mock_telemetry)
+        resp = client.post(f"/apps/remote-exec/servers/{server_id}/verify")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+        assert "last_connected_at" in data
+        assert data["ram_total"] == "16.0 GB"
+        assert len(data["k8s_pods"]) == 1
+
+    # Verify database state
+    with app.app_context():
+        sa = ServerAccess.query.filter_by(server_id=server_id, member_id=user_id).first()
+        assert sa.connection_status == "available"
+        assert sa.last_connected_at is not None
+
+    # Test failure case
+    with patch("mizalla.remote_exec.test_ssh_connection", new_callable=AsyncMock) as mock_ssh:
+        mock_ssh.return_value = (False, "Authentication rejected", {})
+        resp = client.post(f"/apps/remote-exec/servers/{server_id}/verify")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is False
+        assert "Authentication rejected" in data["error"]
+
+    with app.app_context():
+        sa = ServerAccess.query.filter_by(server_id=server_id, member_id=user_id).first()
+        assert sa.connection_status == "failed"
+
+
+def test_server_password_security_copy_permission(client, app):
+    """Verify regular members cannot copy Admin fallback passwords (403), but can copy their own."""
+    with app.app_context():
+        admin = make_member(name="Admin Boss", email="admin_boss@example.com", is_admin=True)
+        member = make_member(name="Reg Member", email="reg_member@example.com")
+        sync_member_features(member, [FEATURE_REMOTE_EXEC])
+        server = make_server(name="Protected Server", ip="10.0.0.101")
+        # Admin entered credential
+        admin_cred = ServerCredential(server_id=server.id, user_id=admin.id, username="root")
+        admin_cred.password = "AdminSuperSecret"
+        db.session.add(admin_cred)
+        # Give member view access
+        sa = ServerAccess(server_id=server.id, member_id=member.id, can_view=True)
+        db.session.add(sa)
+        db.session.commit()
+        server_id = server.id
+        member_id = member.id
+
+    # 1. Regular member attempts to copy fallback password -> 403 Forbidden
+    login(client, "reg_member@example.com")
+    resp = client.get(f"/apps/remote-exec/servers/{server_id}/password")
+    assert resp.status_code == 403
+
+    # 2. Admin copies password -> 200 with password
+    login(client, "admin_boss@example.com")
+    resp = client.get(f"/apps/remote-exec/servers/{server_id}/password")
+    assert resp.status_code == 200
+    assert resp.get_json()["password"] == "AdminSuperSecret"
+
+    # 3. Regular member saves own credential -> 200 with their own password
+    with app.app_context():
+        mem_cred = ServerCredential(server_id=server_id, user_id=member_id, username="member_ssh")
+        mem_cred.password = "MemberPersonalPass"
+        db.session.add(mem_cred)
+        db.session.commit()
+
+    login(client, "reg_member@example.com")
+    resp = client.get(f"/apps/remote-exec/servers/{server_id}/password")
+    assert resp.status_code == 200
+    assert resp.get_json()["password"] == "MemberPersonalPass"
+
+
+def test_connectable_servers_user_filtering(client, app):
+    """Verify only servers connected at least once appear in connectable_servers and dropdowns."""
+    with app.app_context():
+        member = make_member(name="Filtering User", email="filter_user@example.com")
+        sync_member_features(member, [FEATURE_REMOTE_EXEC])
+        s1 = make_server(name="Unconnected Server", ip="10.0.0.201", with_cred=True)
+        s2 = make_server(name="Connected Server", ip="10.0.0.202", with_cred=True)
+
+        # Member can view s1, but has never connected (last_connected_at is None)
+        sa1 = ServerAccess(server_id=s1.id, member_id=member.id, can_view=True, last_connected_at=None, connection_status="unverified")
+        # Member can view s2, and has connected
+        sa2 = ServerAccess(server_id=s2.id, member_id=member.id, can_view=True, last_connected_at=datetime.now(timezone.utc), connection_status="available")
+        db.session.add_all([sa1, sa2])
+        db.session.commit()
+
+        # Check get_connectable_servers_for_user
+        connectable = get_connectable_servers_for_user(member)
+        connectable_ids = [s.id for s in connectable]
+        assert s1.id not in connectable_ids
+        assert s2.id in connectable_ids
+
+    login(client, "filter_user@example.com")
+    resp = client.get("/apps/remote-exec/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+
+    # In modal dropdown, Connected Server should be present as an option, Unconnected should not
+    assert f'<option value="{s2.id}">' in html
+    assert f'<option value="{s1.id}">' not in html
+
+
+def test_admin_permissions_matrix_access_and_updates(client, app):
+    """Verify Admin Permissions Matrix RBAC, view, and update operations."""
+    with app.app_context():
+        admin = make_member(name="Matrix Admin", email="matrix_admin@example.com", is_admin=True)
+        member = make_member(name="Matrix Member", email="matrix_member@example.com")
+        sync_member_features(member, [FEATURE_REMOTE_EXEC])
+        server = make_server(name="Matrix Node", ip="10.0.0.220")
+        item = CommandItem(server_id=server.id, name="Matrix Item", command_type=COMMAND_TYPE_REMOTE, command_content="uptime", created_by_id=admin.id)
+        group = CommandGroup(name="Matrix Group", server_id=server.id, created_by_id=admin.id)
+        db.session.add_all([item, group])
+        db.session.commit()
+        member_id = member.id
+        server_id = server.id
+        item_id = item.id
+        group_id = group.id
+
+    # 1. Non-admin forbidden
+    login(client, "matrix_member@example.com")
+    resp = client.get("/apps/admin/permissions-matrix")
+    assert resp.status_code == 403
+
+    # 2. Admin GET
+    login(client, "matrix_admin@example.com")
+    resp = client.get("/apps/admin/permissions-matrix")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "Server Access Grid" in html
+    assert "Member Authoring Capabilities" in html
+    assert "Command Items Permissions Grid" in html
+    assert "Command Groups Permissions Grid" in html
+
+    # 3. POST member_capabilities
+    resp = client.post("/apps/admin/permissions-matrix", data={
+        "matrix_type": "member_capabilities",
+        f"can_add_items_{member_id}": "1",
+        f"can_add_groups_{member_id}": "1",
+    })
+    assert resp.status_code in (200, 302)
+
+    with app.app_context():
+        m = Member.query.get(member_id)
+        assert user_can_add_item(m) is True
+        assert user_can_add_group(m) is True
+
+    # 4. POST server_access
+    resp = client.post("/apps/admin/permissions-matrix", data={
+        "matrix_type": "server_access",
+        f"srv_view_{server_id}_{member_id}": "1",
+        f"srv_edit_{server_id}_{member_id}": "1",
+    })
+    assert resp.status_code in (200, 302)
+
+    with app.app_context():
+        m = Member.query.get(member_id)
+        s = Server.query.get(server_id)
+        assert user_can_view_server(m, s) is True
+        assert user_can_edit_server(m, s) is True
+
+    # 5. POST command_items (VIEW = RUN, EDIT = RUN/DELETE)
+    resp = client.post("/apps/admin/permissions-matrix", data={
+        "matrix_type": "command_items",
+        f"item_view_{item_id}_{member_id}": "1",
+        f"item_edit_{item_id}_{member_id}": "1",
+    })
+    assert resp.status_code in (200, 302)
+
+    with app.app_context():
+        m = Member.query.get(member_id)
+        ci = CommandItem.query.get(item_id)
+        assert user_can_view_item(m, ci) is True
+        assert user_can_run_item(m, ci) is True
+        assert user_can_edit_item(m, ci) is True
+        assert user_can_delete_item(m, ci) is True
+
+    # 6. POST command_groups (VIEW = RUN, EDIT = RUN/DELETE)
+    resp = client.post("/apps/admin/permissions-matrix", data={
+        "matrix_type": "command_groups",
+        f"group_view_{group_id}_{member_id}": "1",
+        f"group_edit_{group_id}_{member_id}": "1",
+    })
+    assert resp.status_code in (200, 302)
+
+    with app.app_context():
+        m = Member.query.get(member_id)
+        cg = CommandGroup.query.get(group_id)
+        assert user_can_view_group(m, cg) is True
+        assert user_can_run_group(m, cg) is True
+        assert user_can_edit_group(m, cg) is True
+        assert user_can_delete_group(m, cg) is True
+
 
 

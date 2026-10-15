@@ -1,0 +1,432 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb, admin_nav %}
+{% block title %}Permissions Matrix · Administration{% endblock %}
+
+{% block content %}
+{{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Permissions Matrix", None)]) }}
+
+{{ admin_nav('permissions') }}
+
+<div class="permissions-matrix-container" style="max-width: 1200px; margin: 0 auto; padding-bottom: 3rem;">
+  
+  <!-- Info Banner -->
+  <div style="background: rgba(16, 62, 48, 0.04); border: 1px solid rgba(16, 62, 48, 0.15); border-radius: 8px; padding: 0.9rem 1.25rem; margin-bottom: 1.5rem; display: flex; align-items: flex-start; gap: 0.75rem;">
+    <i data-lucide="shield-check" class="icon-green" style="width: 22px; height: 22px; flex-shrink: 0; margin-top: 2px;"></i>
+    <div>
+      <h3 style="margin: 0 0 0.25rem; font-size: 0.95rem; font-weight: 700; color: var(--green-dark, #103e30);">
+        Role-Based Access Control &amp; Authorization Matrix
+      </h3>
+      <p style="margin: 0; font-size: 0.82rem; color: var(--muted); line-height: 1.45;">
+        Configure granular access rights for registered servers, command authoring capabilities, and individual Command Items/Groups. 
+        <strong>Administrators automatically retain full access</strong> across all environments and commands.
+      </p>
+    </div>
+  </div>
+
+  <!-- Sub-Navigation Matrix Tabs -->
+  <div class="tab-bar" style="display: flex; gap: 0.5rem; border-bottom: 2px solid var(--border-color, #e0e0e0); margin-bottom: 1.5rem; flex-wrap: wrap;">
+    <button type="button" class="tab-btn {% if active_tab == 'server_access' %}active{% endif %}" onclick="switchMatrixTab('server_access')" id="tab-btn-server_access" style="display:inline-flex; align-items:center; gap:0.4rem; padding:0.6rem 1rem; border:none; background:none; cursor:pointer; font-weight:600; font-size:0.9rem; border-bottom:3px solid {% if active_tab == 'server_access' %}var(--green-dark, #103e30){% else %}transparent{% endif %}; color:{% if active_tab == 'server_access' %}var(--green-dark, #103e30){% else %}var(--muted){% endif %};">
+      <i data-lucide="server" class="icon-green"></i> Server Access Grid
+    </button>
+    <button type="button" class="tab-btn {% if active_tab == 'member_capabilities' %}active{% endif %}" onclick="switchMatrixTab('member_capabilities')" id="tab-btn-member_capabilities" style="display:inline-flex; align-items:center; gap:0.4rem; padding:0.6rem 1rem; border:none; background:none; cursor:pointer; font-weight:600; font-size:0.9rem; border-bottom:3px solid {% if active_tab == 'member_capabilities' %}var(--green-dark, #103e30){% else %}transparent{% endif %}; color:{% if active_tab == 'member_capabilities' %}var(--green-dark, #103e30){% else %}var(--muted){% endif %};">
+      <i data-lucide="user-check" class="icon-green"></i> Member Capabilities (Authoring)
+    </button>
+    <button type="button" class="tab-btn {% if active_tab == 'command_items' %}active{% endif %}" onclick="switchMatrixTab('command_items')" id="tab-btn-command_items" style="display:inline-flex; align-items:center; gap:0.4rem; padding:0.6rem 1rem; border:none; background:none; cursor:pointer; font-weight:600; font-size:0.9rem; border-bottom:3px solid {% if active_tab == 'command_items' %}var(--green-dark, #103e30){% else %}transparent{% endif %}; color:{% if active_tab == 'command_items' %}var(--green-dark, #103e30){% else %}var(--muted){% endif %};">
+      <i data-lucide="terminal" class="icon-green"></i> Command Items Permissions
+    </button>
+    <button type="button" class="tab-btn {% if active_tab == 'command_groups' %}active{% endif %}" onclick="switchMatrixTab('command_groups')" id="tab-btn-command_groups" style="display:inline-flex; align-items:center; gap:0.4rem; padding:0.6rem 1rem; border:none; background:none; cursor:pointer; font-weight:600; font-size:0.9rem; border-bottom:3px solid {% if active_tab == 'command_groups' %}var(--green-dark, #103e30){% else %}transparent{% endif %}; color:{% if active_tab == 'command_groups' %}var(--green-dark, #103e30){% else %}var(--muted){% endif %};">
+      <i data-lucide="layers" class="icon-green"></i> Command Groups Permissions
+    </button>
+  </div>
+
+  <!-- TAB 1: SERVER ACCESS GRID -->
+  <section class="matrix-tab-pane" id="pane-server_access" style="display: {% if active_tab == 'server_access' %}block{% else %}none{% endif %};">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; flex-wrap:wrap; gap:0.5rem;">
+      <div>
+        <h2 style="margin: 0; font-size: 1.25rem;">Server Access Grid</h2>
+        <p class="muted" style="margin: 0.2rem 0 0; font-size: 0.82rem;">
+          Control which members can view and manage registered servers. <strong>VIEW</strong> permits seeing the card on Remote Execution and targeting it once verified. <strong>EDIT</strong> allows modifying configuration.
+        </p>
+      </div>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="button" class="button button-quiet button-small" onclick="bulkToggleCheckboxes('pane-server_access', 'view', true)">Select All View</button>
+        <button type="button" class="button button-quiet button-small" onclick="bulkToggleCheckboxes('pane-server_access', 'view', false)">Clear All View</button>
+      </div>
+    </div>
+
+    <form method="post" action="{{ url_for('admin.permissions_matrix') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="matrix_type" value="server_access">
+
+      <div style="overflow-x: auto; background: #fff; border: 1px solid var(--border-color, #e0e0e0); border-radius: 8px;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+          <thead>
+            <tr style="background: #f8faf9; border-bottom: 2px solid var(--border-color, #e0e0e0);">
+              <th style="padding: 0.75rem 1rem; font-weight: 700; color: var(--green-dark, #103e30); min-width: 180px;">Server</th>
+              <th style="padding: 0.75rem 1rem; font-weight: 700; color: var(--green-dark, #103e30); min-width: 130px;">Host IP</th>
+              {% for m in non_admin_members %}
+              <th style="padding: 0.75rem 0.85rem; font-weight: 600; text-align: center; border-left: 1px solid #e8e8e8; min-width: 110px;">
+                <div>{{ m.name }}</div>
+                <small class="muted" style="font-size:0.7rem; font-weight:400; display:block;">{{ m.email }}</small>
+              </th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in servers %}
+            <tr style="border-bottom: 1px solid #eee; transition: background 0.15s ease;" onmouseover="this.style.background='#fafcfb'" onmouseout="this.style.background='transparent'">
+              <td style="padding: 0.75rem 1rem; font-weight: 600;">
+                <div style="display:flex; align-items:center; gap:0.35rem;">
+                  <i data-lucide="server" class="icon-green" style="width:14px; height:14px;"></i>
+                  <span>{{ s.name }}</span>
+                </div>
+              </td>
+              <td style="padding: 0.75rem 1rem; font-family: monospace; color: var(--muted); font-size: 0.8rem;">
+                {{ s.ip }}
+              </td>
+              {% for m in non_admin_members %}
+              {% set sa = server_access_map.get((s.id, m.id)) %}
+              {% set can_view = sa.can_view if sa else False %}
+              {% set can_edit = sa.can_edit if sa else False %}
+              <td style="padding: 0.65rem 0.85rem; text-align: center; border-left: 1px solid #e8e8e8; vertical-align: middle;">
+                <div style="display: inline-flex; flex-direction: column; gap: 0.35rem; align-items: flex-start; text-align: left;">
+                  <label style="display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; font-size: 0.78rem;">
+                    <input type="checkbox" name="srv_view_{{ s.id }}_{{ m.id }}" value="1" data-type="view" {% if can_view %}checked{% endif %}>
+                    <span>View</span>
+                  </label>
+                  <label style="display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; font-size: 0.78rem;">
+                    <input type="checkbox" name="srv_edit_{{ s.id }}_{{ m.id }}" value="1" data-type="edit" {% if can_edit %}checked{% endif %}>
+                    <span>Edit</span>
+                  </label>
+                </div>
+              </td>
+              {% endfor %}
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="{{ non_admin_members|length + 2 }}" style="padding: 2rem; text-align: center; color: var(--muted);">
+                No registered servers found. Add servers in Environments &amp; Server Management first.
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; margin-top: 1.25rem;">
+        <button type="submit" class="button button-primary" style="display:inline-flex; align-items:center; gap:0.4rem;">
+          <i data-lucide="save" class="icon-white"></i> Save Server Access Permissions
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <!-- TAB 2: MEMBER CAPABILITIES (AUTHORING) -->
+  <section class="matrix-tab-pane" id="pane-member_capabilities" style="display: {% if active_tab == 'member_capabilities' %}block{% else %}none{% endif %};">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; flex-wrap:wrap; gap:0.5rem;">
+      <div>
+        <h2 style="margin: 0; font-size: 1.25rem;">Member Authoring Capabilities</h2>
+        <p class="muted" style="margin: 0.2rem 0 0; font-size: 0.82rem;">
+          Grant members permissions to author new Command Items and Command Groups. Members without these permissions will have the "+ New Item" and "+ New Group" buttons hidden.
+        </p>
+      </div>
+    </div>
+
+    <form method="post" action="{{ url_for('admin.permissions_matrix') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="matrix_type" value="member_capabilities">
+
+      <div style="overflow-x: auto; background: #fff; border: 1px solid var(--border-color, #e0e0e0); border-radius: 8px;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+          <thead>
+            <tr style="background: #f8faf9; border-bottom: 2px solid var(--border-color, #e0e0e0);">
+              <th style="padding: 0.75rem 1rem; font-weight: 700; color: var(--green-dark, #103e30); min-width: 220px;">Member</th>
+              <th style="padding: 0.75rem 1rem; font-weight: 700; color: var(--green-dark, #103e30); min-width: 220px;">Email</th>
+              <th style="padding: 0.75rem 1rem; font-weight: 700; color: var(--green-dark, #103e30); text-align: center; min-width: 180px;">
+                <div style="display:flex; align-items:center; justify-content:center; gap:0.35rem;">
+                  <i data-lucide="terminal" class="icon-green" style="width:14px; height:14px;"></i> Add Command Items
+                </div>
+              </th>
+              <th style="padding: 0.75rem 1rem; font-weight: 700; color: var(--green-dark, #103e30); text-align: center; min-width: 180px;">
+                <div style="display:flex; align-items:center; justify-content:center; gap:0.35rem;">
+                  <i data-lucide="layers" class="icon-green" style="width:14px; height:14px;"></i> Add Command Groups
+                </div>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for m in non_admin_members %}
+            <tr style="border-bottom: 1px solid #eee; transition: background 0.15s ease;" onmouseover="this.style.background='#fafcfb'" onmouseout="this.style.background='transparent'">
+              <td style="padding: 0.75rem 1rem; font-weight: 600;">
+                <div style="display:flex; align-items:center; gap:0.35rem;">
+                  <i data-lucide="user" class="icon-green" style="width:14px; height:14px;"></i>
+                  <span>{{ m.name }}</span>
+                </div>
+              </td>
+              <td style="padding: 0.75rem 1rem; color: var(--muted); font-size: 0.8rem;">
+                {{ m.email }}
+              </td>
+              <td style="padding: 0.75rem 1rem; text-align: center;">
+                <label style="display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; font-size: 0.82rem;">
+                  <input type="checkbox" name="can_add_items_{{ m.id }}" value="1" {% if m.can_add_command_items %}checked{% endif %}>
+                  <span>Permitted</span>
+                </label>
+              </td>
+              <td style="padding: 0.75rem 1rem; text-align: center;">
+                <label style="display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; font-size: 0.82rem;">
+                  <input type="checkbox" name="can_add_groups_{{ m.id }}" value="1" {% if m.can_add_command_groups %}checked{% endif %}>
+                  <span>Permitted</span>
+                </label>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="4" style="padding: 2rem; text-align: center; color: var(--muted);">
+                No non-administrator members registered.
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; margin-top: 1.25rem;">
+        <button type="submit" class="button button-primary" style="display:inline-flex; align-items:center; gap:0.4rem;">
+          <i data-lucide="save" class="icon-white"></i> Save Member Capabilities
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <!-- TAB 3: COMMAND ITEMS PERMISSIONS -->
+  <section class="matrix-tab-pane" id="pane-command_items" style="display: {% if active_tab == 'command_items' %}block{% else %}none{% endif %};">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; flex-wrap:wrap; gap:0.5rem;">
+      <div>
+        <h2 style="margin: 0; font-size: 1.25rem;">Command Items Permissions Grid</h2>
+        <p class="muted" style="margin: 0.2rem 0 0; font-size: 0.82rem;">
+          Grant access to individual Command Items. <strong>VIEW</strong> permits viewing and <strong>running</strong> the command. <strong>EDIT</strong> permits viewing, running, editing, and <strong>deleting</strong> the item.
+        </p>
+      </div>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="button" class="button button-quiet button-small" onclick="bulkToggleCheckboxes('pane-command_items', 'view', true)">Select All View</button>
+        <button type="button" class="button button-quiet button-small" onclick="bulkToggleCheckboxes('pane-command_items', 'view', false)">Clear All View</button>
+      </div>
+    </div>
+
+    <form method="post" action="{{ url_for('admin.permissions_matrix') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="matrix_type" value="command_items">
+
+      <div style="overflow-x: auto; background: #fff; border: 1px solid var(--border-color, #e0e0e0); border-radius: 8px;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+          <thead>
+            <tr style="background: #f8faf9; border-bottom: 2px solid var(--border-color, #e0e0e0);">
+              <th style="padding: 0.75rem 1rem; font-weight: 700; color: var(--green-dark, #103e30); min-width: 180px;">Command Item</th>
+              <th style="padding: 0.75rem 1rem; font-weight: 700; color: var(--green-dark, #103e30); min-width: 110px;">Type</th>
+              <th style="padding: 0.75rem 1rem; font-weight: 700; color: var(--green-dark, #103e30); min-width: 120px;">Creator</th>
+              {% for m in non_admin_members %}
+              <th style="padding: 0.75rem 0.85rem; font-weight: 600; text-align: center; border-left: 1px solid #e8e8e8; min-width: 110px;">
+                <div>{{ m.name }}</div>
+                <small class="muted" style="font-size:0.7rem; font-weight:400; display:block;">{{ m.email }}</small>
+              </th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in command_items %}
+            <tr style="border-bottom: 1px solid #eee; transition: background 0.15s ease;" onmouseover="this.style.background='#fafcfb'" onmouseout="this.style.background='transparent'">
+              <td style="padding: 0.75rem 1rem; font-weight: 600;">
+                <div style="display:flex; align-items:center; gap:0.35rem;">
+                  <i data-lucide="terminal" class="icon-green" style="width:14px; height:14px;"></i>
+                  <span>{{ item.name }}</span>
+                </div>
+              </td>
+              <td style="padding: 0.75rem 1rem;">
+                <span class="tag" style="font-size:0.7rem; text-transform:uppercase; background:rgba(16,62,48,0.06); padding:0.12rem 0.4rem; border-radius:3px;">
+                  {{ item.command_type }}
+                </span>
+              </td>
+              <td style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--muted);">
+                {{ item.creator.name if item.creator else 'System' }}
+              </td>
+              {% for m in non_admin_members %}
+              <td style="padding: 0.65rem 0.85rem; text-align: center; border-left: 1px solid #e8e8e8; vertical-align: middle;">
+                {% if item.created_by_id == m.id %}
+                <span class="badge" style="background:#e8f5e9; color:#2e7d32; font-size:0.7rem; font-weight:700; padding:0.15rem 0.45rem; border-radius:4px; display:inline-flex; align-items:center; gap:0.25rem;" title="Creator automatically has full View, Edit, Run, and Delete permissions">
+                  <i data-lucide="crown" style="width:11px; height:11px;"></i> Owner
+                </span>
+                {% else %}
+                {% set perm = item_perms_map.get((item.id, m.id)) %}
+                {% set can_view = perm.can_view if perm else False %}
+                {% set can_edit = perm.can_edit if perm else False %}
+                <div style="display: inline-flex; flex-direction: column; gap: 0.35rem; align-items: flex-start; text-align: left;">
+                  <label style="display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; font-size: 0.78rem;" title="View access includes authorization to RUN this item">
+                    <input type="checkbox" name="item_view_{{ item.id }}_{{ m.id }}" value="1" data-type="view" {% if can_view %}checked{% endif %}>
+                    <span>View (Run)</span>
+                  </label>
+                  <label style="display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; font-size: 0.78rem;" title="Edit access includes authorization to RUN and DELETE this item">
+                    <input type="checkbox" name="item_edit_{{ item.id }}_{{ m.id }}" value="1" data-type="edit" {% if can_edit %}checked{% endif %}>
+                    <span>Edit (Delete)</span>
+                  </label>
+                </div>
+                {% endif %}
+              </td>
+              {% endfor %}
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="{{ non_admin_members|length + 3 }}" style="padding: 2rem; text-align: center; color: var(--muted);">
+                No Command Items created yet.
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; margin-top: 1.25rem;">
+        <button type="submit" class="button button-primary" style="display:inline-flex; align-items:center; gap:0.4rem;">
+          <i data-lucide="save" class="icon-white"></i> Save Command Items Permissions
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <!-- TAB 4: COMMAND GROUPS PERMISSIONS -->
+  <section class="matrix-tab-pane" id="pane-command_groups" style="display: {% if active_tab == 'command_groups' %}block{% else %}none{% endif %};">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; flex-wrap:wrap; gap:0.5rem;">
+      <div>
+        <h2 style="margin: 0; font-size: 1.25rem;">Command Groups Permissions Grid</h2>
+        <p class="muted" style="margin: 0.2rem 0 0; font-size: 0.82rem;">
+          Grant access to individual Command Groups. <strong>VIEW</strong> permits viewing and <strong>running</strong> the pipeline. <strong>EDIT</strong> permits viewing, running, editing, and <strong>deleting</strong> the group.
+        </p>
+      </div>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="button" class="button button-quiet button-small" onclick="bulkToggleCheckboxes('pane-command_groups', 'view', true)">Select All View</button>
+        <button type="button" class="button button-quiet button-small" onclick="bulkToggleCheckboxes('pane-command_groups', 'view', false)">Clear All View</button>
+      </div>
+    </div>
+
+    <form method="post" action="{{ url_for('admin.permissions_matrix') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="matrix_type" value="command_groups">
+
+      <div style="overflow-x: auto; background: #fff; border: 1px solid var(--border-color, #e0e0e0); border-radius: 8px;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+          <thead>
+            <tr style="background: #f8faf9; border-bottom: 2px solid var(--border-color, #e0e0e0);">
+              <th style="padding: 0.75rem 1rem; font-weight: 700; color: var(--green-dark, #103e30); min-width: 180px;">Command Group</th>
+              <th style="padding: 0.75rem 1rem; font-weight: 700; color: var(--green-dark, #103e30); min-width: 130px;">Target Server</th>
+              <th style="padding: 0.75rem 1rem; font-weight: 700; color: var(--green-dark, #103e30); min-width: 120px;">Creator</th>
+              {% for m in non_admin_members %}
+              <th style="padding: 0.75rem 0.85rem; font-weight: 600; text-align: center; border-left: 1px solid #e8e8e8; min-width: 110px;">
+                <div>{{ m.name }}</div>
+                <small class="muted" style="font-size:0.7rem; font-weight:400; display:block;">{{ m.email }}</small>
+              </th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for group in command_groups %}
+            <tr style="border-bottom: 1px solid #eee; transition: background 0.15s ease;" onmouseover="this.style.background='#fafcfb'" onmouseout="this.style.background='transparent'">
+              <td style="padding: 0.75rem 1rem; font-weight: 600;">
+                <div style="display:flex; align-items:center; gap:0.35rem;">
+                  <i data-lucide="layers" class="icon-green" style="width:14px; height:14px;"></i>
+                  <span>{{ group.name }}</span>
+                </div>
+              </td>
+              <td style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--muted);">
+                {{ group.server.name if group.server else 'None' }}
+              </td>
+              <td style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--muted);">
+                {{ group.creator.name if group.creator else 'System' }}
+              </td>
+              {% for m in non_admin_members %}
+              <td style="padding: 0.65rem 0.85rem; text-align: center; border-left: 1px solid #e8e8e8; vertical-align: middle;">
+                {% if group.created_by_id == m.id %}
+                <span class="badge" style="background:#e8f5e9; color:#2e7d32; font-size:0.7rem; font-weight:700; padding:0.15rem 0.45rem; border-radius:4px; display:inline-flex; align-items:center; gap:0.25rem;" title="Creator automatically has full View, Edit, Run, and Delete permissions">
+                  <i data-lucide="crown" style="width:11px; height:11px;"></i> Owner
+                </span>
+                {% else %}
+                {% set perm = group_perms_map.get((group.id, m.id)) %}
+                {% set can_view = perm.can_view if perm else False %}
+                {% set can_edit = perm.can_edit if perm else False %}
+                <div style="display: inline-flex; flex-direction: column; gap: 0.35rem; align-items: flex-start; text-align: left;">
+                  <label style="display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; font-size: 0.78rem;" title="View access includes authorization to RUN this group">
+                    <input type="checkbox" name="group_view_{{ group.id }}_{{ m.id }}" value="1" data-type="view" {% if can_view %}checked{% endif %}>
+                    <span>View (Run)</span>
+                  </label>
+                  <label style="display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; font-size: 0.78rem;" title="Edit access includes authorization to RUN and DELETE this group">
+                    <input type="checkbox" name="group_edit_{{ group.id }}_{{ m.id }}" value="1" data-type="edit" {% if can_edit %}checked{% endif %}>
+                    <span>Edit (Delete)</span>
+                  </label>
+                </div>
+                {% endif %}
+              </td>
+              {% endfor %}
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="{{ non_admin_members|length + 3 }}" style="padding: 2rem; text-align: center; color: var(--muted);">
+                No Command Groups created yet.
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; margin-top: 1.25rem;">
+        <button type="submit" class="button button-primary" style="display:inline-flex; align-items:center; gap:0.4rem;">
+          <i data-lucide="save" class="icon-white"></i> Save Command Groups Permissions
+        </button>
+      </div>
+    </form>
+  </section>
+
+</div>
+
+<script>
+function switchMatrixTab(tabId) {
+  // Hide all panes
+  document.querySelectorAll('.matrix-tab-pane').forEach(el => el.style.display = 'none');
+  // Deactivate all buttons
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.style.borderBottom = '3px solid transparent';
+    btn.style.color = 'var(--muted)';
+  });
+
+  // Activate selected pane & button
+  const pane = document.getElementById('pane-' + tabId);
+  if (pane) pane.style.display = 'block';
+
+  const btn = document.getElementById('tab-btn-' + tabId);
+  if (btn) {
+    btn.style.borderBottom = '3px solid var(--green-dark, #103e30)';
+    btn.style.color = 'var(--green-dark, #103e30)';
+  }
+
+  // Update URL search query without full reload
+  const url = new URL(window.location);
+  url.searchParams.set('active_tab', tabId);
+  window.history.replaceState({}, '', url);
+
+  if (window.lucide) lucide.createIcons();
+}
+
+function bulkToggleCheckboxes(paneId, dataType, checked) {
+  const pane = document.getElementById(paneId);
+  if (!pane) return;
+  const checkboxes = pane.querySelectorAll('input[type="checkbox"][data-type="' + dataType + '"]');
+  checkboxes.forEach(cb => {
+    cb.checked = checked;
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.lucide) {
+    lucide.createIcons();
+  }
+});
+</script>
+{% endblock %}

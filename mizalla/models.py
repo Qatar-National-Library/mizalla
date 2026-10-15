@@ -22,6 +22,8 @@ class Member(UserMixin, db.Model):
 
     # Flag indicating whether this member has access to the bulk email feature.
     can_bulk_email = db.Column(db.Boolean, nullable=False, default=False)
+    can_add_command_items = db.Column(db.Boolean, nullable=False, default=False)
+    can_add_command_groups = db.Column(db.Boolean, nullable=False, default=False)
 
     memberships = db.relationship("ProjectMembership", back_populates="member", cascade="all, delete-orphan")
     task_assignments = db.relationship("TaskOwner", back_populates="member", cascade="all, delete-orphan")
@@ -295,6 +297,10 @@ class ServerAccess(db.Model):
     member_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="CASCADE"), nullable=False, index=True)
     granted_by_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="SET NULL"), nullable=True)
     granted_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    can_view = db.Column(db.Boolean, nullable=False, default=True)
+    can_edit = db.Column(db.Boolean, nullable=False, default=False)
+    last_connected_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    connection_status = db.Column(db.String(20), nullable=False, default="unverified")
 
     server = db.relationship("Server", backref=db.backref("access_grants", cascade="all, delete-orphan"))
     member = db.relationship("Member", foreign_keys=[member_id], backref="server_access")
@@ -793,6 +799,7 @@ class CommandGroupPermission(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     group_id = db.Column(db.Integer, db.ForeignKey("command_group.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="CASCADE"), nullable=False, index=True)
+    can_view = db.Column(db.Boolean, nullable=False, default=True)
     can_run = db.Column(db.Boolean, nullable=False, default=True)
     can_view_logs = db.Column(db.Boolean, nullable=False, default=False)
     can_edit = db.Column(db.Boolean, nullable=False, default=False)  # includes delete
@@ -812,6 +819,7 @@ class CommandItemPermission(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     command_item_id = db.Column(db.Integer, db.ForeignKey("command_item.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="CASCADE"), nullable=False, index=True)
+    can_view = db.Column(db.Boolean, nullable=False, default=True)
     can_run = db.Column(db.Boolean, nullable=False, default=True)
     can_view_logs = db.Column(db.Boolean, nullable=False, default=False)
     can_edit = db.Column(db.Boolean, nullable=False, default=False)

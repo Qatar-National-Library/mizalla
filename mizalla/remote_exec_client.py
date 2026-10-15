@@ -39,6 +39,7 @@ from .models import (
     CommandItemPermission,
     Member,
     Server,
+    ServerAccess,
     ServerCredential,
 )
 
@@ -51,63 +52,111 @@ _threads_lock = threading.Lock()
 
 # ─── Permissions & RBAC Helpers ──────────────────────────────────────────────
 
-def user_can_run_group(user: Member, group: CommandGroup) -> bool:
+def user_can_view_server(user: Member, server: Server) -> bool:
+    if getattr(user, "is_admin", False):
+        return True
+    grant = ServerAccess.query.filter_by(server_id=server.id, member_id=user.id).first()
+    if grant is not None:
+        return bool(grant.can_view)
+    return True
+
+
+def user_can_edit_server(user: Member, server: Server) -> bool:
+    if getattr(user, "is_admin", False):
+        return True
+    grant = ServerAccess.query.filter_by(server_id=server.id, member_id=user.id).first()
+    return bool(grant and grant.can_edit)
+
+
+def user_can_add_item(user: Member) -> bool:
+    return bool(getattr(user, "is_admin", False) or getattr(user, "can_add_command_items", False))
+
+
+def user_can_add_group(user: Member) -> bool:
+    return bool(getattr(user, "is_admin", False) or getattr(user, "can_add_command_groups", False))
+
+
+def user_can_view_group(user: Member, group: CommandGroup) -> bool:
     if getattr(user, "is_admin", False) or group.created_by_id == user.id:
         return True
     perm = CommandGroupPermission.query.filter_by(group_id=group.id, user_id=user.id).first()
-    return perm.can_run if perm else False
+    return bool(perm and (perm.can_view or perm.can_run or perm.can_edit))
+
+
+def user_can_run_group(user: Member, group: CommandGroup) -> bool:
+    # Having VIEW access means you can also RUN it.
+    return user_can_view_group(user, group)
 
 
 def user_can_view_group_logs(user: Member, group: CommandGroup) -> bool:
     if getattr(user, "is_admin", False) or group.created_by_id == user.id:
         return True
     perm = CommandGroupPermission.query.filter_by(group_id=group.id, user_id=user.id).first()
-    return perm.can_view_logs if perm else False
+    if not perm:
+        return False
+    return bool(perm.can_view_logs or perm.can_edit)
 
 
 def user_can_edit_group(user: Member, group: CommandGroup) -> bool:
     if getattr(user, "is_admin", False) or group.created_by_id == user.id:
         return True
     perm = CommandGroupPermission.query.filter_by(group_id=group.id, user_id=user.id).first()
-    return perm.can_edit if perm else False
+    return bool(perm and perm.can_edit)
+
+
+def user_can_delete_group(user: Member, group: CommandGroup) -> bool:
+    # Having EDIT access means you can RUN/DELETE it.
+    return user_can_edit_group(user, group)
 
 
 def user_can_duplicate_group(user: Member, group: CommandGroup) -> bool:
     if getattr(user, "is_admin", False) or group.created_by_id == user.id:
         return True
     perm = CommandGroupPermission.query.filter_by(group_id=group.id, user_id=user.id).first()
-    return perm.can_duplicate if perm else False
+    return bool(perm and (perm.can_duplicate or perm.can_edit))
 
 
-def user_can_run_item(user: Member, item: CommandItem) -> bool:
+def user_can_view_item(user: Member, item: CommandItem) -> bool:
     if getattr(user, "is_admin", False) or item.created_by_id == user.id:
         return True
     perm = CommandItemPermission.query.filter_by(command_item_id=item.id, user_id=user.id).first()
-    return perm.can_run if perm else False
+    return bool(perm and (perm.can_view or perm.can_run or perm.can_edit))
+
+
+def user_can_run_item(user: Member, item: CommandItem) -> bool:
+    # Having VIEW access means you can also RUN it.
+    return user_can_view_item(user, item)
 
 
 def user_can_view_item_logs(user: Member, item: CommandItem) -> bool:
     if getattr(user, "is_admin", False) or item.created_by_id == user.id:
         return True
     perm = CommandItemPermission.query.filter_by(command_item_id=item.id, user_id=user.id).first()
-    return perm.can_view_logs if perm else False
+    if not perm:
+        return False
+    return bool(perm.can_view_logs or perm.can_edit)
 
 
 def user_can_edit_item(user: Member, item: CommandItem) -> bool:
     if getattr(user, "is_admin", False) or item.created_by_id == user.id:
         return True
     perm = CommandItemPermission.query.filter_by(command_item_id=item.id, user_id=user.id).first()
-    return perm.can_edit if perm else False
+    return bool(perm and perm.can_edit)
+
+
+def user_can_delete_item(user: Member, item: CommandItem) -> bool:
+    # Having EDIT access means you can RUN/DELETE it.
+    return user_can_edit_item(user, item)
 
 
 def user_can_duplicate_item(user: Member, item: CommandItem) -> bool:
     if getattr(user, "is_admin", False) or item.created_by_id == user.id:
         return True
     perm = CommandItemPermission.query.filter_by(command_item_id=item.id, user_id=user.id).first()
-    return perm.can_duplicate if perm else False
+    return bool(perm and (perm.can_duplicate or perm.can_edit))
 
 
-# ─── Effective Credential Resolver ───────────────────────────────────────────
+# ─── Effective Credential & Auth Resolver ──────────────────────────────────────
 
 def get_effective_credential(server_id: int, user_id: Optional[int] = None) -> Optional[ServerCredential]:
     """Finds user's credential for server, or falls back to Admin server default."""
@@ -125,8 +174,75 @@ def get_effective_credential(server_id: int, user_id: Optional[int] = None) -> O
     if default_cred and (default_cred.password or default_cred.private_key):
         return default_cred
 
-    # Return any available credential on the server as last resort
-    return ServerCredential.query.filter_by(server_id=server_id).first()
+    return None
+
+
+def get_server_user_auth_status(server: Server, user: Member) -> dict:
+    """Calculates credential, connection, and button states for a specific user and server."""
+    user_cred = None
+    if user and user.is_authenticated:
+        user_cred = ServerCredential.query.filter_by(server_id=server.id, user_id=user.id).first()
+
+    admin_cred = (
+        ServerCredential.query.filter_by(server_id=server.id)
+        .filter((ServerCredential.is_default == True) | (ServerCredential.user_id.is_(None)))
+        .first()
+    )
+
+    has_user_cred = bool(user_cred and (user_cred.password or user_cred.private_key))
+    has_admin_cred = bool(admin_cred and (admin_cred.password or admin_cred.private_key))
+
+    # Copy password button rules:
+    # - User-owned credentials: Enabled
+    # - Admin fallback: Disabled (unless user is Admin)
+    # - No credentials: Disabled
+    if getattr(user, "is_admin", False):
+        can_copy_password = has_user_cred or has_admin_cred
+    else:
+        can_copy_password = has_user_cred
+
+    # Connection history from ServerAccess
+    grant = None
+    if user and user.is_authenticated:
+        grant = ServerAccess.query.filter_by(server_id=server.id, member_id=user.id).first()
+
+    last_connected_at = grant.last_connected_at if grant else None
+    connection_status = grant.connection_status if grant else "unverified"
+
+    # If user is admin and hasn't connected individually, fallback to server's general availability
+    if getattr(user, "is_admin", False) and not last_connected_at:
+        if server.last_checked and server.is_available:
+            last_connected_at = server.last_checked
+            connection_status = "available"
+
+    is_connectable = bool(
+        (has_user_cred or has_admin_cred) and
+        (getattr(user, "is_admin", False) or (last_connected_at and connection_status == "available"))
+    )
+
+    return {
+        "has_user_cred": has_user_cred,
+        "has_admin_cred": has_admin_cred,
+        "is_fallback": not has_user_cred and has_admin_cred,
+        "has_no_cred": not has_user_cred and not has_admin_cred,
+        "can_copy_password": can_copy_password,
+        "last_connected_at": last_connected_at,
+        "connection_status": connection_status,
+        "is_connectable": is_connectable,
+    }
+
+
+def get_connectable_servers_for_user(user: Member) -> list[Server]:
+    """Returns servers the user has View access to AND has connected to at least once (or configured by Admin)."""
+    all_servers = Server.query.order_by(Server.name).all()
+    connectable = []
+    for s in all_servers:
+        if not user_can_view_server(user, s):
+            continue
+        auth = get_server_user_auth_status(s, user)
+        if auth["is_connectable"]:
+            connectable.append(s)
+    return connectable
 
 
 # ─── Command Execution Dispatchers ───────────────────────────────────────────

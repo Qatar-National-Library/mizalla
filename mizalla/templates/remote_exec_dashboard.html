@@ -17,61 +17,70 @@
       </p>
     </div>
     <div style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap;">
+      {% if can_add_item %}
       <button type="button" class="button button-secondary" onclick="openNewItemModal()">+ New Command Item</button>
+      {% endif %}
+      {% if can_add_group %}
       <a href="{{ url_for('remote_exec.group_create') }}" class="button button-primary">+ New Command Group</a>
+      {% endif %}
     </div>
   </div>
 
-  <!-- Section 1: Server Cards Grid -->
+  <!-- Informational Callout Banner -->
+  <div class="info-banner" style="background:#f4f7f5; border:1px solid rgba(16, 62, 48, 0.15); border-left:4px solid var(--green-dark, #103e30); padding:0.75rem 1rem; border-radius:6px; margin-bottom:1.5rem; display:flex; align-items:flex-start; gap:0.65rem;">
+    <i data-lucide="info" class="icon-green" style="flex-shrink:0; margin-top:2px;"></i>
+    <div style="font-size:0.85rem; color:var(--ink); line-height:1.45;">
+      <strong>Server Connectivity &amp; Live Telemetry:</strong> Displayed metrics reflect the last verified state. Expand any server card to verify credentials and refresh live telemetry. Only servers you have connected to at least once will appear in the target server list for Command Items and Command Groups.
+    </div>
+  </div>
+
+  <!-- Section 1: Server Cards Accordion List -->
   <section style="margin-bottom: 2.5rem;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
       <h2 style="font-size: 1.25rem; font-weight: 600; margin: 0;">Configured Target Servers</h2>
-      <span class="live-polling-badge" style="font-size: 0.8rem; color: var(--muted); display: flex; align-items: center; gap: 0.4rem;">
-        <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#2e7d32; animation: pulse 2s infinite;"></span>
-        Live Status Sync
-      </span>
     </div>
 
-    <div class="server-cards-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.25rem;">
+    <div class="server-accordions-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
       {% for server in servers %}
-      <div class="server-card detail-section" id="server-card-{{ server.id }}" style="margin: 0; display: flex; flex-direction: column; justify-content: space-between; border-radius: 8px; border: 1px solid var(--border-color, #e0e0e0); background: var(--color-surface, #fff); padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-        <div>
-          <!-- Card Header -->
-          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 0.75rem;">
-            <div>
-              <h3 style="margin:0; font-size: 1.15rem; font-weight: 600;">{{ server.name }}</h3>
-              <div style="display:flex; align-items:center; gap: 0.5rem; margin-top: 0.25rem;">
-                <span class="tag tag-mono" style="font-family:monospace; font-size:0.8rem; background:rgba(0,0,0,0.05); padding: 0.15rem 0.4rem; border-radius:3px;">{{ server.ip }}</span>
-                <span class="tag" id="server-os-tag-{{ server.id }}" style="font-size:0.75rem; background:rgba(26,115,232,0.1); color:#1a73e8; padding: 0.15rem 0.4rem; border-radius:3px; font-weight:600;">
-                  {% set os_label = server.operating_system or server.os_version %}
-                  {% if server.os_type == 'windows' %}
-                    🪟 {{ os_label or 'Windows' }}
-                  {% elif 'mac' in (server.os_type or '') or 'darwin' in (server.os_type or '') %}
-                    🍎 {{ os_label or 'macOS' }}
-                  {% else %}
-                    🐧 {{ os_label or ('Ubuntu' if server.os_type == 'ubuntu' else 'Linux') }}
-                  {% endif %}
-                </span>
-              </div>
-            </div>
-            
-            <!-- Available / Failed Tag -->
-            <div>
-              {% if server.is_available %}
-              <span class="badge-status-available" id="badge-status-{{ server.id }}" style="background: #2e7d32; color: #fff; font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 12px; display: inline-flex; align-items: center; gap: 0.25rem;">
-                <i data-lucide="check" class="icon-white"></i> AVAILABLE
-              </span>
+      {% set auth = server_auth.get(server.id, {}) %}
+      <div class="server-card target-entity-card accordion-item" id="server-card-{{ server.id }}" style="border: 1px solid var(--border-color, #e0e0e0); border-radius: 6px; overflow: hidden; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+        <!-- Server Accordion Header -->
+        <div class="server-accordion-header" onclick="toggleServerAccordion({{ server.id }})" style="display:flex; justify-content:space-between; align-items:center; padding: 0.85rem 1rem; background: #fff; cursor: pointer; user-select: none; transition: background 0.15s ease;" onmouseover="this.style.background='#fbfcfb'" onmouseout="this.style.background='#fff'">
+          <div style="display:flex; align-items:center; gap: 0.65rem; flex-wrap:wrap; min-width:0;">
+            <span class="chevron" id="server-chevron-{{ server.id }}" style="display:inline-flex; align-items:center; transition:transform 0.2s ease; color:var(--muted);"><i data-lucide="chevron-down" class="icon-green"></i></span>
+            <strong style="font-size: 1.05rem; white-space:nowrap;">{{ server.name }}</strong>
+            <span class="tag tag-mono" style="font-family:monospace; font-size:0.75rem; background:rgba(0,0,0,0.05); padding: 0.15rem 0.4rem; border-radius:3px;">{{ server.ip }}</span>
+            <span class="tag" id="server-os-tag-{{ server.id }}" style="font-size:0.72rem; background:rgba(26,115,232,0.1); color:#1a73e8; padding: 0.15rem 0.4rem; border-radius:3px; font-weight:600;">
+              {% set os_label = server.operating_system or server.os_version %}
+              {% if server.os_type == 'windows' %}
+                🪟 {{ os_label or 'Windows' }}
+              {% elif 'mac' in (server.os_type or '') or 'darwin' in (server.os_type or '') %}
+                🍎 {{ os_label or 'macOS' }}
               {% else %}
-              <span class="badge-status-failed" id="badge-status-{{ server.id }}" style="background: #c62828; color: #fff; font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 12px; display: inline-flex; align-items: center; gap: 0.25rem;">
-                <i data-lucide="x" class="icon-white"></i> FAILED
-              </span>
+                🐧 {{ os_label or ('Ubuntu' if server.os_type == 'ubuntu' else 'Linux') }}
               {% endif %}
-            </div>
+            </span>
           </div>
 
+          <!-- Right side: LAST_CONNECT indicator -->
+          <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
+            <div id="last-connected-container-{{ server.id }}" style="font-size:0.75rem; color:var(--muted); text-align:right;">
+              <span id="last-connected-{{ server.id }}">
+                {% if auth.last_connected_at %}
+                  <i data-lucide="clock" style="width:12px; height:12px; vertical-align:middle;"></i> Connected: {{ auth.last_connected_at.strftime('%b %d, %Y %H:%M') }}
+                {% else %}
+                  <span class="tag tag-unverified" style="background:#64748b; color:#fff; font-size:0.7rem; font-weight:700; padding:0.15rem 0.45rem; border-radius:10px;">UNVERIFIED</span>
+                {% endif %}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Server Accordion Body -->
+        <div class="server-accordion-body" id="server-body-{{ server.id }}" style="display: none; padding: 0 1rem 1rem 1rem; border-top: 1px solid rgba(0,0,0,0.06); background: #fafbfc;">
           <!-- Administrator Notes -->
           {% if server.admin_notes %}
-          <p style="font-size: 0.82rem; color: var(--muted); margin: 0.25rem 0 0.5rem; font-style: italic;">
+          <p style="font-size: 0.82rem; color: var(--muted); margin: 0.6rem 0 0.4rem; font-style: italic;">
             "{{ server.admin_notes }}"
           </p>
           {% endif %}
@@ -163,21 +172,28 @@
               </div>
             </div>
           </div>
-        </div>
 
-        <div>
           <!-- Card Footer Controls -->
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color, #eee);">
-            <button type="button" class="button button-quiet button-small" onclick="copyServerPassword({{ server.id }})" style="font-size:0.8rem; display:inline-flex; align-items:center; gap:0.35rem;">
-              <i data-lucide="clipboard" class="icon-green"></i> <span id="copy-btn-text-{{ server.id }}">Copy Password</span>
-            </button>
-            <button type="button" class="button button-quiet button-small" onclick="toggleFallbackForm({{ server.id }})" style="font-size:0.8rem; display:inline-flex; align-items:center; gap:0.35rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top: 0.75rem; padding-top: 0.6rem; border-top: 1px solid var(--border-color, #eee); gap:0.4rem; flex-wrap:wrap;">
+            <div style="display:flex; gap:0.4rem; align-items:center;">
+              {% if auth.can_copy_password %}
+              <button type="button" class="button button-quiet button-small" id="copy-btn-{{ server.id }}" onclick="copyServerPassword({{ server.id }})" style="font-size:0.8rem; display:inline-flex; align-items:center; gap:0.35rem;">
+                <i data-lucide="clipboard" class="icon-green"></i> <span id="copy-btn-text-{{ server.id }}">Copy Password</span>
+              </button>
+              {% else %}
+              <button type="button" class="button button-quiet button-small" id="copy-btn-{{ server.id }}" data-disabled-fallback="true" disabled style="font-size:0.8rem; display:inline-flex; align-items:center; gap:0.35rem; opacity:0.5; cursor:not-allowed;" title="{% if auth.is_fallback %}Admin default credential — copy disabled{% else %}No credentials saved{% endif %}">
+                <i data-lucide="clipboard" class="icon-green"></i> <span id="copy-btn-text-{{ server.id }}">Copy Password</span>
+              </button>
+              {% endif %}
+            </div>
+
+            <button type="button" class="button button-quiet button-small" id="creds-btn-{{ server.id }}" onclick="toggleFallbackForm({{ server.id }})" style="font-size:0.8rem; display:inline-flex; align-items:center; gap:0.35rem;">
               <i data-lucide="key" class="icon-green"></i> Credentials
             </button>
           </div>
 
-          <!-- Inline Credential Fallback Form (Toggled or shown on failure) -->
-          <div id="fallback-form-container-{{ server.id }}" style="display: {% if not server.is_available %}block{% else %}none{% endif %}; margin-top: 0.75rem; background: #fafafa; border: 1px dashed #ccc; padding: 0.75rem; border-radius: 6px;">
+          <!-- Inline Credential Fallback Form -->
+          <div id="fallback-form-container-{{ server.id }}" style="display: {% if auth.has_no_cred or auth.connection_status == 'failed' %}block{% else %}none{% endif %}; margin-top: 0.75rem; background: #fafafa; border: 1px dashed #ccc; padding: 0.75rem; border-radius: 6px;">
             <p style="margin: 0 0 0.4rem; font-size: 0.8rem; font-weight: 600; color: #c62828; display:flex; align-items:center; gap:0.3rem;">
               <i data-lucide="alert-triangle" class="icon-green"></i> SSH Connection Needed / Update Credentials
             </p>
@@ -213,7 +229,9 @@
           <p class="eyebrow" style="font-size:0.75rem; color:var(--muted); margin:0;">SEQUENTIAL & PARALLEL</p>
           <h2 style="font-size:1.2rem; margin:0;">Command Groups</h2>
         </div>
+        {% if can_add_group %}
         <a href="{{ url_for('remote_exec.group_create') }}" class="button button-secondary button-small">+ New Group</a>
+        {% endif %}
       </div>
 
       <div style="display:flex; flex-direction:column; gap: 0.75rem;">
@@ -261,6 +279,15 @@
               <a href="{{ url_for('remote_exec.group_edit', group_id=grp.id) }}" class="button button-quiet button-small" style="display:inline-flex; align-items:center; gap:0.25rem; {% if is_grp_running %}pointer-events:none; opacity:0.5;{% endif %}">
                 <i data-lucide="pencil" class="icon-green"></i> Edit
               </a>
+              {% endif %}
+
+              {% if user_can_delete_group(grp) %}
+              <form method="post" action="{{ url_for('remote_exec.group_delete', group_id=grp.id) }}" style="margin:0; display:inline;" onsubmit="return confirm('Delete this Command Group?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="button button-quiet button-small" title="Delete this Command Group" style="display:inline-flex; align-items:center; gap:0.25rem; color:#c62828; {% if is_grp_running %}pointer-events:none; opacity:0.5;{% endif %}" {% if is_grp_running %}disabled{% endif %}>
+                  <i data-lucide="trash-2" class="icon-green"></i> Delete
+                </button>
+              </form>
               {% endif %}
             </div>
           </div>
@@ -331,7 +358,9 @@
           <p class="eyebrow" style="font-size:0.75rem; color:var(--muted); margin:0;">MODULAR STEPS</p>
           <h2 style="font-size:1.2rem; margin:0;">Command Items</h2>
         </div>
+        {% if can_add_item %}
         <button type="button" class="button button-secondary button-small" onclick="openNewItemModal()" style="display:inline-flex; align-items:center; gap:0.25rem;"><i data-lucide="plus" class="icon-green"></i> New Item</button>
+        {% endif %}
       </div>
 
       <div style="display:flex; flex-direction:column; gap: 0.75rem;">
@@ -373,6 +402,15 @@
               <button type="button" class="button button-quiet button-small" onclick="openEditItemModal({{ item.id }})" style="display:inline-flex; align-items:center; gap:0.25rem; {% if is_item_running %}pointer-events:none; opacity:0.5;{% endif %}" {% if is_item_running %}disabled{% endif %}>
                 <i data-lucide="pencil" class="icon-green"></i> Edit
               </button>
+              {% endif %}
+
+              {% if user_can_delete_item(item) %}
+              <form method="post" action="{{ url_for('remote_exec.delete_item', item_id=item.id) }}" style="margin:0; display:inline;" onsubmit="return confirm('Delete this Command Item?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="button button-quiet button-small" title="Delete this Command Item" style="display:inline-flex; align-items:center; gap:0.25rem; color:#c62828; {% if is_item_running %}pointer-events:none; opacity:0.5;{% endif %}" {% if is_item_running %}disabled{% endif %}>
+                  <i data-lucide="trash-2" class="icon-green"></i> Delete
+                </button>
+              </form>
               {% endif %}
             </div>
 
@@ -624,8 +662,10 @@
           Target Server
           <select name="server_id" id="item-input-server" required style="width:100%; padding:0.45rem; border:1px solid #ccc; border-radius:4px;">
             <option value="">-- Choose Server --</option>
-            {% for s in servers %}
+            {% for s in connectable_servers %}
             <option value="{{ s.id }}">{{ s.name }} ({{ s.ip }})</option>
+            {% else %}
+            <option value="" disabled>No connected servers available (Reconnect first)</option>
             {% endfor %}
           </select>
         </label>
@@ -674,6 +714,10 @@
   50% { opacity: 1; }
   100% { opacity: 0.4; }
 }
+.spin {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
 </style>
 
 <script>
@@ -708,6 +752,82 @@ async function copyServerPassword(serverId) {
     }
   } catch (err) {
     alert("Could not copy password: " + err);
+  }
+}
+
+// ─── Update Server Telemetry Helper ────────────────────────────────────────
+function updateServerCardTelemetry(serverId, data) {
+  const osTag = document.getElementById("server-os-tag-" + serverId);
+  if (osTag && (data.operating_system || data.os_version)) {
+    const osName = data.operating_system || data.os_version;
+    const isWin = (data.os_type === "windows");
+    const isMac = (data.os_type === "mac");
+    const icon = isWin ? "🪟 " : (isMac ? "🍎 " : "🐧 ");
+    osTag.textContent = icon + osName;
+  }
+  if (data.ram_total || data.tag_lines || data.k8s_pods) {
+    const ramBar = document.getElementById("ram-bar-fill-" + serverId);
+    const ramText = document.getElementById("ram-text-" + serverId);
+    if (ramBar) ramBar.style.width = (data.ram_percent || 0) + "%";
+    if (ramText) ramText.textContent = `${data.ram_used || '0 GB'} / ${data.ram_total || '0 GB'}`;
+
+    const diskBar = document.getElementById("disk-bar-fill-" + serverId);
+    const diskText = document.getElementById("disk-text-" + serverId);
+    if (diskBar) diskBar.style.width = (data.disk_percent || 0) + "%";
+    if (diskText) diskText.textContent = `${data.disk_used || '0 GB'} / ${data.disk_total || '0 GB'}`;
+
+    const telemDetails = document.getElementById("telemetry-details-" + serverId);
+    if (telemDetails && data.tag_lines) {
+      if (data.tag_lines.length > 0) {
+        telemDetails.innerHTML = data.tag_lines.map(line => {
+          const idx = line.indexOf(":");
+          const val = idx !== -1 ? line.substring(idx + 1).trim() : line.trim();
+          return `<div style="background:rgba(16, 62, 48, 0.05); border:1px solid rgba(16, 62, 48, 0.12); border-radius:4px; padding:0.18rem 0.45rem; display:inline-flex; align-items:center; gap:0.25rem;"><span>${escapeHtml(val)}</span></div>`;
+        }).join("");
+      } else {
+        telemDetails.innerHTML = '<span class="muted" style="font-size:0.75rem;">No additional capabilities detected</span>';
+      }
+    }
+
+    const k8sContainer = document.getElementById("k8s-pods-container-" + serverId);
+    const k8sCount = document.getElementById("k8s-pods-count-" + serverId);
+    const k8sList = document.getElementById("k8s-pods-list-" + serverId);
+    if (k8sContainer && k8sList) {
+      if (data.k8s_pods && data.k8s_pods.length > 0) {
+        k8sContainer.style.display = "block";
+        if (k8sCount) k8sCount.textContent = `${data.k8s_pods.length} pod${data.k8s_pods.length !== 1 ? 's' : ''}`;
+        k8sList.innerHTML = data.k8s_pods.map(pod => {
+          const isRunning = pod.status === "Running" || pod.status === "Active";
+          const isCompleted = pod.status === "Completed" || pod.status === "Succeeded";
+          const isPending = pod.status === "Pending" || pod.status === "ContainerCreating";
+          let bg = "#ffebee", fg = "#c62828";
+          if (isRunning) { bg = "#e8f5e9"; fg = "#2e7d32"; }
+          else if (isCompleted) { bg = "#f1f5f9"; fg = "#475569"; }
+          else if (isPending) { bg = "#fff8e1"; fg = "#f57f17"; }
+          const nsBadge = (pod.namespace && pod.namespace !== 'default')
+            ? `<span style="color:var(--muted); font-size:0.68rem; background:#f1f5f9; padding:0.05rem 0.3rem; border-radius:3px;">${escapeHtml(pod.namespace)}</span>`
+            : '';
+          return `<div style="display:flex; align-items:center; justify-content:space-between; background:#ffffff; border:1px solid #e2e8f0; border-radius:4px; padding:0.22rem 0.45rem; font-size:0.72rem; gap:0.4rem;">
+            <div style="display:flex; align-items:center; gap:0.3rem; min-width:0; flex:1;">
+              ${nsBadge}
+              <span style="font-family:monospace; font-weight:600; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(pod.name)}">
+                ${escapeHtml(pod.name)}
+              </span>
+            </div>
+            <div style="display:flex; align-items:center; gap:0.35rem; flex-shrink:0;">
+              <span style="background:${bg}; color:${fg}; font-weight:600; padding:0.08rem 0.35rem; border-radius:3px; font-size:0.68rem;">
+                ${escapeHtml(pod.status)}
+              </span>
+              <span style="color:var(--muted); font-size:0.68rem; min-width:30px; text-align:right;">
+                ${escapeHtml(pod.age || '')}
+              </span>
+            </div>
+          </div>`;
+        }).join("");
+      } else {
+        k8sContainer.style.display = "none";
+      }
+    }
   }
 }
 
@@ -754,82 +874,18 @@ async function testAndSaveFallback(serverId) {
       msg.style.color = "#2e7d32";
       msg.textContent = data.message;
       msg.style.display = "block";
-      if (badge) {
-        badge.className = "badge-status-available";
-        badge.style.background = "#2e7d32";
-        badge.innerHTML = '<i data-lucide="check" class="icon-white"></i> AVAILABLE';
+      const timeContainer = document.getElementById("last-connected-" + serverId);
+      if (timeContainer) {
+        timeContainer.innerHTML = '<i data-lucide="clock" style="width:12px; height:12px; vertical-align:middle;"></i> Connected: ' + escapeHtml(data.last_connected_at || 'Just now');
       }
-      const osTag = document.getElementById("server-os-tag-" + serverId);
-      if (osTag && (data.operating_system || data.os_version)) {
-        const osName = data.operating_system || data.os_version;
-        const isWin = (data.os_type === "windows");
-        const isMac = (data.os_type === "mac");
-        const icon = isWin ? "🪟 " : (isMac ? "🍎 " : "🐧 ");
-        osTag.textContent = icon + osName;
-      }
-      if (data.ram_total || data.tag_lines || data.k8s_pods) {
-        const ramBar = document.getElementById("ram-bar-fill-" + serverId);
-        const ramText = document.getElementById("ram-text-" + serverId);
-        if (ramBar) ramBar.style.width = (data.ram_percent || 0) + "%";
-        if (ramText) ramText.textContent = `${data.ram_used || '0 GB'} / ${data.ram_total || '0 GB'}`;
-
-        const diskBar = document.getElementById("disk-bar-fill-" + serverId);
-        const diskText = document.getElementById("disk-text-" + serverId);
-        if (diskBar) diskBar.style.width = (data.disk_percent || 0) + "%";
-        if (diskText) diskText.textContent = `${data.disk_used || '0 GB'} / ${data.disk_total || '0 GB'}`;
-
-        const telemDetails = document.getElementById("telemetry-details-" + serverId);
-        if (telemDetails && data.tag_lines) {
-          if (data.tag_lines.length > 0) {
-            telemDetails.innerHTML = data.tag_lines.map(line => {
-              const idx = line.indexOf(":");
-              const val = idx !== -1 ? line.substring(idx + 1).trim() : line.trim();
-              return `<div style="background:rgba(16, 62, 48, 0.05); border:1px solid rgba(16, 62, 48, 0.12); border-radius:4px; padding:0.18rem 0.45rem; display:inline-flex; align-items:center; gap:0.25rem;"><span>${escapeHtml(val)}</span></div>`;
-            }).join("");
-          } else {
-            telemDetails.innerHTML = '<span class="muted" style="font-size:0.75rem;">No additional capabilities detected</span>';
-          }
-        }
-
-        const k8sContainer = document.getElementById("k8s-pods-container-" + serverId);
-        const k8sCount = document.getElementById("k8s-pods-count-" + serverId);
-        const k8sList = document.getElementById("k8s-pods-list-" + serverId);
-        if (k8sContainer && k8sList) {
-          if (data.k8s_pods && data.k8s_pods.length > 0) {
-            k8sContainer.style.display = "block";
-            if (k8sCount) k8sCount.textContent = `${data.k8s_pods.length} pod${data.k8s_pods.length !== 1 ? 's' : ''}`;
-            k8sList.innerHTML = data.k8s_pods.map(pod => {
-              const isRunning = pod.status === "Running" || pod.status === "Active";
-              const isCompleted = pod.status === "Completed" || pod.status === "Succeeded";
-              const isPending = pod.status === "Pending" || pod.status === "ContainerCreating";
-              let bg = "#ffebee", fg = "#c62828";
-              if (isRunning) { bg = "#e8f5e9"; fg = "#2e7d32"; }
-              else if (isCompleted) { bg = "#f1f5f9"; fg = "#475569"; }
-              else if (isPending) { bg = "#fff8e1"; fg = "#f57f17"; }
-              const nsBadge = (pod.namespace && pod.namespace !== 'default')
-                ? `<span style="color:var(--muted); font-size:0.68rem; background:#f1f5f9; padding:0.05rem 0.3rem; border-radius:3px;">${escapeHtml(pod.namespace)}</span>`
-                : '';
-              return `<div style="display:flex; align-items:center; justify-content:space-between; background:#ffffff; border:1px solid #e2e8f0; border-radius:4px; padding:0.22rem 0.45rem; font-size:0.72rem; gap:0.4rem;">
-                <div style="display:flex; align-items:center; gap:0.3rem; min-width:0; flex:1;">
-                  ${nsBadge}
-                  <span style="font-family:monospace; font-weight:600; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(pod.name)}">
-                    ${escapeHtml(pod.name)}
-                  </span>
-                </div>
-                <div style="display:flex; align-items:center; gap:0.35rem; flex-shrink:0;">
-                  <span style="background:${bg}; color:${fg}; font-weight:600; padding:0.08rem 0.35rem; border-radius:3px; font-size:0.68rem;">
-                    ${escapeHtml(pod.status)}
-                  </span>
-                  <span style="color:var(--muted); font-size:0.68rem; min-width:30px; text-align:right;">
-                    ${escapeHtml(pod.age || '')}
-                  </span>
-                </div>
-              </div>`;
-            }).join("");
-          } else {
-            k8sContainer.style.display = "none";
-          }
-        }
+      updateServerCardTelemetry(serverId, data);
+      const copyBtn = document.getElementById("copy-btn-" + serverId);
+      if (copyBtn && data.can_copy_password) {
+        copyBtn.disabled = false;
+        copyBtn.removeAttribute("data-disabled-fallback");
+        copyBtn.style.opacity = "1";
+        copyBtn.style.cursor = "pointer";
+        copyBtn.title = "";
       }
       if (window.lucide) lucide.createIcons();
       setTimeout(() => toggleFallbackForm(serverId), 2000);
@@ -844,7 +900,79 @@ async function testAndSaveFallback(serverId) {
     msg.style.display = "block";
   } finally {
     btn.disabled = false;
-    btn.textContent = "Connect / Test 🔌";
+    btn.innerHTML = 'Connect / Test <i data-lucide="plug" class="icon-white"></i>';
+    if (window.lucide) lucide.createIcons();
+  }
+}
+
+// ─── Server Accordion Toggle & On-Expand Verification ────────────────────
+async function toggleServerAccordion(serverId) {
+  const body = document.getElementById("server-body-" + serverId);
+  const chevron = document.getElementById("server-chevron-" + serverId);
+  if (!body) return;
+
+  const isHidden = (body.style.display === "none" || body.style.display === "");
+  if (isHidden) {
+    // Expand accordion
+    body.style.display = "block";
+    if (chevron) chevron.style.transform = "rotate(180deg)";
+
+    // Show spinner in place of LAST_CONNECT
+    const timeContainer = document.getElementById("last-connected-" + serverId);
+    if (timeContainer) {
+      timeContainer.innerHTML = '<span style="display:inline-flex; align-items:center; gap:0.35rem; color:var(--green-dark, #103e30); font-weight:600;"><span class="spin" style="display:inline-block; width:10px; height:10px; border:2px solid var(--green-dark, #103e30); border-top-color:transparent; border-radius:50%;"></span> Connecting...</span>';
+    }
+
+    // Lock controls inside this server card during verification
+    const credsBtn = document.getElementById("creds-btn-" + serverId);
+    const copyBtn = document.getElementById("copy-btn-" + serverId);
+    if (credsBtn) credsBtn.disabled = true;
+    if (copyBtn) copyBtn.disabled = true;
+
+    try {
+      const resp = await fetch("/apps/remote-exec/servers/" + serverId + "/verify", {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": csrfToken,
+          "Content-Type": "application/json"
+        }
+      });
+      const data = await resp.json();
+      if (data.success) {
+        if (timeContainer) {
+          timeContainer.innerHTML = '<i data-lucide="clock" style="width:12px; height:12px; vertical-align:middle;"></i> Connected: ' + escapeHtml(data.last_connected_at || 'Just now');
+        }
+        updateServerCardTelemetry(serverId, data);
+        if (copyBtn) {
+          if (data.can_copy_password) {
+            copyBtn.disabled = false;
+            copyBtn.removeAttribute("data-disabled-fallback");
+            copyBtn.style.opacity = "1";
+            copyBtn.style.cursor = "pointer";
+            copyBtn.title = "";
+          }
+        }
+      } else {
+        if (timeContainer) {
+          timeContainer.innerHTML = '<span style="color:#c62828; font-weight:600;"><i data-lucide="alert-circle" style="width:12px; height:12px; vertical-align:middle;"></i> Connection Failed</span>';
+        }
+        // Expand credentials form so user can fix credentials immediately
+        const c = document.getElementById("fallback-form-container-" + serverId);
+        if (c) c.style.display = "block";
+      }
+    } catch (err) {
+      if (timeContainer) {
+        timeContainer.innerHTML = '<span style="color:#c62828; font-weight:600;"><i data-lucide="alert-circle" style="width:12px; height:12px; vertical-align:middle;"></i> Connection Error</span>';
+      }
+    } finally {
+      if (credsBtn) credsBtn.disabled = false;
+      if (copyBtn && !copyBtn.hasAttribute("data-disabled-fallback")) copyBtn.disabled = false;
+      if (window.lucide) lucide.createIcons();
+    }
+  } else {
+    // Collapse accordion
+    body.style.display = "none";
+    if (chevron) chevron.style.transform = "rotate(0deg)";
   }
 }
 

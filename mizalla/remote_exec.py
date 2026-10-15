@@ -13,6 +13,7 @@ Features:
 
 from __future__ import annotations
 
+import json
 import math
 from datetime import datetime, timezone
 from functools import wraps
@@ -45,22 +46,32 @@ from .models import (
     CommandVariable,
     Member,
     Server,
+    ServerAccess,
     ServerCredential,
 )
 from .remote_exec_client import (
     dispatch_command_group,
     dispatch_command_item,
+    get_connectable_servers_for_user,
     get_effective_credential,
+    get_server_user_auth_status,
     probe_server_health_sync,
     terminate_running_audit,
+    user_can_add_group,
+    user_can_add_item,
+    user_can_delete_group,
+    user_can_delete_item,
     user_can_duplicate_group,
     user_can_duplicate_item,
     user_can_edit_group,
     user_can_edit_item,
     user_can_run_group,
     user_can_run_item,
+    user_can_view_group,
     user_can_view_group_logs,
+    user_can_view_item,
     user_can_view_item_logs,
+    user_can_view_server,
 )
 
 bp = Blueprint("remote_exec", __name__, url_prefix="/apps/remote-exec")
@@ -93,15 +104,21 @@ def dashboard():
     page = request.args.get("page", 1, type=int)
     per_page = 25
 
-    servers = Server.query.order_by(Server.name).all()
+    # Filter servers by View permission
+    all_servers = Server.query.order_by(Server.name).all()
+    servers = [s for s in all_servers if user_can_view_server(current_user, s)]
+
+    # Compute server auth and connection states for the logged-in user
+    server_auth = {s.id: get_server_user_auth_status(s, current_user) for s in servers}
+    connectable_servers = [s for s in servers if server_auth[s.id]["is_connectable"]]
 
     # Accessible Command Groups
     all_groups = CommandGroup.query.order_by(CommandGroup.name).all()
-    accessible_groups = [g for g in all_groups if user_can_run_group(current_user, g) or user_can_edit_group(current_user, g)]
+    accessible_groups = [g for g in all_groups if user_can_view_group(current_user, g)]
 
     # Accessible Command Items
     all_items = CommandItem.query.order_by(CommandItem.name).all()
-    accessible_items = [i for i in all_items if user_can_run_item(current_user, i) or user_can_edit_item(current_user, i)]
+    accessible_items = [i for i in all_items if user_can_view_item(current_user, i)]
 
     # Historical Audits (paginated 25 per page)
     # Filter audits to commands on accessible servers
@@ -136,6 +153,10 @@ def dashboard():
     return render_template(
         "remote_exec_dashboard.html",
         servers=servers,
+        server_auth=server_auth,
+        connectable_servers=connectable_servers,
+        can_add_item=user_can_add_item(current_user),
+        can_add_group=user_can_add_group(current_user),
         command_groups=accessible_groups,
         command_items=accessible_items,
         history_audits=history_audits,
@@ -145,8 +166,10 @@ def dashboard():
         running_group_ids=running_group_ids,
         running_item_ids=running_item_ids,
         user_can_edit_group=lambda g: user_can_edit_group(current_user, g),
+        user_can_delete_group=lambda g: user_can_delete_group(current_user, g),
         user_can_duplicate_group=lambda g: user_can_duplicate_group(current_user, g),
         user_can_edit_item=lambda i: user_can_edit_item(current_user, i),
+        user_can_delete_item=lambda i: user_can_delete_item(current_user, i),
         user_can_duplicate_item=lambda i: user_can_duplicate_item(current_user, i),
     )
 
@@ -197,17 +220,138 @@ def active_status():
     )
 
 
-# ─── Credential Copy & Fallback Endpoints ─────────────────────────────────────
+# ─── Credential Copy, Verification & Fallback Endpoints ───────────────────────
 
 @bp.get("/servers/<int:server_id>/password")
 @remote_exec_required
 def get_server_password(server_id: int):
     """Returns decrypted password for clipboard copy."""
     server = Server.query.get_or_404(server_id)
+    if not user_can_view_server(current_user, server):
+        return jsonify(success=False, error="You do not have access to this server."), 403
+
+    auth = get_server_user_auth_status(server, current_user)
+    if not auth["can_copy_password"]:
+        return jsonify(success=False, error="Password copy is disabled for this server."), 403
+
     cred = get_effective_credential(server_id, current_user.id)
     if not cred or not cred.password:
         return jsonify(success=False, error="No password configured for this server."), 404
     return jsonify(success=True, password=cred.password)
+
+
+@bp.post("/servers/<int:server_id>/verify")
+@remote_exec_required
+def verify_server_connection(server_id: int):
+    """Reconnect / verify SSH connection using effective user credentials with 5s timeout."""
+    server = Server.query.get_or_404(server_id)
+    if not user_can_view_server(current_user, server):
+        return jsonify(success=False, error="You do not have access to this server."), 403
+
+    cred = get_effective_credential(server_id, current_user.id)
+    if not cred or (not cred.password and not cred.private_key):
+        return jsonify(
+            success=False,
+            error="No credentials found for this server. Please enter credentials.",
+            no_credentials=True,
+        ), 400
+
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        ok, msg, telemetry = loop.run_until_complete(
+            test_ssh_connection(
+                ip=server.ip,
+                port=server.ssh_port or 22,
+                username=cred.username,
+                password=cred.password,
+                private_key=cred.private_key,
+                timeout=5,
+            )
+        )
+    except Exception as exc:
+        ok = False
+        msg = str(exc)
+        telemetry = {}
+    finally:
+        loop.close()
+
+    grant = ServerAccess.query.filter_by(server_id=server.id, member_id=current_user.id).first()
+    if not grant:
+        grant = ServerAccess(server_id=server.id, member_id=current_user.id, granted_by_id=current_user.id)
+        db.session.add(grant)
+
+    now_utc = datetime.now(timezone.utc)
+    if ok:
+        grant.last_connected_at = now_utc
+        grant.connection_status = "available"
+        cred.status = "available"
+        cred.last_tested = now_utc
+
+        server.status = "available"
+        server.last_checked = now_utc
+        if telemetry.get("operating_system"):
+            server.operating_system = telemetry["operating_system"]
+        elif telemetry.get("os_version"):
+            server.operating_system = telemetry["os_version"]
+        if telemetry.get("os_type"):
+            server.os_type = telemetry["os_type"]
+        if telemetry.get("os_version"):
+            server.os_version = telemetry["os_version"]
+        if telemetry.get("packages_summary"):
+            server.packages_summary = telemetry["packages_summary"]
+        if telemetry.get("ram_total"):
+            server.ram_total = telemetry["ram_total"]
+        if telemetry.get("ram_used"):
+            server.ram_used = telemetry["ram_used"]
+        if "ram_percent" in telemetry:
+            server.ram_percent = float(telemetry.get("ram_percent") or 0.0)
+        if telemetry.get("disk_total"):
+            server.disk_total = telemetry["disk_total"]
+        if telemetry.get("disk_used"):
+            server.disk_used = telemetry["disk_used"]
+        if "disk_percent" in telemetry:
+            server.disk_percent = float(telemetry.get("disk_percent") or 0.0)
+        if "core_tags" in telemetry:
+            server.core_tags = telemetry.get("core_tags") or ""
+        if "k8s_pods" in telemetry:
+            pods = telemetry.get("k8s_pods")
+            if isinstance(pods, (list, dict)):
+                server.k8s_pods = json.dumps(pods)
+            else:
+                server.k8s_pods = pods or ""
+
+        db.session.commit()
+
+        auth = get_server_user_auth_status(server, current_user)
+        formatted_time = now_utc.strftime("%b %d, %Y %H:%M")
+
+        return jsonify(
+            success=True,
+            message="Connection verified successfully!",
+            last_connected_at=formatted_time,
+            last_connected_formatted=formatted_time,
+            can_copy_password=auth["can_copy_password"],
+            os_type=server.os_type,
+            os_version=server.os_version,
+            operating_system=server.operating_system,
+            ram_total=server.ram_total,
+            ram_used=server.ram_used,
+            ram_percent=server.ram_percent,
+            disk_total=server.disk_total,
+            disk_used=server.disk_used,
+            disk_percent=server.disk_percent,
+            core_tags=server.core_tags,
+            tag_lines=server.get_tag_lines(),
+            k8s_pods=server.get_k8s_pods(),
+        )
+    else:
+        grant.connection_status = "failed"
+        cred.status = "failed"
+        cred.last_tested = now_utc
+        db.session.commit()
+        return jsonify(success=False, error=msg)
 
 
 @bp.post("/servers/<int:server_id>/fallback-credential")
@@ -215,6 +359,9 @@ def get_server_password(server_id: int):
 def save_fallback_credential(server_id: int):
     """Inline credential fallback form: tests connection immediately via AsyncSSH and saves."""
     server = Server.query.get_or_404(server_id)
+    if not user_can_view_server(current_user, server):
+        return jsonify(success=False, error="You do not have access to this server."), 403
+
     username = request.form.get("username", "").strip()
     password = request.form.get("password", "").strip()
     private_key = request.form.get("private_key", "").strip()
@@ -234,6 +381,7 @@ def save_fallback_credential(server_id: int):
                 username=username,
                 password=password,
                 private_key=private_key,
+                timeout=5,
             )
         )
     finally:
@@ -242,7 +390,9 @@ def save_fallback_credential(server_id: int):
     if not ok:
         return jsonify(success=False, error=msg), 400
 
-    # Save credential
+    now_utc = datetime.now(timezone.utc)
+
+    # Save credential for this user
     cred = ServerCredential.query.filter_by(server_id=server.id, user_id=current_user.id).first()
     if not cred:
         cred = ServerCredential(server_id=server.id, user_id=current_user.id)
@@ -254,15 +404,23 @@ def save_fallback_credential(server_id: int):
     if private_key:
         cred.private_key = private_key
     cred.status = "available"
-    cred.last_tested = datetime.now(timezone.utc)
+    cred.last_tested = now_utc
 
     # If current user is Admin, set as default credential
     if current_user.is_admin:
         cred.is_default = True
 
+    # Record user connection in ServerAccess
+    grant = ServerAccess.query.filter_by(server_id=server.id, member_id=current_user.id).first()
+    if not grant:
+        grant = ServerAccess(server_id=server.id, member_id=current_user.id, granted_by_id=current_user.id)
+        db.session.add(grant)
+    grant.last_connected_at = now_utc
+    grant.connection_status = "available"
+
     # Update server telemetry
     server.status = "available"
-    server.last_checked = datetime.now(timezone.utc)
+    server.last_checked = now_utc
     if telemetry.get("operating_system"):
         server.operating_system = telemetry["operating_system"]
     elif telemetry.get("os_version"):
@@ -288,12 +446,20 @@ def save_fallback_credential(server_id: int):
     if "core_tags" in telemetry:
         server.core_tags = telemetry.get("core_tags") or ""
     if "k8s_pods" in telemetry:
-        server.k8s_pods = telemetry.get("k8s_pods") or ""
+        pods = telemetry.get("k8s_pods")
+        if isinstance(pods, (list, dict)):
+            server.k8s_pods = json.dumps(pods)
+        else:
+            server.k8s_pods = pods or ""
 
     db.session.commit()
+    formatted_time = now_utc.strftime("%b %d, %Y %H:%M")
     return jsonify(
         success=True,
         message="Connection verified! Server is now AVAILABLE.",
+        last_connected_at=formatted_time,
+        last_connected_formatted=formatted_time,
+        can_copy_password=True,
         os_type=server.os_type,
         os_version=server.os_version,
         operating_system=server.operating_system,
@@ -426,6 +592,8 @@ def execute_target(entry_type: str, target_id: int):
         item = CommandItem.query.get_or_404(target_id)
         if not user_can_run_item(current_user, item):
             return jsonify(error="Permission denied to run this item."), 403
+        if item.server and not user_can_view_server(current_user, item.server):
+            return jsonify(error="Access to target server is denied."), 403
 
         audit = dispatch_command_item(
             user_id=current_user.id,
@@ -437,6 +605,8 @@ def execute_target(entry_type: str, target_id: int):
         group = CommandGroup.query.get_or_404(target_id)
         if not user_can_run_group(current_user, group):
             return jsonify(error="Permission denied to run this group."), 403
+        if group.server and not user_can_view_server(current_user, group.server):
+            return jsonify(error="Access to target server is denied."), 403
 
         audit = dispatch_command_group(
             user_id=current_user.id,
@@ -640,6 +810,16 @@ def save_item():
         flash("Name and target server are required.", "error")
         return redirect(url_for("remote_exec.dashboard"))
 
+    target_server = Server.query.get(server_id)
+    if not target_server or not user_can_view_server(current_user, target_server):
+        flash("Selected target server is not accessible.", "error")
+        return redirect(url_for("remote_exec.dashboard"))
+
+    server_auth = get_server_user_auth_status(target_server, current_user)
+    if not server_auth["is_connectable"]:
+        flash("You must connect to this server at least once before using it in a Command Item.", "error")
+        return redirect(url_for("remote_exec.dashboard"))
+
     if item_id:
         item = CommandItem.query.get_or_404(item_id)
         if not user_can_edit_item(current_user, item):
@@ -650,6 +830,10 @@ def save_item():
         item.command_type = command_type
         item.command_content = command_content
     else:
+        if not user_can_add_item(current_user):
+            flash("You do not have permission to create Command Items. Contact an Admin.", "error")
+            return redirect(url_for("remote_exec.dashboard"))
+
         item = CommandItem(
             server_id=server_id,
             name=name,
@@ -711,7 +895,11 @@ def delete_item(item_id: int):
 @remote_exec_required
 def group_create():
     """Create a new Command Group."""
-    servers = Server.query.order_by(Server.name).all()
+    if not user_can_add_group(current_user):
+        flash("You do not have permission to create Command Groups. Contact an Admin.", "error")
+        return redirect(url_for("remote_exec.dashboard"))
+
+    connectable_servers = get_connectable_servers_for_user(current_user)
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         server_id = request.form.get("server_id", type=int)
@@ -721,7 +909,17 @@ def group_create():
 
         if not name or not server_id:
             flash("Group name and target server are required.", "error")
-            return render_template("command_group_form.html", group=None, servers=servers)
+            return render_template("command_group_form.html", group=None, servers=connectable_servers)
+
+        target_server = Server.query.get(server_id)
+        if not target_server or not user_can_view_server(current_user, target_server):
+            flash("Selected target server is not accessible.", "error")
+            return render_template("command_group_form.html", group=None, servers=connectable_servers)
+
+        auth = get_server_user_auth_status(target_server, current_user)
+        if not auth["is_connectable"]:
+            flash("You must connect to this server at least once before creating a Command Group on it.", "error")
+            return render_template("command_group_form.html", group=None, servers=connectable_servers)
 
         group = CommandGroup(
             server_id=server_id,
@@ -737,7 +935,7 @@ def group_create():
         flash(f"Command Group '{group.name}' created.", "success")
         return redirect(url_for("remote_exec.group_edit", group_id=group.id))
 
-    return render_template("command_group_form.html", group=None, servers=servers)
+    return render_template("command_group_form.html", group=None, servers=connectable_servers)
 
 
 @bp.route("/groups/<int:group_id>/edit", methods=["GET", "POST"])
@@ -749,13 +947,12 @@ def group_edit(group_id: int):
         flash("You do not have permission to edit this Command Group.", "error")
         return redirect(url_for("remote_exec.dashboard"))
 
-    servers = Server.query.order_by(Server.name).all()
-    # Available Command Items for ADD (matching target server)
-    available_items = (
-        CommandItem.query.filter_by(server_id=group.server_id)
-        .order_by(CommandItem.name)
-        .all()
-    )
+    connectable_servers = get_connectable_servers_for_user(current_user)
+    # Available Command Items for ADD: matching target server AND viewable by user
+    available_items = [
+        i for i in CommandItem.query.filter_by(server_id=group.server_id).order_by(CommandItem.name).all()
+        if user_can_view_item(current_user, i)
+    ]
 
     if request.method == "POST":
         group.name = request.form.get("name", group.name).strip()
@@ -769,7 +966,7 @@ def group_edit(group_id: int):
     return render_template(
         "command_group_form.html",
         group=group,
-        servers=servers,
+        servers=connectable_servers,
         available_items=available_items,
     )
 
@@ -784,6 +981,8 @@ def group_add_item(group_id: int):
 
     item_id = request.form.get("item_id", type=int)
     item = CommandItem.query.get_or_404(item_id)
+    if not user_can_view_item(current_user, item):
+        return jsonify(error="You do not have permission to view or add this Command Item."), 403
 
     max_order = max([i.sequence_order for i in group.items] + [-1])
     link = CommandGroupItem(

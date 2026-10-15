@@ -44,6 +44,11 @@
             </option>
             {% endfor %}
           </select>
+          {% if not servers %}
+          <small style="color:#c62828; display:block; margin-top:0.3rem; font-size:0.75rem;">
+            No verified servers available. Connect to a server at least once from the Remote Execution dashboard before creating a Command Group.
+          </small>
+          {% endif %}
           {% if group %}<input type="hidden" name="server_id" value="{{ group.server_id }}">{% endif %}
         </label>
       </div>

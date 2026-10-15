@@ -17,6 +17,20 @@ SQLITE_ADDITIONS = {
         "api_key": "VARCHAR(64)",
         "can_bulk_email": "BOOLEAN NOT NULL DEFAULT 0",
         "is_pm": "BOOLEAN NOT NULL DEFAULT 0",
+        "can_add_command_items": "BOOLEAN NOT NULL DEFAULT 0",
+        "can_add_command_groups": "BOOLEAN NOT NULL DEFAULT 0",
+    },
+    "server_access": {
+        "can_view": "BOOLEAN NOT NULL DEFAULT 1",
+        "can_edit": "BOOLEAN NOT NULL DEFAULT 0",
+        "last_connected_at": "DATETIME",
+        "connection_status": "VARCHAR(20) NOT NULL DEFAULT 'unverified'",
+    },
+    "command_item_permission": {
+        "can_view": "BOOLEAN NOT NULL DEFAULT 1",
+    },
+    "command_group_permission": {
+        "can_view": "BOOLEAN NOT NULL DEFAULT 1",
     },
     "project_membership": {
         "team_roles": "VARCHAR(300) NOT NULL DEFAULT ''",

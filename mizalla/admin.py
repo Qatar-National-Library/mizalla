@@ -24,6 +24,10 @@ from .models import (
     AppFeatureAccess,
     AppSetting,
     BulkEmailJob,
+    CommandGroup,
+    CommandGroupPermission,
+    CommandItem,
+    CommandItemPermission,
     GowaDevice,
     GowaDeviceAccess,
     Member,
@@ -1207,4 +1211,129 @@ def feedback_export():
         as_attachment=True,
         download_name="utility_app_feedback.xlsx",
     )
+
+
+@bp.route("/permissions-matrix", methods=["GET", "POST"])
+@admin_required
+def permissions_matrix():
+    members = Member.query.order_by(Member.name).all()
+    non_admin_members = [m for m in members if not m.is_admin]
+    servers = Server.query.order_by(Server.name).all()
+    command_items = CommandItem.query.order_by(CommandItem.name).all()
+    command_groups = CommandGroup.query.order_by(CommandGroup.name).all()
+
+    active_tab = request.args.get("active_tab", "server_access")
+
+    if request.method == "POST":
+        matrix_type = request.form.get("matrix_type", "server_access")
+        active_tab = matrix_type
+
+        if matrix_type in ("member_capabilities", "all"):
+            for m in non_admin_members:
+                m.can_add_command_items = bool(request.form.get(f"can_add_items_{m.id}"))
+                m.can_add_command_groups = bool(request.form.get(f"can_add_groups_{m.id}"))
+            db.session.commit()
+            if matrix_type == "member_capabilities":
+                flash("Member capabilities updated successfully.", "success")
+
+        if matrix_type in ("server_access", "all"):
+            for s in servers:
+                for m in non_admin_members:
+                    can_view = bool(request.form.get(f"srv_view_{s.id}_{m.id}"))
+                    can_edit = bool(request.form.get(f"srv_edit_{s.id}_{m.id}"))
+                    access = ServerAccess.query.filter_by(server_id=s.id, member_id=m.id).first()
+                    if can_view or can_edit:
+                        if not access:
+                            access = ServerAccess(server_id=s.id, member_id=m.id, granted_by_id=current_user.id)
+                            db.session.add(access)
+                        access.can_view = can_view
+                        access.can_edit = can_edit
+                    else:
+                        if access:
+                            access.can_view = False
+                            access.can_edit = False
+            db.session.commit()
+            if matrix_type == "server_access":
+                flash("Server access permissions updated successfully.", "success")
+
+        if matrix_type in ("command_items", "all"):
+            for item in command_items:
+                for m in non_admin_members:
+                    if item.created_by_id == m.id:
+                        continue
+                    can_view = bool(request.form.get(f"item_view_{item.id}_{m.id}"))
+                    can_edit = bool(request.form.get(f"item_edit_{item.id}_{m.id}"))
+                    perm = CommandItemPermission.query.filter_by(command_item_id=item.id, user_id=m.id).first()
+                    if can_view or can_edit:
+                        if not perm:
+                            perm = CommandItemPermission(command_item_id=item.id, user_id=m.id)
+                            db.session.add(perm)
+                        perm.can_view = can_view
+                        perm.can_run = can_view
+                        perm.can_view_logs = can_view
+                        perm.can_edit = can_edit
+                        perm.can_duplicate = can_edit
+                    else:
+                        if perm:
+                            perm.can_view = False
+                            perm.can_run = False
+                            perm.can_view_logs = False
+                            perm.can_edit = False
+                            perm.can_duplicate = False
+            db.session.commit()
+            if matrix_type == "command_items":
+                flash("Command Items permissions updated successfully.", "success")
+
+        if matrix_type in ("command_groups", "all"):
+            for group in command_groups:
+                for m in non_admin_members:
+                    if group.created_by_id == m.id:
+                        continue
+                    can_view = bool(request.form.get(f"group_view_{group.id}_{m.id}"))
+                    can_edit = bool(request.form.get(f"group_edit_{group.id}_{m.id}"))
+                    perm = CommandGroupPermission.query.filter_by(group_id=group.id, user_id=m.id).first()
+                    if can_view or can_edit:
+                        if not perm:
+                            perm = CommandGroupPermission(group_id=group.id, user_id=m.id)
+                            db.session.add(perm)
+                        perm.can_view = can_view
+                        perm.can_run = can_view
+                        perm.can_view_logs = can_view
+                        perm.can_edit = can_edit
+                        perm.can_duplicate = can_edit
+                    else:
+                        if perm:
+                            perm.can_view = False
+                            perm.can_run = False
+                            perm.can_view_logs = False
+                            perm.can_edit = False
+                            perm.can_duplicate = False
+            db.session.commit()
+            if matrix_type == "command_groups":
+                flash("Command Groups permissions updated successfully.", "success")
+
+        if matrix_type == "all":
+            flash("All permissions updated successfully.", "success")
+
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.is_json:
+            return jsonify({"success": True, "message": "Permissions updated successfully."})
+        return redirect(url_for("admin.permissions_matrix", active_tab=active_tab))
+
+    server_access_map = {(sa.server_id, sa.member_id): sa for sa in ServerAccess.query.all()}
+    item_perms_map = {(p.command_item_id, p.user_id): p for p in CommandItemPermission.query.all()}
+    group_perms_map = {(p.group_id, p.user_id): p for p in CommandGroupPermission.query.all()}
+
+    return render_template(
+        "admin_permissions_grid.html",
+        members=members,
+        non_admin_members=non_admin_members,
+        servers=servers,
+        command_items=command_items,
+        command_groups=command_groups,
+        server_access_map=server_access_map,
+        item_perms_map=item_perms_map,
+        group_perms_map=group_perms_map,
+        active_tab=active_tab,
+    )
+
 
