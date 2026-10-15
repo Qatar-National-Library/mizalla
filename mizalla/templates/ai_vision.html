@@ -2,7 +2,7 @@
 {% from "macros.html" import breadcrumb %}
 {% block title %}Vision Test Service{% endblock %}
 {% block content %}<div class="ai-vision">
-{{ breadcrumb([("Projects", url_for('main.project_list')), ("Vision", None)]) }}
+{{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Vision", None)]) }}
 
 <div class="page-heading">
   <h1>Vision Test Service</h1>
@@ -15,11 +15,12 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
       <label class="file-picker drop-zone" for="image" id="drop-zone-image">
-        <input type="file" id="image" name="image" accept="image/jpeg,image/png,image/bmp,image/gif,image/webp" required>
+        <span class="upload-symbol" aria-hidden="true">＋</span>
         <span class="file-picker-copy">
           <strong id="image-label">Add an image or drop here</strong>
-          <small>JPG, PNG, BMP, GIF, WEBP · up to 12 MB</small>
+          <small>JPG, PNG, BMP, GIF, WEBP &middot; up to 12 MB</small>
         </span>
+        <input type="file" id="image" name="image" accept="image/jpeg,image/png,image/bmp,image/gif,image/webp" required>
       </label>
 
       {% if upload_error %}<p class="flash flash-error">{{ upload_error }}</p>{% endif %}

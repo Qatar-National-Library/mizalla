@@ -2,7 +2,7 @@
 {% from "macros.html" import breadcrumb, admin_nav %}
 {% block title %}Feedback & Suggestions · Administration{% endblock %}
 {% block content %}
-{{ breadcrumb([("Projects", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Feedback & Suggestions", None)]) }}
+{{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Feedback & Suggestions", None)]) }}
 
 {{ admin_nav('feedback') }}
 

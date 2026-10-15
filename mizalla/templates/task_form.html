@@ -3,7 +3,7 @@
 {% block title %}Edit task{% endblock %}
 {% block content %}
 {{ breadcrumb([
-  ("Projects", url_for('main.project_list')),
+  ("Mizalla", url_for('main.project_list')),
   (project.name, url_for('main.project_detail', project_id=project.id)),
   ("Edit task", None)
 ]) }}

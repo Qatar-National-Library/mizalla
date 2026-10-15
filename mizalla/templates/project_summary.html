@@ -5,7 +5,7 @@
 
 {% block content %}
 {{ breadcrumb([
-  ("Projects", url_for('main.project_list')),
+  ("Mizalla", url_for('main.project_list')),
   (project.project_id, url_for('main.project_detail', project_id=project.id)),
   ("Summary", None)
 ]) }}

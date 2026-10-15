@@ -3,9 +3,9 @@
 {% block title %}Remote Command Orchestration · Mizalla{% endblock %}
 
 {% block content %}
-{{ breadcrumb([("Projects", url_for('main.project_list')), ("Remote Command Orchestration", None)]) }}
+{{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Remote Command Orchestration", None)]) }}
 
-<div class="remote-exec-container" style="max-width: 1400px; margin: 0 auto; padding-bottom: 3rem;">
+<div class="remote-exec-container" style="max-width: 1400px; margin: 0; padding-bottom: 3rem;">
   
   <!-- Header -->
   <div class="heading-row" style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 2rem; flex-wrap:wrap; gap:1rem;">
@@ -62,17 +62,60 @@
             </div>
           </div>
 
-          <!-- Packages & Telemetry -->
-          <p style="font-size: 0.85rem; color: var(--muted); margin: 0.5rem 0 0.25rem; line-height: 1.4;">
-            <strong>Packages:</strong> {{ server.packages_summary or "No packages summary recorded." }}
-          </p>
-
           <!-- Administrator Notes -->
           {% if server.admin_notes %}
-          <p style="font-size: 0.82rem; color: var(--muted); margin: 0.25rem 0 0.75rem; font-style: italic;">
+          <p style="font-size: 0.82rem; color: var(--muted); margin: 0.25rem 0 0.5rem; font-style: italic;">
             "{{ server.admin_notes }}"
           </p>
           {% endif %}
+
+          <!-- Server Telemetry Panel (RAM, Disk & Core Tags) -->
+          <div class="server-telemetry-panel" id="telemetry-panel-{{ server.id }}" style="margin: 0.65rem 0 0.5rem; padding: 0.6rem 0.75rem; background: #f4f7f5; border: 1px solid rgba(16, 62, 48, 0.12); border-radius: 6px; font-size: 0.8rem;">
+            {# 1. Memory Graphs: RAM & Storage #}
+            <div style="display:flex; flex-direction:column; gap:0.45rem; margin-bottom:0.5rem;">
+              {# RAM Graph #}
+              <div style="display:flex; align-items:center; gap:0.5rem;">
+                <span style="font-weight:600; min-width:70px; color:var(--ink); font-size:0.75rem; display:inline-flex; align-items:center; gap:0.25rem;">
+                  <i data-lucide="cpu" style="width:13px; height:13px; color:var(--green-dark, #103e30);"></i> RAM
+                </span>
+                <div style="flex:1; background:#e2e8f0; border-radius:4px; height:8px; overflow:hidden; position:relative;" title="{{ server.ram_percent or 0 }}% in use">
+                  <div id="ram-bar-fill-{{ server.id }}" style="background:#2e7d32; height:100%; width:{{ server.ram_percent or 0 }}%; border-radius:4px; transition:width 0.4s ease;"></div>
+                </div>
+                <span id="ram-text-{{ server.id }}" style="font-size:0.75rem; color:var(--ink); min-width:115px; text-align:right; font-weight:600; font-variant-numeric:tabular-nums;">
+                  {{ server.ram_used or '0 GB' }} / {{ server.ram_total or '0 GB' }}
+                </span>
+              </div>
+
+              {# Storage (Disk) Graph #}
+              <div style="display:flex; align-items:center; gap:0.5rem;">
+                <span style="font-weight:600; min-width:70px; color:var(--ink); font-size:0.75rem; display:inline-flex; align-items:center; gap:0.25rem;">
+                  <i data-lucide="hard-drive" style="width:13px; height:13px; color:var(--green-dark, #103e30);"></i> Storage
+                </span>
+                <div style="flex:1; background:#e2e8f0; border-radius:4px; height:8px; overflow:hidden; position:relative;" title="{{ server.disk_percent or 0 }}% in use">
+                  <div id="disk-bar-fill-{{ server.id }}" style="background:#2e7d32; height:100%; width:{{ server.disk_percent or 0 }}%; border-radius:4px; transition:width 0.4s ease;"></div>
+                </div>
+                <span id="disk-text-{{ server.id }}" style="font-size:0.75rem; color:var(--ink); min-width:115px; text-align:right; font-weight:600; font-variant-numeric:tabular-nums;">
+                  {{ server.disk_used or '0 GB' }} / {{ server.disk_total or '0 GB' }}
+                </span>
+              </div>
+            </div>
+
+            {# 2. Server Capabilities & Core Tags #}
+            <div id="telemetry-details-{{ server.id }}" style="display:flex; flex-wrap:wrap; gap:0.35rem 0.5rem; border-top:1px dashed rgba(16, 62, 48, 0.15); padding-top:0.45rem; font-size:0.75rem; color:var(--ink);">
+              {% set tag_lines = server.get_tag_lines() %}
+              {% if tag_lines %}
+                {% for line in tag_lines %}
+                  {% set parts = line.split(':', 1) %}
+                  {% set tag_text = parts[1].strip() if parts | length > 1 else parts[0].strip() %}
+                  <div style="background:rgba(16, 62, 48, 0.05); border:1px solid rgba(16, 62, 48, 0.12); border-radius:4px; padding:0.18rem 0.45rem; display:inline-flex; align-items:center; gap:0.25rem;">
+                    <span>{{ tag_text }}</span>
+                  </div>
+                {% endfor %}
+              {% else %}
+                <span class="muted" style="font-size:0.75rem;">No additional capabilities detected</span>
+              {% endif %}
+            </div>
+          </div>
         </div>
 
         <div>
@@ -93,7 +136,12 @@
             </p>
             <div style="display:flex; flex-direction:column; gap:0.4rem;">
               <input type="text" id="fb-user-{{ server.id }}" placeholder="SSH Username (e.g. root, ubuntu)" style="font-size:0.82rem; padding:0.35rem; border:1px solid #ccc; border-radius:3px;">
-              <input type="password" id="fb-pass-{{ server.id }}" placeholder="SSH Password" style="font-size:0.82rem; padding:0.35rem; border:1px solid #ccc; border-radius:3px;">
+              <div class="password-input-wrapper" style="width:100%;">
+                <input type="password" id="fb-pass-{{ server.id }}" placeholder="SSH Password" style="font-size:0.82rem; padding:0.35rem 2.4rem 0.35rem 0.35rem; border:1px solid #ccc; border-radius:3px; width:100%; box-sizing:border-box;">
+                <button type="button" class="password-toggle-btn" aria-label="Show password" title="Show password" tabindex="-1">
+                  <i data-lucide="eye" class="icon-green"></i>
+                </button>
+              </div>
               <button type="button" class="button button-primary button-small" onclick="testAndSaveFallback({{ server.id }})" id="fb-btn-{{ server.id }}" style="margin-top:0.2rem; font-size:0.8rem; display:inline-flex; align-items:center; justify-content:center; gap:0.35rem;">
                 Connect / Test <i data-lucide="plug" class="icon-white"></i>
               </button>
@@ -609,7 +657,13 @@ async function copyServerPassword(serverId) {
 // ─── Inline Fallback Credentials ──────────────────────────────────────────
 function toggleFallbackForm(serverId) {
   const c = document.getElementById("fallback-form-container-" + serverId);
-  if (c) c.style.display = (c.style.display === "none") ? "block" : "none";
+  if (c) {
+    const isShowing = (c.style.display === "none");
+    c.style.display = isShowing ? "block" : "none";
+    if (isShowing && window.lucide) {
+      lucide.createIcons();
+    }
+  }
 }
 
 async function testAndSaveFallback(serverId) {
@@ -647,8 +701,30 @@ async function testAndSaveFallback(serverId) {
         badge.className = "badge-status-available";
         badge.style.background = "#2e7d32";
         badge.innerHTML = '<i data-lucide="check" class="icon-white"></i> AVAILABLE';
-        if (window.lucide) lucide.createIcons();
       }
+      if (data.ram_total || data.tag_lines) {
+        const ramBar = document.getElementById("ram-bar-fill-" + serverId);
+        const ramText = document.getElementById("ram-text-" + serverId);
+        if (ramBar) ramBar.style.width = (data.ram_percent || 0) + "%";
+        if (ramText) ramText.textContent = `${data.ram_used || '0 GB'} / ${data.ram_total || '0 GB'}`;
+
+        const diskBar = document.getElementById("disk-bar-fill-" + serverId);
+        const diskText = document.getElementById("disk-text-" + serverId);
+        if (diskBar) diskBar.style.width = (data.disk_percent || 0) + "%";
+        if (diskText) diskText.textContent = `${data.disk_used || '0 GB'} / ${data.disk_total || '0 GB'}`;
+
+        const telemDetails = document.getElementById("telemetry-details-" + serverId);
+        if (telemDetails && data.tag_lines) {
+          if (data.tag_lines.length > 0) {
+            telemDetails.innerHTML = data.tag_lines.map(line => {
+              const idx = line.indexOf(":");
+              const val = idx !== -1 ? line.substring(idx + 1).trim() : line.trim();
+              return `<div style="background:rgba(16, 62, 48, 0.05); border:1px solid rgba(16, 62, 48, 0.12); border-radius:4px; padding:0.18rem 0.45rem; display:inline-flex; align-items:center; gap:0.25rem;"><span>${val}</span></div>`;
+            }).join("");
+          }
+        }
+      }
+      if (window.lucide) lucide.createIcons();
       setTimeout(() => toggleFallbackForm(serverId), 2000);
     } else {
       msg.style.color = "#c62828";

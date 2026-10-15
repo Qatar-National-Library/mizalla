@@ -2,7 +2,7 @@
 {% from "macros.html" import breadcrumb %}
 {% block title %}Device Access{% endblock %}
 {% block content %}
-{{ breadcrumb([("Projects", url_for('main.project_list')), ("WhatsApp", url_for('whatsapp.index')), ("Devices", url_for('whatsapp.device_list')), ("Access", None)]) }}
+{{ breadcrumb([("Mizalla", url_for('main.project_list')), ("WhatsApp", url_for('whatsapp.index')), ("Devices", url_for('whatsapp.device_list')), ("Access", None)]) }}
 <div class="page-heading"><p class="eyebrow">ADMINISTRATION / WHATSAPP</p><h1>Device Access — {{ device.name }}</h1></div>
 <div class="bulk-email-admin">
   <p class="intro-copy">Assign members who can use this device for bulk WhatsApp messaging.</p>

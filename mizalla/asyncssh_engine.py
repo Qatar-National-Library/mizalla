@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import os
 import re
@@ -101,6 +102,757 @@ def _build_client_options(username: str, password: str = "", private_key: str = 
     return opts
 
 
+# ─── OS Telemetry Script Loader ──────────────────────────────────────────────
+
+SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "automate" / "scripts"
+
+
+def load_os_script(os_name: str) -> Optional[Dict[str, List[str]]]:
+    """
+    Loads telemetry script from /automate/scripts/<os>.txt.
+    Commands to be executed in parallel are separated by comment lines (# ...).
+    Returns a dict mapping section_tag -> list of command strings.
+    """
+    os_clean = (os_name or "").lower().strip()
+    candidates = [
+        SCRIPTS_DIR / f"{os_clean}.txt",
+        Path.cwd() / "automate" / "scripts" / f"{os_clean}.txt",
+        Path(f"/automate/scripts/{os_clean}.txt"),
+    ]
+    if os_clean in ["darwin", "macos"]:
+        candidates.append(SCRIPTS_DIR / "mac.txt")
+    elif os_clean in ["centos", "rocky", "almalinux", "fedora"]:
+        candidates.append(SCRIPTS_DIR / "rhel.txt")
+    elif os_clean in ["debian", "linux"]:
+        candidates.append(SCRIPTS_DIR / "ubuntu.txt")
+
+    script_file = None
+    for p in candidates:
+        if p.exists() and p.is_file():
+            script_file = p
+            break
+
+    if not script_file:
+        logger.warning(f"Telemetry script for '{os_name}' not found in {SCRIPTS_DIR}")
+        return None
+
+    try:
+        content = script_file.read_text(encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"Error reading script file {script_file}: {e}")
+        return None
+
+    sections: Dict[str, List[str]] = {}
+    current_tag: Optional[str] = None
+    current_cmds: List[str] = []
+
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            # Comment line marks parallel section tag: e.g. '# os_version' or '# ram'
+            raw_tag = line.lstrip("#").strip().lower()
+            if not raw_tag:
+                continue
+            # sanitize tag into an identifier
+            tag = re.sub(r"[^a-z0-9_]+", "_", raw_tag).strip("_")
+            if not tag:
+                continue
+
+            if current_tag and current_cmds:
+                sections[current_tag] = current_cmds
+            current_tag = tag
+            current_cmds = []
+        else:
+            if current_tag:
+                current_cmds.append(line)
+
+    if current_tag and current_cmds:
+        sections[current_tag] = current_cmds
+
+    return sections
+
+
+# ─── Parallel Telemetry Probes ───────────────────────────────────────────────
+
+async def _probe_os(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Determine what OS is running on the Server (Ubuntu/RHEL/Windows/Mac) and version."""
+    if cmds:
+        out_parts = []
+        for cmd in cmds:
+            res = await conn.run(cmd, check=False, timeout=5.0)
+            if res.stdout:
+                out_parts.append(res.stdout)
+        out = "\n".join(out_parts).strip()
+
+        if os_type == "mac" or "Darwin" in out:
+            m = re.search(r"(\d+\.\d+[\.\d\w\-]*)", out)
+            ver_str = f"macOS {m.group(1)}" if m else "macOS"
+            return {
+                "os_type": "mac",
+                "operating_system": ver_str,
+                "os_version": ver_str,
+                "packages_summary": "Homebrew / macOS packages",
+            }
+        elif os_type == "windows" or "Windows" in out or "Microsoft" in out:
+            win_ver = out.splitlines()[0] if out else "Windows"
+            return {
+                "os_type": "windows",
+                "operating_system": f"Windows ({win_ver})",
+                "os_version": win_ver,
+                "packages_summary": "Windows OpenSSH Server",
+            }
+        else:
+            rel_text = out.lower()
+            pretty = ""
+            for line in out.splitlines():
+                if line.startswith("PRETTY_NAME="):
+                    pretty = line.split("=", 1)[1].strip('"\'')
+                    break
+            if "ubuntu" in rel_text:
+                canonical_os = f"Ubuntu {pretty.replace('Ubuntu', '').strip()}" if pretty else "Ubuntu Linux"
+            elif any(k in rel_text for k in ["rhel", "red hat", "centos", "rocky", "almalinux", "fedora"]):
+                canonical_os = pretty or "RHEL"
+            elif "debian" in rel_text:
+                canonical_os = pretty or "Debian"
+            else:
+                canonical_os = pretty or "Linux"
+
+            return {
+                "os_type": "linux",
+                "operating_system": canonical_os,
+                "os_version": pretty or canonical_os,
+            }
+    res_linux = await conn.run("uname -s", check=False, timeout=5.0)
+    out = res_linux.stdout.strip()
+    if "Darwin" in out:
+        sw = await conn.run("sw_vers -productVersion 2>/dev/null", check=False, timeout=5.0)
+        ver = sw.stdout.strip()
+        ver_str = f"macOS {ver}" if ver else "macOS"
+        return {
+            "os_type": "mac",
+            "operating_system": ver_str,
+            "os_version": ver_str,
+        }
+    elif "Linux" in out:
+        rel = await conn.run("cat /etc/os-release 2>/dev/null", check=False, timeout=5.0)
+        rel_text = rel.stdout.lower()
+        pretty = ""
+        for line in rel.stdout.splitlines():
+            if line.startswith("PRETTY_NAME="):
+                pretty = line.split("=", 1)[1].strip('"\'')
+                break
+
+        if "ubuntu" in rel_text:
+            canonical_os = f"Ubuntu {pretty.replace('Ubuntu', '').strip()}" if pretty else "Ubuntu Linux"
+        elif any(k in rel_text for k in ["rhel", "red hat", "centos", "rocky", "almalinux", "fedora"]):
+            canonical_os = pretty or "RHEL"
+        elif "debian" in rel_text:
+            canonical_os = pretty or "Debian"
+        else:
+            canonical_os = pretty or "Linux"
+
+        return {
+            "os_type": "linux",
+            "operating_system": canonical_os,
+            "os_version": pretty or canonical_os,
+        }
+    else:
+        # Check Windows via PowerShell
+        res_win = await conn.run('powershell -Command "[System.Environment]::OSVersion.VersionString"', check=False, timeout=5.0)
+        if res_win.exit_status == 0 and res_win.stdout.strip():
+            win_ver = res_win.stdout.strip()
+            return {
+                "os_type": "windows",
+                "operating_system": f"Windows ({win_ver})",
+                "os_version": win_ver,
+                "packages_summary": "Windows OpenSSH Server",
+            }
+        return {
+            "os_type": "linux",
+            "operating_system": "Generic Linux",
+            "os_version": "Generic Linux",
+            "packages_summary": "Standard packages",
+        }
+
+
+async def _probe_ram(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Determine how much RAM is installed and how much is in use."""
+    out = ""
+    if cmds:
+        for cmd in cmds:
+            res = await conn.run(cmd, check=False, timeout=5.0)
+            if res.stdout.strip():
+                out += res.stdout + "\n"
+
+    if os_type == "windows" or (cmds and "," in out and any("TotalVisibleMemorySize" in c for c in cmds)):
+        if not cmds:
+            cmd = 'powershell -Command "Get-CimInstance Win32_OperatingSystem | ForEach-Object { \\"$($_.TotalVisibleMemorySize),$($_.FreePhysicalMemory)\\" }"'
+            res = await conn.run(cmd, check=False, timeout=5.0)
+            out = res.stdout
+
+        if "," in out:
+            try:
+                for line in out.splitlines():
+                    if "," in line:
+                        parts = line.strip().split(",")
+                        tot_kb = float(parts[0])
+                        free_kb = float(parts[1])
+                        used_kb = max(0.0, tot_kb - free_kb)
+                        tot_gb = tot_kb / (1024 * 1024)
+                        used_gb = used_kb / (1024 * 1024)
+                        pct = round((used_gb / tot_gb) * 100, 1) if tot_gb > 0 else 0.0
+                        return {
+                            "ram_total": f"{tot_gb:.1f} GB",
+                            "ram_used": f"{used_gb:.1f} GB",
+                            "ram_percent": pct,
+                        }
+            except Exception:
+                pass
+    elif os_type == "mac":
+        if not cmds:
+            tot_res = await conn.run("sysctl -n hw.memsize 2>/dev/null", check=False, timeout=5.0)
+            out = tot_res.stdout
+        m = re.search(r"(\d+)", out)
+        if m:
+            tot_bytes = float(m.group(1))
+            tot_gb = tot_bytes / (1024**3)
+            used_gb = tot_gb * 0.4
+            return {
+                "ram_total": f"{tot_gb:.1f} GB",
+                "ram_used": f"{used_gb:.1f} GB",
+                "ram_percent": 40.0,
+            }
+    else:
+        # Linux via /proc/meminfo
+        if not cmds:
+            res = await conn.run("cat /proc/meminfo 2>/dev/null", check=False, timeout=5.0)
+            out = res.stdout
+
+        tot_kb, avail_kb = 0.0, 0.0
+        for line in out.splitlines():
+            if line.startswith("MemTotal:"):
+                nums = re.findall(r"\d+", line)
+                if nums:
+                    tot_kb = float(nums[0])
+            elif line.startswith("MemAvailable:"):
+                nums = re.findall(r"\d+", line)
+                if nums:
+                    avail_kb = float(nums[0])
+        if tot_kb > 0:
+            used_kb = max(0.0, tot_kb - avail_kb)
+            tot_gb = tot_kb / (1024 * 1024)
+            used_gb = used_kb / (1024 * 1024)
+            pct = round((used_gb / tot_gb) * 100, 1) if tot_gb > 0 else 0.0
+            return {
+                "ram_total": f"{tot_gb:.1f} GB",
+                "ram_used": f"{used_gb:.1f} GB",
+                "ram_percent": pct,
+            }
+
+    return {"ram_total": "0 GB", "ram_used": "0 GB", "ram_percent": 0.0}
+
+
+async def _probe_disk(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Determine how much permanent memory is attached and how much is in use."""
+    out = ""
+    if cmds:
+        for cmd in cmds:
+            res = await conn.run(cmd, check=False, timeout=5.0)
+            if res.stdout.strip():
+                out += res.stdout + "\n"
+
+    if os_type == "windows" or (cmds and "," in out and any("LogicalDisk" in c for c in cmds)):
+        if not cmds:
+            cmd = 'powershell -Command "Get-CimInstance Win32_LogicalDisk -Filter \\"DeviceID=\'C:\'\\" | ForEach-Object { \\"$($_.Size),$($_.FreeSpace)\\" }"'
+            res = await conn.run(cmd, check=False, timeout=5.0)
+            out = res.stdout
+
+        if "," in out:
+            try:
+                for line in out.splitlines():
+                    if "," in line:
+                        parts = line.strip().split(",")
+                        tot_b = float(parts[0])
+                        free_b = float(parts[1])
+                        used_b = max(0.0, tot_b - free_b)
+                        tot_gb = tot_b / (1024**3)
+                        used_gb = used_b / (1024**3)
+                        pct = round((used_gb / tot_gb) * 100, 1) if tot_gb > 0 else 0.0
+                        return {
+                            "disk_total": f"{tot_gb:.1f} GB",
+                            "disk_used": f"{used_gb:.1f} GB",
+                            "disk_percent": pct,
+                        }
+            except Exception:
+                pass
+    else:
+        # Linux / Mac root filesystem via df -k /
+        if not cmds:
+            res = await conn.run("df -k / 2>/dev/null | tail -n 1", check=False, timeout=5.0)
+            out = res.stdout
+
+        for line in out.splitlines():
+            parts = line.strip().split()
+            if len(parts) >= 4 and parts[1].isdigit() and parts[2].isdigit():
+                try:
+                    tot_kb = float(parts[1])
+                    used_kb = float(parts[2])
+                    tot_gb = tot_kb / (1024 * 1024)
+                    used_gb = used_kb / (1024 * 1024)
+                    pct = round((used_gb / tot_gb) * 100, 1) if tot_gb > 0 else 0.0
+                    return {
+                        "disk_total": f"{tot_gb:.1f} GB",
+                        "disk_used": f"{used_gb:.1f} GB",
+                        "disk_percent": pct,
+                    }
+                except Exception:
+                    pass
+
+    return {"disk_total": "0 GB", "disk_used": "0 GB", "disk_percent": 0.0}
+
+
+async def _probe_external_storage(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
+    """Determine if an external storage device has been mounted and record its path. Returns None if none."""
+    out = ""
+    if cmds:
+        for cmd in cmds:
+            try:
+                res = await conn.run(cmd, check=False, timeout=5.0)
+                if res.stdout.strip():
+                    out += res.stdout + "\n"
+            except Exception:
+                pass
+    elif os_type == "windows":
+        try:
+            cmd = 'powershell -Command "Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -in 2,4 } | Select-Object -ExpandProperty DeviceID"'
+            res = await conn.run(cmd, check=False, timeout=5.0)
+            out = res.stdout
+        except Exception:
+            pass
+    else:
+        try:
+            cmd = "findmnt -rn -o TARGET,FSTYPE,SOURCE 2>/dev/null | grep -E '/media/|/mnt/|/run/media/|nfs|cifs|smb' | grep -v 'rootfs' | grep -vE '^\\s*(/home|/root|/var/lib|/tmp|/run)' | awk '{print $1}' || true"
+            res = await conn.run(cmd, check=False, timeout=5.0)
+            out = res.stdout
+        except Exception:
+            pass
+
+    if os_type == "windows":
+        drives = [d.strip() for d in out.splitlines() if d.strip() and ":" in d]
+        if drives:
+            return f"Mounted: {', '.join(drives)}"
+    else:
+        valid_paths = []
+        ignored_prefixes = ("/home", "/root", "/var", "/tmp", "/run", "/sys", "/proc", "/dev", "/usr", "/etc")
+        for line in out.splitlines():
+            line_str = line.strip()
+            if not line_str or line_str.startswith("findmnt:"):
+                continue
+            part = line_str.split()[0]
+            if part.startswith("/") and not any(part == ig or part.startswith(ig + "/") for ig in ignored_prefixes):
+                if part not in valid_paths:
+                    valid_paths.append(part)
+        if valid_paths:
+            return f"Mounted: {', '.join(valid_paths[:3])}"
+
+    return None
+
+
+async def _probe_docker(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
+    """Determine if Docker is installed and running, and find docker compose YAML paths."""
+    docker_ver = ""
+    is_running = False
+    compose_paths = []
+
+    if cmds:
+        for cmd in cmds:
+            try:
+                res = await conn.run(cmd, check=False, timeout=5.0)
+                out = res.stdout.strip()
+                if "docker version" in cmd or "docker --version" in cmd or cmd.strip() == "docker -v":
+                    if res.exit_status == 0 and out:
+                        m = re.search(r"(\d+\.\d+[\.\d\w\-]*)", out)
+                        if m:
+                            docker_ver = f"Docker {m.group(1)}"
+                elif "docker info" in cmd or "dockerd" in cmd:
+                    if res.exit_status == 0:
+                        is_running = True
+                elif "docker-compose" in cmd or "compose" in cmd or "Get-ChildItem" in cmd:
+                    yaml_files = [f.strip() for f in out.splitlines() if f.strip() and ("compose" in f.lower() or f.endswith(".yml") or f.endswith(".yaml"))]
+                    if yaml_files:
+                        compose_paths.extend(yaml_files)
+            except Exception:
+                pass
+    else:
+        try:
+            res_v = await conn.run("docker --version 2>/dev/null", check=False, timeout=5.0)
+            if res_v.exit_status == 0 and res_v.stdout.strip():
+                m = re.search(r"(\d+\.\d+[\.\d\w\-]*)", res_v.stdout)
+                docker_ver = f"Docker {m.group(1)}" if m else "Docker"
+                res_info = await conn.run("docker info 2>/dev/null", check=False, timeout=5.0)
+                is_running = (res_info.exit_status == 0)
+                find_cmd = r'find /opt /etc /home /var/www /root -maxdepth 4 \( -name "docker-compose.yml" -o -name "docker-compose.yaml" -o -name "compose.yaml" \) 2>/dev/null | head -n 3'
+                comp_res = await conn.run(find_cmd, check=False, timeout=5.0)
+                yaml_files = [f.strip() for f in comp_res.stdout.splitlines() if f.strip()]
+                if yaml_files:
+                    compose_paths.extend(yaml_files)
+        except Exception:
+            pass
+
+    if not docker_ver:
+        return None
+
+    status = "Running" if is_running else "Stopped"
+    result = f"{docker_ver} ({status})"
+    if compose_paths:
+        unique_paths = []
+        for p in compose_paths:
+            cleaned = p.replace("\\", "/") if os_type != "windows" else p
+            if cleaned not in unique_paths:
+                unique_paths.append(cleaned)
+        result += f" [Compose: {', '.join(unique_paths[:3])}]"
+    return result
+
+
+async def _probe_kubernetes(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
+    """Determine if Kubernetes (kubectl/kubelet/k3s) is installed and running."""
+    k8s_ver = ""
+    is_running = False
+
+    if cmds:
+        for cmd in cmds:
+            try:
+                res = await conn.run(cmd, check=False, timeout=5.0)
+                out = res.stdout.strip()
+                if "kubectl version" in cmd or "k3s --version" in cmd or "kubelet --version" in cmd:
+                    if res.exit_status == 0 and out:
+                        m = re.search(r"v\d+\.\d+[\.\d\w\-]*", out)
+                        if m:
+                            k8s_ver = f"Kubernetes {m.group(0)}"
+                elif "kubelet" in cmd or "k3s" in cmd or "cluster-info" in cmd:
+                    if res.exit_status == 0:
+                        is_running = True
+            except Exception:
+                pass
+    else:
+        try:
+            res_k = await conn.run("kubectl version --client 2>/dev/null", check=False, timeout=5.0)
+            if res_k.exit_status == 0 and res_k.stdout.strip():
+                m = re.search(r"v\d+\.\d+[\.\d\w\-]*", res_k.stdout)
+                k8s_ver = f"Kubernetes {m.group(0)}" if m else "Kubernetes"
+                run_res = await conn.run("pgrep -x kubelet 2>/dev/null || pgrep -x k3s 2>/dev/null || kubectl cluster-info 2>/dev/null", check=False, timeout=5.0)
+                is_running = (run_res.exit_status == 0)
+        except Exception:
+            pass
+
+    if not k8s_ver:
+        return None
+
+    status = "Running" if is_running else "Stopped"
+    return f"{k8s_ver} ({status})"
+
+
+async def _probe_containerizers(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
+    """Combined probe for Docker and Kubernetes (for backward compatibility)."""
+    d_res = await _probe_docker(conn, os_type=os_type, cmds=cmds)
+    k_res = await _probe_kubernetes(conn, os_type=os_type, cmds=cmds)
+    parts = [p for p in [d_res, k_res] if p]
+    return " · ".join(parts) if parts else None
+
+
+async def _probe_python(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
+    """Determine if Python is installed and version."""
+    out = ""
+    if cmds:
+        for cmd in cmds:
+            try:
+                res = await conn.run(cmd, check=False, timeout=5.0)
+                text = (res.stdout.strip() or res.stderr.strip())
+                if res.exit_status == 0 and "Python" in text:
+                    out = text
+                    break
+            except Exception:
+                pass
+    else:
+        try:
+            res = await conn.run("python3 --version 2>/dev/null || python --version 2>/dev/null", check=False, timeout=5.0)
+            text = (res.stdout.strip() or res.stderr.strip())
+            if res.exit_status == 0 and "Python" in text:
+                out = text
+        except Exception:
+            pass
+
+    if out:
+        m = re.search(r"Python\s+(\d+\.\d+[\.\d\w\-]*)", out, re.IGNORECASE)
+        return f"Python {m.group(1)}" if m else out[:30]
+    return None
+
+
+async def _probe_php(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
+    """Determine if PHP is installed and version."""
+    out = ""
+    if cmds:
+        for cmd in cmds:
+            try:
+                res = await conn.run(cmd, check=False, timeout=5.0)
+                text = res.stdout.strip()
+                if res.exit_status == 0 and "PHP" in text:
+                    out = text
+                    break
+            except Exception:
+                pass
+    else:
+        try:
+            res = await conn.run("php -v 2>/dev/null | head -n 1", check=False, timeout=5.0)
+            if res.exit_status == 0 and "PHP" in res.stdout:
+                out = res.stdout.strip()
+        except Exception:
+            pass
+
+    if out:
+        m = re.search(r"PHP\s+(\d+\.\d+[\.\d\w\-]*)", out, re.IGNORECASE)
+        return f"PHP {m.group(1)}" if m else out[:30]
+    return None
+
+
+async def _probe_runtimes(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
+    """Combined probe for Python & PHP (for backward compatibility)."""
+    p_res = await _probe_python(conn, os_type=os_type, cmds=cmds)
+    php_res = await _probe_php(conn, os_type=os_type, cmds=cmds)
+    parts = [p for p in [p_res, php_res] if p]
+    return " · ".join(parts) if parts else None
+
+
+async def _probe_nodejs(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
+    """Determine if Node.js is installed. Returns None if not installed."""
+    node_ver = ""
+    if cmds:
+        for cmd in cmds:
+            try:
+                res = await conn.run(cmd, check=False, timeout=5.0)
+                out = res.stdout.strip()
+                if "node" in cmd and res.exit_status == 0 and out.startswith("v"):
+                    node_ver = out
+                    break
+            except Exception:
+                pass
+    else:
+        try:
+            res = await conn.run("node -v 2>/dev/null", check=False, timeout=5.0)
+            if res.exit_status == 0 and res.stdout.strip().startswith("v"):
+                node_ver = res.stdout.strip()
+        except Exception:
+            pass
+
+    if node_ver:
+        return f"Node.js {node_ver}"
+    return None
+
+
+async def _probe_uvicorn(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
+    """Determine if Uvicorn is installed and running. Returns None if not installed."""
+    uv_ver = ""
+    is_running = False
+    port = "8000"
+
+    if cmds:
+        for cmd in cmds:
+            try:
+                res = await conn.run(cmd, check=False, timeout=5.0)
+                out = res.stdout.strip()
+                if "version" in cmd and res.exit_status == 0 and out:
+                    m = re.search(r"(\d+\.\d+[\.\d\w\-]*)", out)
+                    if m:
+                        uv_ver = f"Uvicorn {m.group(1)}"
+                elif ("pgrep" in cmd or "ps" in cmd) and res.exit_status == 0 and out:
+                    if "uvicorn" in out.lower():
+                        is_running = True
+                        m = re.search(r"--port\s+(\d+)", out)
+                        if m:
+                            port = m.group(1)
+            except Exception:
+                pass
+    else:
+        try:
+            res = await conn.run("uvicorn --version 2>/dev/null || python3 -m uvicorn --version 2>/dev/null", check=False, timeout=5.0)
+            if res.exit_status == 0 and res.stdout.strip():
+                m = re.search(r"(\d+\.\d+[\.\d\w\-]*)", res.stdout)
+                uv_ver = f"Uvicorn {m.group(1)}" if m else "Uvicorn"
+                ps_res = await conn.run("pgrep -a -f '[u]vicorn' 2>/dev/null", check=False, timeout=5.0)
+                if ps_res.exit_status == 0 and ps_res.stdout.strip():
+                    is_running = True
+                    m_p = re.search(r"--port\s+(\d+)", ps_res.stdout)
+                    if m_p:
+                        port = m_p.group(1)
+        except Exception:
+            pass
+
+    if not uv_ver:
+        return None
+
+    status = f"Running on port {port}" if is_running else "Stopped"
+    return f"{uv_ver} [{status}]"
+
+
+async def _probe_apache(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
+    """Determine if Apache/httpd is installed and running."""
+    apa_ver = ""
+    is_running = False
+
+    if cmds:
+        for cmd in cmds:
+            try:
+                res = await conn.run(cmd, check=False, timeout=5.0)
+                out = res.stdout.strip()
+                if ("apache" in cmd or "httpd" in cmd) and "-v" in cmd and res.exit_status == 0 and out:
+                    m = re.search(r"Apache/(\d+\.\d+[\.\d\w\-]*)", out)
+                    if m:
+                        apa_ver = f"Apache {m.group(1)}"
+                elif ("apache" in cmd or "httpd" in cmd) and "pgrep" in cmd and res.exit_status == 0 and out:
+                    is_running = True
+            except Exception:
+                pass
+    else:
+        try:
+            res = await conn.run("apache2 -v 2>/dev/null || httpd -v 2>/dev/null", check=False, timeout=5.0)
+            if res.exit_status == 0 and res.stdout.strip():
+                m = re.search(r"Apache/(\d+\.\d+[\.\d\w\-]*)", res.stdout)
+                apa_ver = f"Apache {m.group(1)}" if m else "Apache"
+                ps_res = await conn.run("pgrep -x apache2 2>/dev/null || pgrep -x httpd 2>/dev/null", check=False, timeout=5.0)
+                is_running = (ps_res.exit_status == 0)
+        except Exception:
+            pass
+
+    if not apa_ver:
+        return None
+
+    status = "Running" if is_running else "Stopped"
+    return f"{apa_ver} ({status})"
+
+
+async def _probe_nginx(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
+    """Determine if Nginx is installed and running."""
+    nginx_ver = ""
+    is_running = False
+
+    if cmds:
+        for cmd in cmds:
+            try:
+                res = await conn.run(cmd, check=False, timeout=5.0)
+                text = (res.stdout.strip() or res.stderr.strip())
+                if "nginx" in cmd and "-v" in cmd and "nginx/" in text:
+                    m = re.search(r"nginx/(\d+\.\d+[\.\d\w\-]*)", text)
+                    if m:
+                        nginx_ver = f"Nginx {m.group(1)}"
+                elif "nginx" in cmd and "pgrep" in cmd and res.exit_status == 0 and res.stdout.strip():
+                    is_running = True
+            except Exception:
+                pass
+    else:
+        try:
+            res = await conn.run("nginx -v 2>&1", check=False, timeout=5.0)
+            text = res.stdout.strip() or res.stderr.strip()
+            if "nginx/" in text:
+                m = re.search(r"nginx/(\d+\.\d+[\.\d\w\-]*)", text)
+                nginx_ver = f"Nginx {m.group(1)}" if m else "Nginx"
+                ps_res = await conn.run("pgrep -x nginx 2>/dev/null", check=False, timeout=5.0)
+                is_running = (ps_res.exit_status == 0)
+        except Exception:
+            pass
+
+    if not nginx_ver:
+        return None
+
+    status = "Running" if is_running else "Stopped"
+    return f"{nginx_ver} ({status})"
+
+
+async def _probe_web_services(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
+    """Combined probe for web services (for backward compatibility)."""
+    items = []
+    for fn in [_probe_apache, _probe_nginx, _probe_uvicorn, _probe_nodejs]:
+        val = await fn(conn, os_type=os_type, cmds=cmds)
+        if val:
+            items.append(val)
+    return " · ".join(items) if items else None
+
+
+async def _probe_drupal(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
+    """Determine if Drupal is installed, version, path, and running status. Returns None if not installed."""
+    drupal_path = ""
+    is_running = False
+
+    if cmds:
+        for cmd in cmds:
+            try:
+                res = await conn.run(cmd, check=False, timeout=5.0)
+                out = res.stdout.strip()
+                if "Drupal.php" in cmd and res.exit_status == 0 and out:
+                    first_line = out.splitlines()[0].strip()
+                    if first_line.endswith("Drupal.php") and not first_line.startswith("find:"):
+                        drupal_path = first_line
+            except Exception:
+                pass
+    else:
+        try:
+            cmd = 'find /var/www /srv /opt /usr/share/nginx/html -maxdepth 4 -name "Drupal.php" -path "*/core/lib/Drupal.php" 2>/dev/null | head -n 1'
+            res = await conn.run(cmd, check=False, timeout=5.0)
+            first_line = res.stdout.strip().splitlines()[0] if res.stdout.strip() else ""
+            if first_line.endswith("Drupal.php"):
+                drupal_path = first_line
+        except Exception:
+            pass
+
+    # STRICT: If no Drupal.php file was found, Drupal is NOT installed!
+    if not drupal_path:
+        return None
+
+    from pathlib import PurePosixPath
+    if os_type == "windows":
+        installed_folder = str(Path(drupal_path).parent.parent.parent)
+    else:
+        installed_folder = str(PurePosixPath(drupal_path.replace("\\", "/")).parent.parent.parent)
+
+    try:
+        v_cmd = f"grep 'const VERSION' '{drupal_path}' 2>/dev/null"
+        v_res = await conn.run(v_cmd, check=False, timeout=4.0)
+        v_match = re.search(r"VERSION\s*=\s*['\"]([^'\"]+)['\"]", v_res.stdout)
+        version = f"Drupal {v_match.group(1)}" if v_match else "Drupal"
+    except Exception:
+        version = "Drupal"
+
+    try:
+        web_check = await conn.run("pgrep -x apache2 2>/dev/null || pgrep -x httpd 2>/dev/null || pgrep -x nginx 2>/dev/null || pgrep -f php-fpm 2>/dev/null", check=False, timeout=3.0)
+        is_running = (web_check.exit_status == 0)
+    except Exception:
+        is_running = False
+
+    status_str = "Running" if is_running else "Stopped"
+    if installed_folder:
+        return f"{version} [{installed_folder}] [{status_str}]"
+    return f"{version} [{status_str}]"
+
+
+async def _probe_generic_tag(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
+    """Generic probe for arbitrary custom tag in /automate/scripts/<os>.txt."""
+    if not cmds:
+        return None
+    outputs = []
+    for cmd in cmds:
+        try:
+            res = await conn.run(cmd, check=False, timeout=5.0)
+            text = (res.stdout or "").strip()
+            if res.exit_status == 0 and text:
+                outputs.append(text.splitlines()[0])
+        except Exception:
+            continue
+    if outputs:
+        return " · ".join(outputs)
+    return None
+
+
 async def test_ssh_connection(
     ip: str,
     port: int,
@@ -108,61 +860,113 @@ async def test_ssh_connection(
     password: str = "",
     private_key: str = "",
 ) -> Tuple[bool, str, dict]:
-    """Tests SSH connectivity and gathers OS telemetry."""
-    telemetry = {
-        "os_type": "linux",
-        "os_version": "",
-        "packages_summary": "",
-    }
+    """Tests SSH connectivity and gathers comprehensive OS, hardware, and extensible core_tags in parallel."""
     opts = _build_client_options(username, password, private_key)
 
+    # 1. Open initial SSH connection to validate user credentials and server existence
     try:
-        async with asyncssh.connect(ip, port=port or 22, **opts) as conn:
-            # Probe OS type and version
-            # First check Linux
-            res_linux = await conn.run("uname -s", check=False, timeout=5.0)
-            if res_linux.exit_status == 0 and "Linux" in res_linux.stdout:
-                telemetry["os_type"] = "linux"
-                # Get distro version
-                os_rel = await conn.run("cat /etc/os-release 2>/dev/null", check=False, timeout=5.0)
-                if os_rel.exit_status == 0:
-                    for line in os_rel.stdout.splitlines():
-                        if line.startswith("PRETTY_NAME="):
-                            telemetry["os_version"] = line.split("=", 1)[1].strip('"\'')
-                            break
-
-                # Count packages
-                dpkg_res = await conn.run("dpkg -l 2>/dev/null | grep '^ii' | wc -l", check=False, timeout=5.0)
-                if dpkg_res.exit_status == 0 and dpkg_res.stdout.strip().isdigit():
-                    telemetry["packages_summary"] = f"{dpkg_res.stdout.strip()} dpkg packages installed"
+        async with asyncssh.connect(ip, port=port or 22, **opts) as primary_conn:
+            res_uname = await primary_conn.run("uname -s", check=False, timeout=5.0)
+            primary_out = res_uname.stdout.strip()
+            if "Darwin" in primary_out:
+                detected_os = "mac"
+            elif "Linux" in primary_out:
+                rel = await primary_conn.run("cat /etc/os-release 2>/dev/null", check=False, timeout=5.0)
+                rel_lower = rel.stdout.lower()
+                if "ubuntu" in rel_lower:
+                    detected_os = "ubuntu"
+                elif any(k in rel_lower for k in ["rhel", "red hat", "centos", "rocky", "almalinux", "fedora"]):
+                    detected_os = "rhel"
+                elif "debian" in rel_lower:
+                    detected_os = "ubuntu"
                 else:
-                    rpm_res = await conn.run("rpm -qa 2>/dev/null | wc -l", check=False, timeout=5.0)
-                    if rpm_res.exit_status == 0 and rpm_res.stdout.strip().isdigit():
-                        telemetry["packages_summary"] = f"{rpm_res.stdout.strip()} rpm packages installed"
-                    else:
-                        telemetry["packages_summary"] = "Standard Linux packages"
-
-                return True, "SSH connection successful (Linux).", telemetry
-
-            # Otherwise probe Windows
-            res_win = await conn.run("powershell -Command \"[System.Environment]::OSVersion.VersionString\"", check=False, timeout=5.0)
-            if res_win.exit_status == 0 and res_win.stdout.strip():
-                telemetry["os_type"] = "windows"
-                telemetry["os_version"] = res_win.stdout.strip()
-                telemetry["packages_summary"] = "Windows OpenSSH Server"
-                return True, "SSH connection successful (Windows).", telemetry
-
-            # Default fallback
-            telemetry["os_type"] = "linux"
-            telemetry["os_version"] = "Generic POSIX / Linux"
-            return True, "SSH connection successful.", telemetry
-
+                    detected_os = "ubuntu"
+            else:
+                detected_os = "windows"
     except (asyncssh.PermissionDenied, asyncssh.KeyImportError) as e:
-        return False, f"Authentication failed: {e}", telemetry
+        return False, f"Authentication failed: {e}", {}
     except (asyncio.TimeoutError, TimeoutError):
-        return False, f"Connection timed out connecting to {ip}:{port}.", telemetry
+        return False, f"Connection timed out connecting to {ip}:{port}.", {}
     except Exception as e:
-        return False, f"Connection failed: {e}", telemetry
+        return False, f"Connection failed: {e}", {}
+
+    # 2. Load OS telemetry script from /automate/scripts/<os>.txt
+    script_sections = load_os_script(detected_os)
+    if not script_sections and detected_os not in ["windows", "mac"]:
+        script_sections = load_os_script("ubuntu") or load_os_script("rhel")
+
+    # 3. Run all telemetry probe steps in parallel using separate SSH connections
+    async def run_probe(probe_coro_fn, cmds=None):
+        try:
+            async with asyncssh.connect(ip, port=port or 22, **opts) as conn:
+                return await probe_coro_fn(conn, detected_os, cmds=cmds)
+        except Exception as err:
+            logger.warning(f"Probe {probe_coro_fn.__name__} error: {err}")
+            return None
+
+    sec = script_sections or {}
+
+    # Core typed hardware & OS probes
+    os_task = run_probe(_probe_os, sec.get("os_version"))
+    ram_task = run_probe(_probe_ram, sec.get("ram"))
+    disk_task = run_probe(_probe_disk, sec.get("disk"))
+
+    known_handlers = {
+        "external_storage": _probe_external_storage,
+        "docker": _probe_docker,
+        "kubernetes": _probe_kubernetes,
+        "python": _probe_python,
+        "php": _probe_php,
+        "nodejs": _probe_nodejs,
+        "uvicorn": _probe_uvicorn,
+        "apache": _probe_apache,
+        "nginx": _probe_nginx,
+        "drupal": _probe_drupal,
+        # Legacy/combined groups:
+        "containerizers": _probe_containerizers,
+        "runtimes": _probe_runtimes,
+        "web_services": _probe_web_services,
+    }
+
+    tag_tasks = []
+    tag_names = []
+    for tag_name, cmds in sec.items():
+        if tag_name in ("os_version", "ram", "disk"):
+            continue
+        handler = known_handlers.get(tag_name, _probe_generic_tag)
+        tag_tasks.append(run_probe(handler, cmds))
+        tag_names.append(tag_name)
+
+    all_results = await asyncio.gather(os_task, ram_task, disk_task, *tag_tasks, return_exceptions=True)
+    os_res = all_results[0] if isinstance(all_results[0], dict) else {}
+    ram_res = all_results[1] if isinstance(all_results[1], dict) else {}
+    disk_res = all_results[2] if isinstance(all_results[2], dict) else {}
+    tag_results = all_results[3:]
+
+    # Collect core_tags lines (omit tags that are None or empty)
+    core_tag_lines = []
+    for tag_name, tag_val in zip(tag_names, tag_results):
+        if isinstance(tag_val, str) and tag_val.strip():
+            core_tag_lines.append(f"{tag_name}: {tag_val.strip()}")
+
+    core_tags = "\r\n".join(core_tag_lines)
+
+    telemetry: Dict[str, Any] = {
+        "os_type": detected_os,
+        "operating_system": os_res.get("operating_system") or os_res.get("os_version") or detected_os.title(),
+        "os_version": os_res.get("os_version", ""),
+        "packages_summary": os_res.get("packages_summary", ""),
+        "ram_total": ram_res.get("ram_total", ""),
+        "ram_used": ram_res.get("ram_used", ""),
+        "ram_percent": ram_res.get("ram_percent", 0.0),
+        "disk_total": disk_res.get("disk_total", ""),
+        "disk_used": disk_res.get("disk_used", ""),
+        "disk_percent": disk_res.get("disk_percent", 0.0),
+        "core_tags": core_tags,
+    }
+
+    msg = f"SSH connection successful ({telemetry.get('operating_system', detected_os.title())})."
+    return True, msg, telemetry
 
 
 # ─── Remote Process Termination ──────────────────────────────────────────────

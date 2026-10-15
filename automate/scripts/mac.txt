@@ -1,0 +1,41 @@
+# os_version
+sw_vers 2>/dev/null
+
+# ram
+sysctl -n hw.memsize 2>/dev/null
+vm_stat 2>/dev/null
+
+# disk
+df -k / 2>/dev/null | tail -n 1
+
+# external_storage
+ls -d /Volumes/* 2>/dev/null | grep -v 'Macintosh HD' || true
+
+# docker
+docker --version 2>/dev/null
+docker info 2>/dev/null || pgrep -x Docker 2>/dev/null
+find /Users /opt /etc -maxdepth 4 \( -name "docker-compose.yml" -o -name "docker-compose.yaml" -o -name "compose.yaml" \) 2>/dev/null | head -n 3
+
+# kubernetes
+kubectl version --client 2>/dev/null
+
+# python
+python3 --version 2>/dev/null || python --version 2>/dev/null
+
+# php
+php -v 2>/dev/null | head -n 1
+
+# nodejs
+node -v 2>/dev/null
+
+# uvicorn
+uvicorn --version 2>/dev/null || python3 -m uvicorn --version 2>/dev/null
+
+# apache
+apachectl -v 2>/dev/null || httpd -v 2>/dev/null
+
+# nginx
+nginx -v 2>&1
+
+# drupal
+find /Library/WebServer/Documents /Users -maxdepth 4 -name "Drupal.php" -path "*/core/lib/Drupal.php" 2>/dev/null | head -n 1

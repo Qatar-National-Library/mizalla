@@ -3,9 +3,9 @@
 {% block title %}{% if group %}Edit Command Group{% else %}New Command Group{% endif %} · Mizalla{% endblock %}
 
 {% block content %}
-{{ breadcrumb([("Projects", url_for('main.project_list')), ("Remote Command Orchestration", url_for('remote_exec.dashboard')), (group.name if group else "New Group", None)]) }}
+{{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Remote Command Orchestration", url_for('remote_exec.dashboard')), (group.name if group else "New Group", None)]) }}
 
-<div class="remote-exec-container" style="max-width: 900px; margin: 0 auto; padding-bottom: 3rem;">
+<div class="remote-exec-container" style="max-width: 900px; margin: 0; padding-bottom: 3rem;">
   <div class="heading-row" style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 1.5rem; flex-wrap:wrap; gap:1rem;">
     <div>
       <p class="eyebrow">ORCHESTRATION PIPELINE</p>
@@ -54,14 +54,14 @@
       </label>
 
       <!-- Execution Options -->
-      <div style="display:flex; gap: 1.5rem; margin-top: 1rem; flex-wrap:wrap; background: #fafafa; padding: 0.75rem 1rem; border-radius: 6px;">
-        <label style="display:inline-flex; align-items:center; gap:0.4rem; font-size:0.9rem; margin:0; cursor:pointer;">
+      <div style="display:flex; flex-direction:column; gap:0.6rem; margin-top:1.25rem; background:#fafafa; padding:0.85rem 1rem; border:1px solid var(--line, #e0e0e0); border-radius:6px;">
+        <label class="checkbox-row" style="margin:0;">
           <input type="checkbox" name="run_in_parallel" value="1" {% if group and group.run_in_parallel %}checked{% endif %}>
-          <span><strong>Run in Parallel</strong> (Default: Sequential single persistent session)</span>
+          <span><strong>Run in Parallel</strong> <span class="muted">(Default: Sequential single persistent session)</span></span>
         </label>
-        <label style="display:inline-flex; align-items:center; gap:0.4rem; font-size:0.9rem; margin:0; cursor:pointer;">
+        <label class="checkbox-row" style="margin:0;">
           <input type="checkbox" name="stop_on_error" value="1" {% if not group or group.stop_on_error %}checked{% endif %}>
-          <span><strong>Stop on Error</strong> (Default: True)</span>
+          <span><strong>Stop on Error</strong> <span class="muted">(Default: True)</span></span>
         </label>
       </div>
     </div>

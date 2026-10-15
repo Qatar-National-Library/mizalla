@@ -27,7 +27,10 @@ from .models import (
     GowaDevice,
     GowaDeviceAccess,
     Member,
+    ProjectMembership,
     Server,
+    ServerAccess,
+    ServerCredential,
     ServiceAuditLog,
     UtilityAppFeedback,
 )
@@ -146,12 +149,34 @@ def member_list():
     )
 
 
+def get_accessible_servers_for_user(user):
+    """Return all servers accessible to the given user. Admins have access to all servers."""
+    if not user or not getattr(user, "is_authenticated", False):
+        return []
+    if getattr(user, "is_admin", False):
+        return Server.query.order_by(Server.name).all()
+    project_server_ids = set()
+    for m in ProjectMembership.query.filter_by(member_id=user.id).all():
+        if m.project and m.project.test_server_id:
+            project_server_ids.add(m.project.test_server_id)
+        if m.project and m.project.production_server_id:
+            project_server_ids.add(m.project.production_server_id)
+    cred_server_ids = {c.server_id for c in ServerCredential.query.filter_by(user_id=user.id).all()}
+    access_server_ids = {a.server_id for a in ServerAccess.query.filter_by(member_id=user.id).all()}
+    all_server_ids = project_server_ids | cred_server_ids | access_server_ids
+    if all_server_ids:
+        return Server.query.filter(Server.id.in_(all_server_ids)).order_by(Server.name).all()
+    return []
+
+
 @bp.route("/members/<int:member_id>/edit", methods=["GET", "POST"])
 @admin_required
 def member_edit(member_id):
     member = db.get_or_404(Member, member_id)
     devices = GowaDevice.query.order_by(GowaDevice.name).all()
+    servers = get_accessible_servers_for_user(current_user)
     current_device_ids = {a.device_id for a in GowaDeviceAccess.query.filter_by(member_id=member.id).all()}
+    current_server_ids = {a.server_id for a in ServerAccess.query.filter_by(member_id=member.id).all()}
     current_feature_ids = {
         row.feature_key
         for row in db.session.scalars(
@@ -184,7 +209,8 @@ def member_edit(member_id):
                 member.set_password(password)
 
             # Update device access: if Bulk Messenger (bulk_whatsapp) is explicitly unchecked in feature_ids, remove all device access
-            if "feature_ids" in request.form and "bulk_whatsapp" not in requested_features:
+            features_present = "feature_ids" in request.form or "features_submitted" in request.form
+            if features_present and "bulk_whatsapp" not in requested_features:
                 new_device_ids = set()
             else:
                 new_device_ids = set(request.form.getlist("device_ids", type=int))
@@ -199,6 +225,22 @@ def member_edit(member_id):
                     GowaDeviceAccess(device_id=device_id, member_id=member.id, granted_by_id=current_user.id)
                 )
 
+            # Update server access: if Remote Execution (remote_exec) is explicitly unchecked in feature_ids, remove all server access
+            if features_present and "remote_exec" not in requested_features:
+                new_server_ids = set()
+            else:
+                new_server_ids = set(request.form.getlist("server_ids", type=int))
+
+            # Revoke access to servers that are no longer selected
+            for grant in ServerAccess.query.filter_by(member_id=member.id).all():
+                if grant.server_id not in new_server_ids:
+                    db.session.delete(grant)
+            # Grant access to newly selected servers
+            for server_id in new_server_ids - current_server_ids:
+                db.session.add(
+                    ServerAccess(server_id=server_id, member_id=member.id, granted_by_id=current_user.id)
+                )
+
             db.session.commit()
             flash("Member updated.", "success")
             return redirect(url_for("admin.member_list"))
@@ -206,7 +248,9 @@ def member_edit(member_id):
         "member_form.html",
         member=member,
         devices=devices,
+        servers=servers,
         current_device_ids=current_device_ids,
+        current_server_ids=current_server_ids,
         current_feature_ids=current_feature_ids,
         feature_cards=_feature_cards(),
     )
@@ -236,30 +280,166 @@ def bulk_email_audit():
     return render_template("bulk_email_admin.html", jobs=jobs)
 
 
+def _start_connection_cycle(app, server_id: int, username: str, password: str, max_retries: int = 5):
+    import threading
+
+    thread = threading.Thread(
+        target=_run_connection_cycle,
+        args=(app, server_id, username, password, max_retries),
+        daemon=True,
+    )
+    thread.start()
+
+
+def _run_connection_cycle(app, server_id: int, username: str, password: str, max_retries: int = 5):
+    import asyncio
+    import time
+    from datetime import datetime, timezone
+    from .asyncssh_engine import test_ssh_connection
+
+    with app.app_context():
+        server = db.session.get(Server, server_id)
+        if not server:
+            return
+        ip = server.ip
+        port = server.ssh_port or 22
+
+    last_error = "Connection timed out"
+    for attempt in range(1, max_retries + 1):
+        with app.app_context():
+            server = db.session.get(Server, server_id)
+            if not server:
+                return
+            server.agent_status = "connecting"
+            server.connection_attempts = attempt
+            server.max_connection_attempts = max_retries
+            server.connection_message = f"Initiating connection cycle ({attempt} of {max_retries} retries)..."
+            db.session.commit()
+
+        try:
+            coro_or_res = test_ssh_connection(
+                ip=ip,
+                port=port,
+                username=username,
+                password=password,
+            )
+            if asyncio.iscoroutine(coro_or_res):
+                success, msg, telemetry = asyncio.run(coro_or_res)
+            else:
+                success, msg, telemetry = coro_or_res
+        except Exception as exc:
+            success = False
+            msg = str(exc)
+            telemetry = {}
+
+        if success:
+            with app.app_context():
+                server = db.session.get(Server, server_id)
+                if server:
+                    server.agent_status = "online"
+                    server.connection_attempts = 0
+                    server.connection_message = "Connected successfully."
+                    if telemetry.get("os_version"):
+                        server.operating_system = telemetry["os_version"]
+                    elif telemetry.get("os_type"):
+                        server.operating_system = telemetry["os_type"].title()
+                    if telemetry.get("packages_summary"):
+                        server.technology_packages = telemetry["packages_summary"]
+                    if telemetry.get("os_type"):
+                        server.os_type = telemetry["os_type"]
+                    if telemetry.get("os_version"):
+                        server.os_version = telemetry["os_version"]
+
+                    # Hardware & Runtime Telemetry
+                    if "ram_total" in telemetry:
+                        server.ram_total = telemetry.get("ram_total") or ""
+                    if "ram_used" in telemetry:
+                        server.ram_used = telemetry.get("ram_used") or ""
+                    if "ram_percent" in telemetry:
+                        try:
+                            server.ram_percent = float(telemetry.get("ram_percent") or 0.0)
+                        except (ValueError, TypeError):
+                            server.ram_percent = 0.0
+                    if "disk_total" in telemetry:
+                        server.disk_total = telemetry.get("disk_total") or ""
+                    if "disk_used" in telemetry:
+                        server.disk_used = telemetry.get("disk_used") or ""
+                    if "disk_percent" in telemetry:
+                        try:
+                            server.disk_percent = float(telemetry.get("disk_percent") or 0.0)
+                        except (ValueError, TypeError):
+                            server.disk_percent = 0.0
+                    if "core_tags" in telemetry:
+                        server.core_tags = telemetry.get("core_tags") or ""
+
+                    now = datetime.now(timezone.utc)
+                    server.last_checked = now
+                    server.agent_last_seen = now
+                    server.status = "available"
+                    db.session.commit()
+            return
+        else:
+            last_error = msg
+            if attempt < max_retries:
+                time.sleep(1.5)
+
+    with app.app_context():
+        server = db.session.get(Server, server_id)
+        if server:
+            server.agent_status = "failed"
+            server.connection_attempts = max_retries
+            server.connection_message = f"Connection failed after {max_retries} retries: {last_error}"
+            db.session.commit()
+
+
 @bp.route("/servers", methods=["GET", "POST"])
 @admin_required
 def server_list():
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         ip = request.form.get("ip", "").strip()
-        operating_system = request.form.get("operating_system", "").strip()
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        operating_system = request.form.get("operating_system", "").strip() or "Detecting..."
+        technology_packages = request.form.get("technology_packages", "").strip()
         try:
             ipaddress.ip_address(ip)
             valid_ip = True
         except ValueError:
             valid_ip = False
-        if not name or not valid_ip or not operating_system:
-            flash("Server name, valid IP address, and operating system are required.", "error")
+        if not name or not valid_ip:
+            flash("Server name and valid IP address are required.", "error")
         else:
-            db.session.add(
-                Server(
-                    name=name,
-                    ip=ip,
-                    operating_system=operating_system,
-                    technology_packages=request.form.get("technology_packages", "").strip(),
-                )
+            server = Server(
+                name=name,
+                ip=ip,
+                operating_system=operating_system,
+                technology_packages=technology_packages,
+                agent_status="connecting" if username else "offline",
+                connection_attempts=1 if username else 0,
+                max_connection_attempts=5,
+                connection_message="Initiating connection cycle (1 of 5 retries)..." if username else "",
             )
+            db.session.add(server)
+            db.session.flush()
+
+            if username:
+                cred = ServerCredential(
+                    server_id=server.id,
+                    user_id=None,
+                    is_default=True,
+                    username=username,
+                    status="available",
+                )
+                if password:
+                    cred.password = password
+                db.session.add(cred)
+
             db.session.commit()
+
+            if username:
+                _start_connection_cycle(current_app._get_current_object(), server.id, username, password)
+
             flash("Server created.", "success")
             return redirect(url_for("admin.server_list"))
     return render_template("servers.html", servers=Server.query.order_by(Server.name).all())
@@ -272,23 +452,133 @@ def server_edit(server_id):
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         ip = request.form.get("ip", "").strip()
-        operating_system = request.form.get("operating_system", "").strip()
+        operating_system = request.form.get("operating_system", "").strip() or server.operating_system
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
         try:
             ipaddress.ip_address(ip)
             valid_ip = True
         except ValueError:
             valid_ip = False
-        if not name or not valid_ip or not operating_system:
-            flash("Server name, valid IP address, and operating system are required.", "error")
+        if not name or not valid_ip:
+            flash("Server name and valid IP address are required.", "error")
         else:
             server.name = name
             server.ip = ip
             server.operating_system = operating_system
-            server.technology_packages = request.form.get("technology_packages", "").strip()
+            if "technology_packages" in request.form:
+                server.technology_packages = request.form.get("technology_packages", "").strip()
+
+            if username:
+                cred = server.default_credential
+                if not cred:
+                    cred = ServerCredential(
+                        server_id=server.id,
+                        user_id=None,
+                        is_default=True,
+                        username=username,
+                        status="available",
+                    )
+                    db.session.add(cred)
+                cred.username = username
+                if password:
+                    cred.password = password
+
             db.session.commit()
+
+            active_username = username or (server.default_credential.username if server.default_credential else "")
+            active_password = password or (server.default_credential.password if server.default_credential else "")
+            if active_username:
+                server.agent_status = "connecting"
+                server.connection_attempts = 1
+                server.max_connection_attempts = 5
+                server.connection_message = "Initiating connection cycle (1 of 5 retries)..."
+                db.session.commit()
+                _start_connection_cycle(current_app._get_current_object(), server.id, active_username, active_password or "")
+
             flash("Server updated.", "success")
             return redirect(url_for("admin.server_list"))
     return render_template("server_form.html", server=server)
+
+
+@bp.route("/servers/<int:server_id>/reconnect", methods=["POST"])
+@admin_required
+def server_reconnect(server_id):
+    server = db.get_or_404(Server, server_id)
+
+    if request.is_json:
+        data = request.get_json() or {}
+        username = (data.get("username") or "").strip()
+        password = data.get("password") or ""
+    else:
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+
+    cred = server.default_credential
+    if not cred:
+        cred = ServerCredential(
+            server_id=server.id,
+            user_id=None,
+            is_default=True,
+            username=username or "root",
+            status="available",
+        )
+        db.session.add(cred)
+
+    if username:
+        cred.username = username
+    if password is not None and password != "":
+        cred.password = password
+
+    server.agent_status = "connecting"
+    server.connection_attempts = 1
+    server.max_connection_attempts = 5
+    server.connection_message = "Initiating connection cycle (1 of 5 retries)..."
+    db.session.commit()
+
+    active_username = cred.username
+    active_password = cred.password
+
+    _start_connection_cycle(current_app._get_current_object(), server.id, active_username, active_password, max_retries=5)
+
+    if request.is_json or request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.headers.get("Accept") == "application/json":
+        return jsonify({
+            "ok": True,
+            "agent_status": "connecting",
+            "connection_attempts": 1,
+            "max_connection_attempts": 5,
+            "connection_message": "Initiating connection cycle (1 of 5 retries)...",
+        })
+
+    flash("Reconnection cycle initiated (up to 5 retries).", "success")
+    return redirect(url_for("admin.server_list"))
+
+
+@bp.route("/servers/<int:server_id>/connection-status")
+@admin_required
+def server_connection_status(server_id):
+    server = db.get_or_404(Server, server_id)
+    return jsonify({
+        "id": server.id,
+        "name": server.name,
+        "ip": server.ip,
+        "operating_system": server.operating_system,
+        "technology_packages": server.technology_packages,
+        "agent_status": server.agent_status,
+        "is_online": server.agent_status == "online",
+        "connection_attempts": server.connection_attempts,
+        "max_connection_attempts": server.max_connection_attempts or 5,
+        "connection_message": server.connection_message or "",
+        "ram_total": server.ram_total or "",
+        "ram_used": server.ram_used or "",
+        "ram_percent": server.ram_percent or 0.0,
+        "disk_total": server.disk_total or "",
+        "disk_used": server.disk_used or "",
+        "disk_percent": server.disk_percent or 0.0,
+        "core_tags": server.core_tags or "",
+        "tag_lines": server.get_tag_lines(),
+        "has_telemetry": server.has_telemetry,
+    })
 
 
 @bp.post("/servers/<int:server_id>/delete")
@@ -301,7 +591,7 @@ def server_delete(server_id):
         db.session.delete(server)
         db.session.commit()
         flash("Server deleted.", "success")
-    return redirect(url_for("admin.server_list"))
+    return redirect(request.referrer or url_for("admin.server_list"))
 
 
 @bp.route("/settings", methods=["GET", "POST"])
@@ -597,17 +887,37 @@ def service_audit():
     """Admin view of all service audit logs (who, when, request, response)."""
     service_filter = request.args.get("service", "").strip()
     status_filter = request.args.get("status", "").strip()
+    start_date_str = request.args.get("start_date", "").strip()
+    end_date_str = request.args.get("end_date", "").strip()
+
     query = ServiceAuditLog.query.order_by(ServiceAuditLog.created_at.desc())
     if service_filter:
         query = query.filter_by(service_key=service_filter)
     if status_filter:
         query = query.filter_by(status=status_filter)
+
+    if start_date_str:
+        try:
+            start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+            query = query.filter(ServiceAuditLog.created_at >= start_date)
+        except ValueError:
+            start_date_str = ""
+
+    if end_date_str:
+        try:
+            end_date = datetime.strptime(end_date_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59, microsecond=999999)
+            query = query.filter(ServiceAuditLog.created_at <= end_date)
+        except ValueError:
+            end_date_str = ""
+
     logs = query.limit(500).all()
     return render_template(
         "service_audit_admin.html",
         logs=logs,
         service_filter=service_filter,
         status_filter=status_filter,
+        start_date=start_date_str,
+        end_date=end_date_str,
         feature_labels=FEATURE_LABELS,
     )
 
@@ -623,12 +933,29 @@ def service_audit_export():
     export_format = request.args.get("format", "xlsx").lower()
     service_filter = request.args.get("service", "").strip()
     status_filter = request.args.get("status", "").strip()
+    start_date_str = request.args.get("start_date", "").strip()
+    end_date_str = request.args.get("end_date", "").strip()
 
     query = ServiceAuditLog.query.order_by(ServiceAuditLog.created_at.desc())
     if service_filter:
         query = query.filter_by(service_key=service_filter)
     if status_filter:
         query = query.filter_by(status=status_filter)
+
+    if start_date_str:
+        try:
+            start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+            query = query.filter(ServiceAuditLog.created_at >= start_date)
+        except ValueError:
+            pass
+
+    if end_date_str:
+        try:
+            end_date = datetime.strptime(end_date_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59, microsecond=999999)
+            query = query.filter(ServiceAuditLog.created_at <= end_date)
+        except ValueError:
+            pass
+
     logs = query.all()
 
     if export_format == "csv":

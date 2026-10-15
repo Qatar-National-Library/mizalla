@@ -2,7 +2,7 @@
 {% from "macros.html" import breadcrumb, admin_nav %}
 {% block title %}Service Audit Log · Administration{% endblock %}
 {% block content %}
-{{ breadcrumb([("Projects", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Service Audit Log", None)]) }}
+{{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Service Audit Log", None)]) }}
 
 {{ admin_nav('service_audit') }}
 
@@ -10,8 +10,8 @@
   <div class="heading-row" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
     <p class="intro-copy" style="margin:0;">Complete audit trail of all service calls recording actor, timestamp, request parameters, response values, status, and duration.</p>
     <div class="button-group">
-      <a class="button button-quiet button-small" href="{{ url_for('admin.service_audit_export', format='xlsx', service=service_filter, status=status_filter) }}">Export Excel</a>
-      <a class="button button-quiet button-small" href="{{ url_for('admin.service_audit_export', format='csv', service=service_filter, status=status_filter) }}">Export CSV</a>
+      <a class="button button-quiet button-small" href="{{ url_for('admin.service_audit_export', format='xlsx', service=service_filter, status=status_filter, start_date=start_date, end_date=end_date) }}">Export Excel</a>
+      <a class="button button-quiet button-small" href="{{ url_for('admin.service_audit_export', format='csv', service=service_filter, status=status_filter, start_date=start_date, end_date=end_date) }}">Export CSV</a>
     </div>
   </div>
 
@@ -37,7 +37,17 @@
       </select>
     </div>
 
-    {% if service_filter or status_filter %}
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+      <label for="start-date" style="font-weight: 500; font-size: 0.9rem;">From:</label>
+      <input type="date" id="start-date" name="start_date" value="{{ start_date }}" onchange="this.form.submit()" style="padding: 0.25rem 0.5rem; border-radius: 4px; border: 1px solid var(--border-color, #ccc); font-family: inherit; font-size: 0.88rem;">
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+      <label for="end-date" style="font-weight: 500; font-size: 0.9rem;">To:</label>
+      <input type="date" id="end-date" name="end_date" value="{{ end_date }}" onchange="this.form.submit()" style="padding: 0.25rem 0.5rem; border-radius: 4px; border: 1px solid var(--border-color, #ccc); font-family: inherit; font-size: 0.88rem;">
+    </div>
+
+    {% if service_filter or status_filter or start_date or end_date %}
       <a href="{{ url_for('admin.service_audit') }}" class="button button-quiet button-small" style="text-decoration:none;">Clear Filters</a>
     {% endif %}
   </form>

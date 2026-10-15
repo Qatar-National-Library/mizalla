@@ -1,22 +1,22 @@
 {% extends "base.html" %}
 {% from "macros.html" import breadcrumb, admin_nav %}
-{% block title %}Servers · Administration{% endblock %}
+{% block title %}Environments &amp; Server Management · Administration{% endblock %}
 {% block content %}
-{{ breadcrumb([("Projects", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Servers", None)]) }}
+{{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Environments & Server Management", None)]) }}
 
 {{ admin_nav('servers') }}
 <section class="detail-grid admin-grid">
   <div class="detail-section">
     <div class="section-heading">
       <div>
-        <p class="eyebrow">SERVER INVENTORY / {{ servers|length }}</p>
-        <h2>Environments & Remote Agents</h2>
+        <p class="eyebrow">ENVIRONMENTS &amp; SERVER MANAGEMENT / {{ servers|length }}</p>
+        <h2>Environments &amp; Server Management</h2>
       </div>
     </div>
     <div class="directory-list" id="server-directory-list">
       {% for server in servers %}
-      <article class="server-row" id="server-row-{{ server.id }}" data-server-id="{{ server.id }}">
-        <div class="server-index">{{ "%02d"|format(loop.index) }}</div>
+      <article class="server-row" id="server-row-{{ server.id }}" data-server-id="{{ server.id }}" style="align-items: flex-start; padding: 0.85rem 0;">
+        <div class="server-index" style="padding-top:0.2rem;">{{ "%02d"|format(loop.index) }}</div>
         <div class="directory-copy" style="flex: 1 1 auto;">
           <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.25rem;">
             <strong>{{ server.name }}</strong>
@@ -27,7 +27,7 @@
             {% elif server.agent_status == 'connecting' %}
               <span class="badge status-badge-connecting" id="status-badge-{{ server.id }}" style="background:#ef6c00; color:#fff; font-size:0.75rem; padding:0.18rem 0.45rem; border-radius:3px; font-weight:600; display:inline-flex; align-items:center; gap:0.35rem;">
                 <span class="status-spinner" style="display:inline-block; width:8px; height:8px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
-                CONNECTING (Retry {{ server.connection_attempts }}/{{ server.max_connection_attempts or 5 }})
+                CONNECTING (Retry {{ server.connection_attempts or 1 }}/5)
               </span>
             {% elif server.agent_status == 'failed' %}
               <span class="badge status-badge-failed" id="status-badge-{{ server.id }}" style="background:#c62828; color:#fff; font-size:0.75rem; padding:0.18rem 0.45rem; border-radius:3px; font-weight:600;">FAILED (5/5 Retries)</span>
@@ -36,13 +36,18 @@
             {% endif %}
           </div>
 
-          <span>{{ server.ip }} · {{ server.operating_system }}</span>
-          <small id="connection-msg-{{ server.id }}" class="muted" style="display:block; margin-top:0.2rem;">
-            {{ server.connection_message or server.technology_packages or "No technology / packages listed" }}
+          <span class="server-ip-os" id="server-ip-os-{{ server.id }}">{{ server.ip }} &middot; {{ server.operating_system }}</span>
+          <small id="connection-msg-{{ server.id }}" class="muted connection-status-msg" style="display:block; margin-top:0.2rem;">
+            {% if server.agent_status == 'connecting' %}
+              <span class="status-spinner-inline" style="display:inline-block; width:10px; height:10px; border:2px solid #2e7d32; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite; margin-right:5px; vertical-align:middle;"></span>
+              {{ server.connection_message or ("Initiating connection cycle (" ~ (server.connection_attempts or 1) ~ " of 5 retries)...") }}
+            {% else %}
+              {{ server.connection_message or server.technology_packages or "No technology / packages listed" }}
+            {% endif %}
           </small>
 
           {% if server.test_projects or server.production_projects %}
-          <small style="margin-top:0.2rem;">
+          <small style="margin-top:0.2rem; display:block;">
             Assigned to 
             {% for project in server.test_projects %}
               {{ project.name }} (test){% if not loop.last or server.production_projects %}, {% endif %}
@@ -52,28 +57,88 @@
             {% endfor %}
           </small>
           {% endif %}
+
+          {# Telemetry Section #}
+          <div class="server-telemetry-panel" id="telemetry-panel-{{ server.id }}" style="margin-top:0.65rem; padding:0.65rem 0.85rem; background:#f4f7f5; border:1px solid rgba(16, 62, 48, 0.12); border-radius:6px; font-size:0.8rem; {% if not server.has_telemetry and server.agent_status != 'online' %}display:none;{% endif %}">
+            
+            {# 1. Memory Graphs: RAM & Permanent Memory #}
+            <div style="display:flex; flex-direction:column; gap:0.45rem; margin-bottom:0.6rem;">
+              {# RAM Graph #}
+              <div style="display:flex; align-items:center; gap:0.6rem;">
+                <span style="font-weight:600; min-width:85px; color:var(--ink); font-size:0.75rem; display:inline-flex; align-items:center; gap:0.3rem;">
+                  <i data-lucide="cpu" style="width:13px; height:13px; color:var(--green-dark, #103e30);"></i> RAM
+                </span>
+                <div style="flex:1; background:#e2e8f0; border-radius:4px; height:10px; overflow:hidden; position:relative;" title="{{ server.ram_percent or 0 }}% in use">
+                  <div id="ram-bar-fill-{{ server.id }}" style="background:#2e7d32; height:100%; width:{{ server.ram_percent or 0 }}%; border-radius:4px; transition:width 0.4s ease;"></div>
+                </div>
+                <span id="ram-text-{{ server.id }}" style="font-size:0.75rem; color:var(--ink); min-width:135px; text-align:right; font-weight:600; font-variant-numeric:tabular-nums;">
+                  {{ server.ram_used or '0 GB' }} / {{ server.ram_total or '0 GB' }}
+                </span>
+              </div>
+
+              {# Permanent Memory (Storage) Graph #}
+              <div style="display:flex; align-items:center; gap:0.6rem;">
+                <span style="font-weight:600; min-width:85px; color:var(--ink); font-size:0.75rem; display:inline-flex; align-items:center; gap:0.3rem;">
+                  <i data-lucide="hard-drive" style="width:13px; height:13px; color:var(--green-dark, #103e30);"></i> Storage
+                </span>
+                <div style="flex:1; background:#e2e8f0; border-radius:4px; height:10px; overflow:hidden; position:relative;" title="{{ server.disk_percent or 0 }}% in use">
+                  <div id="disk-bar-fill-{{ server.id }}" style="background:#2e7d32; height:100%; width:{{ server.disk_percent or 0 }}%; border-radius:4px; transition:width 0.4s ease;"></div>
+                </div>
+                <span id="disk-text-{{ server.id }}" style="font-size:0.75rem; color:var(--ink); min-width:135px; text-align:right; font-weight:600; font-variant-numeric:tabular-nums;">
+                  {{ server.disk_used or '0 GB' }} / {{ server.disk_total or '0 GB' }}
+                </span>
+              </div>
+            </div>
+
+            {# 2. Server Capabilities & Core Tags #}
+            <div id="telemetry-details-{{ server.id }}" style="display:flex; flex-wrap:wrap; gap:0.4rem 0.6rem; border-top:1px dashed rgba(16, 62, 48, 0.15); padding-top:0.45rem; font-size:0.75rem; color:var(--ink);">
+              {% set tag_lines = server.get_tag_lines() %}
+              {% if tag_lines %}
+                {% for line in tag_lines %}
+                  {% set parts = line.split(':', 1) %}
+                  {% set tag_text = parts[1].strip() if parts | length > 1 else parts[0].strip() %}
+                  <div style="background:rgba(16, 62, 48, 0.05); border:1px solid rgba(16, 62, 48, 0.12); border-radius:4px; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.25rem;">
+                    <span>{{ tag_text }}</span>
+                  </div>
+                {% endfor %}
+              {% else %}
+                <span class="muted">No additional capabilities detected</span>
+              {% endif %}
+            </div>
+          </div>
         </div>
 
         {# Action controls including RECONNECT button #}
-        <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
-          {# RECONNECT Button: Disabled while connecting or already online, enabled when all 5 retries fail #}
-          {% set can_reconnect = server.agent_status in ['failed', 'offline'] %}
+        <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; padding-top:0.2rem;">
+          {% set is_connecting = server.agent_status == 'connecting' %}
+          {% set can_reconnect = server.agent_status in ['failed', 'offline'] and not is_connecting %}
           <button 
             type="button" 
             class="button button-small reconnect-btn" 
             id="reconnect-btn-{{ server.id }}"
             data-server-id="{{ server.id }}"
+            data-server-name="{{ server.name | e }}"
+            data-server-ip="{{ server.ip | e }}"
+            data-username="{{ (server.default_credential.username if server.default_credential else '') | e }}"
+            data-password="{{ (server.default_credential.password if server.default_credential else '') | e }}"
             style="font-size:0.75rem; padding:0.25rem 0.6rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:0.25rem;"
-            {% if not can_reconnect %}disabled title="Reconnect is enabled only after all 5 retries fail"{% endif %}
-            onclick="initiateReconnect({{ server.id }})">
+            {% if not can_reconnect %}disabled title="Reconnect is enabled when not currently connecting"{% endif %}
+            onclick="openReconnectModal({{ server.id }}, '{{ server.name | e }}', '{{ server.ip | e }}', this.getAttribute('data-username'), this.getAttribute('data-password'))">
             <i data-lucide="rotate-cw" class="icon-green"></i> RECONNECT
           </button>
 
-          <a class="button button-quiet button-small" href="{{ url_for('admin.server_edit', server_id=server.id) }}">Edit & Token</a>
+          <a class="button button-quiet button-small" 
+             id="edit-btn-{{ server.id }}"
+             href="{{ url_for('admin.server_edit', server_id=server.id) }}"
+             {% if is_connecting %}style="pointer-events: none; opacity: 0.5;" aria-disabled="true"{% endif %}>Edit &amp; Token</a>
           
           <form method="post" action="{{ url_for('admin.server_delete', server_id=server.id) }}" onsubmit="return confirm('Delete this server?')" style="margin:0;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="text-button danger-text" type="submit" style="padding:0.25rem 0.4rem;">Delete</button>
+            <button class="text-button danger-text" 
+                    type="submit" 
+                    id="delete-btn-{{ server.id }}"
+                    style="padding:0.25rem 0.4rem;{% if is_connecting %} opacity: 0.5;{% endif %}"
+                    {% if is_connecting %}disabled{% endif %}>Delete</button>
           </form>
         </div>
       </article>
@@ -89,17 +154,76 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label>Server name<input name="name" maxlength="160" required placeholder="e.g. Production Web Node 1"></label>
       <label>IP address<input name="ip" maxlength="45" required placeholder="e.g. 192.168.1.100"></label>
-      <label>Operating system<input name="operating_system" maxlength="160" required placeholder="e.g. Ubuntu 22.04 LTS"></label>
-      <label>Technology / packages<textarea name="technology_packages" rows="4" placeholder="e.g. Nginx, Python 3.12, PostgreSQL client"></textarea></label>
+      <label>Username<input name="username" maxlength="80" required placeholder="e.g. ubuntu, root"></label>
+      <label>Password
+        <div class="password-input-wrapper">
+          <input type="password" name="password" placeholder="SSH password">
+          <button type="button" class="password-toggle-btn" aria-label="Show password" title="Show password" tabindex="-1">
+            <i data-lucide="eye" class="icon-green"></i>
+          </button>
+        </div>
+      </label>
+      <p class="muted" style="font-size: 0.78rem; margin: -0.2rem 0 0.5rem 0;">Operating system and technology packages will be detected automatically when the server connects.</p>
       <button class="button button-primary" type="submit">Create server</button>
     </form>
   </aside>
 </section>
 
+{# Reconnect / Edit Server Credentials HTML Modal #}
+<dialog id="reconnect-dialog" class="reconnect-modal">
+  <div class="reconnect-modal-header">
+    <h3>Edit Server Credentials</h3>
+    <button type="button" class="close-modal-btn" onclick="closeReconnectModal()" aria-label="Close">&times;</button>
+  </div>
+  <p class="muted" style="font-size:0.82rem; margin:0 0 1rem 0;">Change the username and password to reconnect to <strong id="modal-server-name"></strong> (<span id="modal-server-ip"></span>).</p>
+  <form id="reconnect-modal-form" method="post" onsubmit="submitReconnectForm(event)" class="form-stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" id="modal-server-id" name="server_id" value="">
+    
+    <label>Username
+      <input type="text" id="modal-username" name="username" required autocomplete="username" placeholder="e.g. ubuntu, root">
+    </label>
+    
+    <label>Password
+      <div class="password-input-wrapper">
+        <input type="password" id="modal-password" name="password" autocomplete="current-password" placeholder="Server password">
+        <button type="button" class="password-toggle-btn" aria-label="Show password" title="Show password" tabindex="-1">
+          <i data-lucide="eye" class="icon-green"></i>
+        </button>
+      </div>
+    </label>
+
+    <div class="form-actions" style="margin-top:1.2rem; display:flex; justify-content:flex-end; gap:0.6rem;">
+      <button type="button" class="button button-quiet" onclick="closeReconnectModal()">Cancel</button>
+      <button type="submit" class="button button-primary" id="modal-submit-btn">Save &amp; Reconnect</button>
+    </div>
+  </form>
+</dialog>
+
 <style>
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+.status-spinner {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #fff;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.status-spinner-inline {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--green, #103e30);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-right: 5px;
+  vertical-align: middle;
 }
 .reconnect-btn:disabled {
   opacity: 0.45 !important;
@@ -117,28 +241,126 @@
   background: var(--accent, #1a73e8);
   color: #fff;
 }
+.reconnect-modal {
+  border: 1px solid var(--line, #e2e8e0);
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  padding: 1.5rem;
+  max-width: 440px;
+  width: 90%;
+  background: #ffffff;
+  color: var(--ink, #182a24);
+}
+.reconnect-modal::backdrop {
+  background: rgba(16, 62, 48, 0.45);
+  backdrop-filter: blur(2px);
+}
+.reconnect-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+.reconnect-modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--ink, #182a24);
+}
+.close-modal-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--muted, #64748b);
+  cursor: pointer;
+  padding: 0;
+}
+.close-modal-btn:hover {
+  color: var(--ink, #182a24);
+}
 </style>
 
 <script>
 document.addEventListener("DOMContentLoaded", function() {
   const csrfToken = "{{ csrf_token() }}";
 
-  window.initiateReconnect = function(serverId) {
+  window.openReconnectModal = function(serverId, name, ip, username, password) {
+    const dialog = document.getElementById("reconnect-dialog");
+    document.getElementById("modal-server-id").value = serverId;
+    document.getElementById("modal-server-name").textContent = name;
+    document.getElementById("modal-server-ip").textContent = ip;
+    document.getElementById("modal-username").value = username || "";
+    const passInput = document.getElementById("modal-password");
+    passInput.value = password || "";
+    passInput.type = "password";
+    const toggleBtn = passInput.closest(".password-input-wrapper")?.querySelector(".password-toggle-btn");
+    if (toggleBtn) {
+      toggleBtn.setAttribute("aria-label", "Show password");
+      toggleBtn.setAttribute("title", "Show password");
+      toggleBtn.innerHTML = '<i data-lucide="eye" class="icon-green"></i>';
+    }
+
+    if (typeof dialog.showModal === "function") {
+      dialog.showModal();
+    } else {
+      dialog.setAttribute("open", "");
+      dialog.style.display = "block";
+    }
+    if (window.lucide) {
+      lucide.createIcons();
+    }
+  };
+
+  window.closeReconnectModal = function() {
+    const dialog = document.getElementById("reconnect-dialog");
+    if (typeof dialog.close === "function") {
+      dialog.close();
+    } else {
+      dialog.removeAttribute("open");
+      dialog.style.display = "none";
+    }
+  };
+
+  window.submitReconnectForm = function(e) {
+    e.preventDefault();
+    const serverId = document.getElementById("modal-server-id").value;
+    const username = document.getElementById("modal-username").value;
+    const password = document.getElementById("modal-password").value;
+    closeReconnectModal();
+    initiateReconnect(serverId, username, password);
+  };
+
+  window.initiateReconnect = function(serverId, username, password) {
     const btn = document.getElementById("reconnect-btn-" + serverId);
+    const editBtn = document.getElementById("edit-btn-" + serverId);
+    const deleteBtn = document.getElementById("delete-btn-" + serverId);
     const badge = document.getElementById("status-badge-" + serverId);
     const msg = document.getElementById("connection-msg-" + serverId);
 
+    // Disable RECONNECT, EDIT & TOKEN, and DELETE buttons
     if (btn) {
       btn.disabled = true;
+      if (username !== undefined) btn.setAttribute("data-username", username || "");
+      if (password !== undefined) btn.setAttribute("data-password", password || "");
       btn.innerHTML = '<i data-lucide="loader" class="icon-green spin"></i> Retrying...';
       if (window.lucide) lucide.createIcons();
     }
+    if (editBtn) {
+      editBtn.style.pointerEvents = "none";
+      editBtn.style.opacity = "0.5";
+      editBtn.setAttribute("aria-disabled", "true");
+    }
+    if (deleteBtn) {
+      deleteBtn.disabled = true;
+      deleteBtn.style.opacity = "0.5";
+    }
+
     if (badge) {
       badge.style.background = "#ef6c00";
       badge.innerHTML = '<span class="status-spinner" style="display:inline-block; width:8px; height:8px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span> CONNECTING (Retry 1/5)';
     }
     if (msg) {
-      msg.textContent = "Initiating connection cycle (5 retries with backoff)...";
+      msg.innerHTML = '<span class="status-spinner-inline" style="display:inline-block; width:10px; height:10px; border:2px solid #2e7d32; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite; margin-right:5px; vertical-align:middle;"></span> Initiating connection cycle (1 of 5 retries)...';
     }
 
     fetch("/apps/admin/servers/" + serverId + "/reconnect", {
@@ -148,7 +370,8 @@ document.addEventListener("DOMContentLoaded", function() {
         "X-CSRFToken": csrfToken,
         "X-Requested-With": "XMLHttpRequest",
         "Accept": "application/json"
-      }
+      },
+      body: JSON.stringify({ username: username, password: password })
     })
     .then(r => r.json())
     .catch(err => console.warn("Reconnect request sent:", err));
@@ -168,7 +391,10 @@ document.addEventListener("DOMContentLoaded", function() {
       .then(data => {
         const badge = document.getElementById("status-badge-" + serverId);
         const btn = document.getElementById("reconnect-btn-" + serverId);
+        const editBtn = document.getElementById("edit-btn-" + serverId);
+        const deleteBtn = document.getElementById("delete-btn-" + serverId);
         const msg = document.getElementById("connection-msg-" + serverId);
+        const ipOs = document.getElementById("server-ip-os-" + serverId);
 
         if (!badge || !btn) return;
 
@@ -177,25 +403,91 @@ document.addEventListener("DOMContentLoaded", function() {
           badge.innerHTML = "CONNECTED";
           btn.disabled = true;
           btn.innerHTML = '<i data-lucide="rotate-cw" class="icon-green"></i> RECONNECT';
-          if (data.connection_message && msg) msg.textContent = data.connection_message;
+          if (editBtn) {
+            editBtn.style.pointerEvents = "";
+            editBtn.style.opacity = "";
+            editBtn.removeAttribute("aria-disabled");
+          }
+          if (deleteBtn) {
+            deleteBtn.disabled = false;
+            deleteBtn.style.opacity = "";
+          }
+          if (msg) msg.textContent = data.connection_message || data.technology_packages || "Connected successfully.";
+          if (ipOs) ipOs.textContent = `${data.ip} · ${data.operating_system}`;
+
+          // Live telemetry update
+          const panel = document.getElementById("telemetry-panel-" + serverId);
+          if (panel) {
+            panel.style.display = "block";
+            const ramBar = document.getElementById("ram-bar-fill-" + serverId);
+            const ramText = document.getElementById("ram-text-" + serverId);
+            if (ramBar) ramBar.style.width = (data.ram_percent || 0) + "%";
+            if (ramText) ramText.textContent = `${data.ram_used || '0 GB'} / ${data.ram_total || '0 GB'}`;
+
+            const diskBar = document.getElementById("disk-bar-fill-" + serverId);
+            const diskText = document.getElementById("disk-text-" + serverId);
+            if (diskBar) diskBar.style.width = (data.disk_percent || 0) + "%";
+            if (diskText) diskText.textContent = `${data.disk_used || '0 GB'} / ${data.disk_total || '0 GB'}`;
+
+            const telemDetails = document.getElementById("telemetry-details-" + serverId);
+            if (telemDetails) {
+              if (data.tag_lines && data.tag_lines.length > 0) {
+                telemDetails.innerHTML = data.tag_lines.map(line => {
+                  const idx = line.indexOf(":");
+                  const val = idx !== -1 ? line.substring(idx + 1).trim() : line.trim();
+                  return `<div style="background:rgba(16, 62, 48, 0.05); border:1px solid rgba(16, 62, 48, 0.12); border-radius:4px; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.25rem;"><span>${val}</span></div>`;
+                }).join("");
+              } else {
+                telemDetails.innerHTML = '<span class="muted">No additional capabilities detected</span>';
+              }
+            }
+          }
         } else if (data.agent_status === "connecting") {
           badge.style.background = "#ef6c00";
-          badge.innerHTML = `<span class="status-spinner" style="display:inline-block; width:8px; height:8px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span> CONNECTING (Retry ${data.connection_attempts || 1}/${data.max_connection_attempts || 5})`;
+          badge.innerHTML = `<span class="status-spinner" style="display:inline-block; width:8px; height:8px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span> CONNECTING (Retry ${data.connection_attempts || 1}/5)`;
           btn.disabled = true;
           btn.innerHTML = `<i data-lucide="loader" class="icon-green spin"></i> Retry ${data.connection_attempts || 1}...`;
-          if (data.connection_message && msg) msg.textContent = data.connection_message;
+          if (editBtn) {
+            editBtn.style.pointerEvents = "none";
+            editBtn.style.opacity = "0.5";
+            editBtn.setAttribute("aria-disabled", "true");
+          }
+          if (deleteBtn) {
+            deleteBtn.disabled = true;
+            deleteBtn.style.opacity = "0.5";
+          }
+          if (msg) {
+            msg.innerHTML = `<span class="status-spinner-inline" style="display:inline-block; width:10px; height:10px; border:2px solid #2e7d32; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite; margin-right:5px; vertical-align:middle;"></span> ${data.connection_message || `Initiating connection cycle (${data.connection_attempts || 1} of 5 retries)...`}`;
+          }
         } else if (data.agent_status === "failed") {
           badge.style.background = "#c62828";
-          badge.innerHTML = `FAILED (${data.connection_attempts || 5}/${data.max_connection_attempts || 5} Retries)`;
-          // When all 5 tries fail: enable the RECONNECT button
+          badge.innerHTML = `FAILED (${data.connection_attempts || 5}/5 Retries)`;
           btn.disabled = false;
           btn.innerHTML = '<i data-lucide="rotate-cw" class="icon-green"></i> RECONNECT';
-          if (data.connection_message && msg) msg.textContent = data.connection_message;
+          if (editBtn) {
+            editBtn.style.pointerEvents = "";
+            editBtn.style.opacity = "";
+            editBtn.removeAttribute("aria-disabled");
+          }
+          if (deleteBtn) {
+            deleteBtn.disabled = false;
+            deleteBtn.style.opacity = "";
+          }
+          if (msg) msg.textContent = data.connection_message || "Connection failed after 5 retries.";
         } else {
           badge.style.background = "#757575";
           badge.innerHTML = "NOT CONNECTED";
           btn.disabled = false;
           btn.innerHTML = '<i data-lucide="rotate-cw" class="icon-green"></i> RECONNECT';
+          if (editBtn) {
+            editBtn.style.pointerEvents = "";
+            editBtn.style.opacity = "";
+            editBtn.removeAttribute("aria-disabled");
+          }
+          if (deleteBtn) {
+            deleteBtn.disabled = false;
+            deleteBtn.style.opacity = "";
+          }
         }
         if (window.lucide) lucide.createIcons();
       })

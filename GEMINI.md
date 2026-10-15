@@ -13,6 +13,14 @@ The agent has full access and permission to execute:
 - Use **Lucide icons** (`data-lucide`) across all projects wherever icons are needed, unless specifically directed otherwise.
 - Green (`var(--green-dark, #103e30)`) on light backgrounds; White (`#ffffff`) on green or dark backgrounds.
 
+## Universal Password Field Standard ("Click eye in field to view password")
+- Across all projects and templates, wherever a **password field** is rendered:
+  - Always use an in-field eye toggle button allowing users to view/hide their password.
+  - Wrap the input in a `.password-input-wrapper` container with right-padding on the input so text does not overlap the icon.
+  - Position the toggle button (`.password-toggle-btn`) inside the right edge of the input.
+  - Use Lucide icons: `<i data-lucide="eye" class="icon-green"></i>` when obscured, swapping to `data-lucide="eye-off"` when revealed.
+  - Provide delegated click handlers and auto-enhancement (`initPasswordToggles()`) in client-side scripts to wire up static and dynamic password fields.
+
 ## Python Package Management Standard
 - If working with Python code, **ALWAYS use `requirements.txt`** for package management (`pip install -r requirements.txt`). Do not use alternative package managers unless explicitly instructed.
 

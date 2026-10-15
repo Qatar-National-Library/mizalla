@@ -416,117 +416,150 @@ def chat():
 @login_required
 def chat_document_upload():
     _require(FEATURE_CHAT)
-    upload = request.files.get("document")
-    if upload is None or not upload.filename:
-        flash("Choose a document to upload.", "error")
-        return redirect(url_for("ai.chat"))
+    files = request.files.getlist("document") or request.files.getlist("documents")
+    if not files:
+        single = request.files.get("document")
+        if single:
+            files = [single]
 
-    filename = secure_filename(upload.filename) or "document"
-    data = upload.read()
-    if len(data) > MAX_UPLOAD_BYTES:
-        record_service_audit(
-            service_key=FEATURE_CHAT,
-            action="upload_document",
-            request_data={"filename": filename, "size_bytes": len(data)},
-            response_data={"error": "File larger than 12 MB"},
-            status="ERROR",
-        )
-        flash(f"'{filename}' is larger than 12 MB.", "error")
-        return redirect(url_for("ai.chat"))
-
-    try:
-        extracted = extract_text(filename, data)
-    except ExtractionError as exc:
-        record_service_audit(
-            service_key=FEATURE_CHAT,
-            action="upload_document",
-            request_data={"filename": filename, "size_bytes": len(data)},
-            response_data={"error": str(exc)},
-            status="ERROR",
-        )
-        flash(str(exc), "error")
-        return redirect(url_for("ai.chat"))
-    except Exception as exc:  # noqa: BLE001 - a malformed file must not 500
-        current_app.logger.exception("Document extraction failed for %s", filename)
-        record_service_audit(
-            service_key=FEATURE_CHAT,
-            action="upload_document",
-            request_data={"filename": filename, "size_bytes": len(data)},
-            response_data={"error": str(exc)},
-            status="ERROR",
-        )
-        flash(f"'{filename}' could not be read.", "error")
+    valid_files = [f for f in files if f and getattr(f, "filename", None)]
+    if not valid_files:
+        flash("Choose at least one document to upload.", "error")
         return redirect(url_for("ai.chat"))
 
     from hashlib import sha256
 
-    digest = sha256(data).hexdigest()
-    existing = ChatDocument.query.filter_by(content_hash=digest).first()
-    if existing is not None:
-        record_service_audit(
-            service_key=FEATURE_CHAT,
-            action="upload_document",
-            request_data={"filename": filename, "size_bytes": len(data)},
-            response_data={"message": "Duplicate document"},
-            status="SKIPPED",
-        )
-        flash(f"'{filename}' is already in the library. Nothing was added twice.", "error")
-        return redirect(url_for("ai.chat"))
-
-    chunks = index_document(extracted["text"])
-    if not chunks:
-        record_service_audit(
-            service_key=FEATURE_CHAT,
-            action="upload_document",
-            request_data={"filename": filename, "size_bytes": len(data)},
-            response_data={"error": "No searchable text found"},
-            status="ERROR",
-        )
-        flash(f"No searchable text was found in '{filename}'.", "error")
-        return redirect(url_for("ai.chat"))
-
-    stored_name = f"chat-{digest[:16]}{Path(filename).suffix.lower()}"
     upload_root = Path(current_app.config["UPLOAD_FOLDER"])
     upload_root.mkdir(parents=True, exist_ok=True)
-    (upload_root / stored_name).write_bytes(data)
 
-    document = ChatDocument(
-        filename=filename,
-        stored_name=stored_name,
-        content_hash=digest,
-        size_bytes=len(data),
-        chunk_count=len(chunks),
-        text_length=len(extracted["text"]),
-        uploaded_by_id=current_user.id,
-        uploaded_by_name=current_user.name,
-    )
-    db.session.add(document)
-    db.session.flush()
-    for chunk in chunks:
-        db.session.add(
-            ChatDocumentChunk(
-                document_id=document.id,
-                ordinal=chunk["ordinal"],
-                text=chunk["text"],
-                heading=chunk["heading"],
+    added_docs = []
+    total_chunks = 0
+    total_chars = 0
+    has_approximate = False
+
+    for upload in valid_files:
+        filename = secure_filename(upload.filename) or "document"
+        data = upload.read()
+        if not data:
+            flash(f"'{filename}' is empty.", "error")
+            continue
+
+        if len(data) > MAX_UPLOAD_BYTES:
+            record_service_audit(
+                service_key=FEATURE_CHAT,
+                action="upload_document",
+                request_data={"filename": filename, "size_bytes": len(data)},
+                response_data={"error": "File larger than 12 MB"},
+                status="ERROR",
             )
+            flash(f"'{filename}' is larger than 12 MB.", "error")
+            continue
+
+        try:
+            extracted = extract_text(filename, data)
+        except ExtractionError as exc:
+            record_service_audit(
+                service_key=FEATURE_CHAT,
+                action="upload_document",
+                request_data={"filename": filename, "size_bytes": len(data)},
+                response_data={"error": str(exc)},
+                status="ERROR",
+            )
+            flash(str(exc), "error")
+            continue
+        except Exception as exc:  # noqa: BLE001 - a malformed file must not 500
+            current_app.logger.exception("Document extraction failed for %s", filename)
+            record_service_audit(
+                service_key=FEATURE_CHAT,
+                action="upload_document",
+                request_data={"filename": filename, "size_bytes": len(data)},
+                response_data={"error": str(exc)},
+                status="ERROR",
+            )
+            flash(f"'{filename}' could not be read.", "error")
+            continue
+
+        digest = sha256(data).hexdigest()
+        existing = ChatDocument.query.filter_by(content_hash=digest).first()
+        if existing is not None:
+            record_service_audit(
+                service_key=FEATURE_CHAT,
+                action="upload_document",
+                request_data={"filename": filename, "size_bytes": len(data)},
+                response_data={"message": "Duplicate document"},
+                status="SKIPPED",
+            )
+            flash(f"'{filename}' is already in the library. Nothing was added twice.", "error")
+            continue
+
+        chunks = index_document(extracted["text"])
+        if not chunks:
+            record_service_audit(
+                service_key=FEATURE_CHAT,
+                action="upload_document",
+                request_data={"filename": filename, "size_bytes": len(data)},
+                response_data={"error": "No searchable text found"},
+                status="ERROR",
+            )
+            flash(f"No searchable text was found in '{filename}'.", "error")
+            continue
+
+        stored_name = f"chat-{digest[:16]}{Path(filename).suffix.lower()}"
+        (upload_root / stored_name).write_bytes(data)
+
+        document = ChatDocument(
+            filename=filename,
+            stored_name=stored_name,
+            content_hash=digest,
+            size_bytes=len(data),
+            chunk_count=len(chunks),
+            text_length=len(extracted["text"]),
+            uploaded_by_id=current_user.id,
+            uploaded_by_name=current_user.name,
         )
-    db.session.commit()
+        db.session.add(document)
+        db.session.flush()
+        for chunk in chunks:
+            db.session.add(
+                ChatDocumentChunk(
+                    document_id=document.id,
+                    ordinal=chunk["ordinal"],
+                    text=chunk["text"],
+                    heading=chunk["heading"],
+                )
+            )
+        db.session.flush()
 
-    record_service_audit(
-        service_key=FEATURE_CHAT,
-        action="upload_document",
-        request_data={"filename": filename, "size_bytes": len(data)},
-        response_data={"document_id": document.id, "chunk_count": len(chunks), "text_length": len(extracted["text"])},
-        status="SUCCESS",
-    )
+        record_service_audit(
+            service_key=FEATURE_CHAT,
+            action="upload_document",
+            request_data={"filename": filename, "size_bytes": len(data)},
+            response_data={"document_id": document.id, "chunk_count": len(chunks), "text_length": len(extracted["text"])},
+            status="SUCCESS",
+        )
 
-    note = " Text was recovered approximately; PDF or DOCX extracts more reliably." if extracted["approximate"] else ""
-    sections = f"{len(chunks):,} searchable section{'s' if len(chunks) != 1 else ''}"
-    flash(
-        f"Added '{filename}' - {sections} from {len(extracted['text']):,} characters.{note}",
-        "success",
-    )
+        added_docs.append(filename)
+        total_chunks += len(chunks)
+        total_chars += len(extracted["text"])
+        if extracted.get("approximate"):
+            has_approximate = True
+
+    if added_docs:
+        db.session.commit()
+        note = " Text was recovered approximately; PDF or DOCX extracts more reliably." if has_approximate else ""
+        if len(added_docs) == 1:
+            sections = f"{total_chunks:,} searchable section{'s' if total_chunks != 1 else ''}"
+            flash(
+                f"Added '{added_docs[0]}' - {sections} from {total_chars:,} characters.{note}",
+                "success",
+            )
+        else:
+            sections = f"{total_chunks:,} searchable sections"
+            flash(
+                f"Added {len(added_docs)} documents - {sections} from {total_chars:,} characters across all documents.{note}",
+                "success",
+            )
+
     return redirect(url_for("ai.chat"))
 
 

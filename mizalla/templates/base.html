@@ -29,17 +29,6 @@
       <a href="{{ url_for('admin.member_list') }}">Administration</a>
       {% endif %}
       <button type="button" class="nav-feedback-btn" id="open-feedback-btn" aria-label="Give feedback or suggest utility app"><i data-lucide="lightbulb" class="icon-white"></i> Feedback</button>
-      <button class="icon-button hamburger" id="hamburger" aria-label="Open menu" aria-expanded="false"><i data-lucide="menu" class="icon-white"></i></button>
-      <div class="hamburger-menu" id="hamburger-menu" hidden>
-        {{ app_switcher(current_user) }}
-        <a href="{{ url_for('main.about') }}">About</a>
-        <a href="{{ url_for('main.user_guide') }}">User guide</a>
-        <button type="button" class="hamburger-feedback-btn" id="hamburger-feedback-btn"><i data-lucide="lightbulb" class="icon-white"></i> Feedback & Suggestions</button>
-        {% if current_user.is_admin %}
-        <a href="{{ url_for('admin.member_list') }}">Administration</a>
-        <a href="{{ url_for('admin.feedback_dashboard') }}">Feedback Moderation</a>
-        {% endif %}
-      </div>
     </nav>
     <div class="account-menu">
       <div class="user-dropdown">
@@ -53,18 +42,17 @@
             <span class="dropdown-user-email">{{ current_user.email }}</span>
           </div>
           <div class="dropdown-divider"></div>
-          <button type="button" class="dropdown-item" id="dropdown-feedback-btn" style="text-align: left; width: 100%; background: none; border: none; font: inherit; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;"><i data-lucide="lightbulb" class="icon-green"></i> Give Feedback & Suggestions</button>
-          <div class="dropdown-divider"></div>
           <a href="{{ url_for('admin.settings_list') }}" class="dropdown-item">Settings</a>
           <a href="{{ url_for('admin.member_edit', member_id=current_user.id) }}" class="dropdown-item">Edit Profile</a>
           {% if current_user.is_admin %}
           <div class="dropdown-divider"></div>
           <a href="{{ url_for('admin.member_list') }}" class="dropdown-item">Members</a>
-          <a href="{{ url_for('admin.server_list') }}" class="dropdown-item">Servers</a>
-          <a href="{{ url_for('admin.bulk_email_audit') }}" class="dropdown-item">Bulk Email Audit</a>
-          <a href="{{ url_for('admin.whatsapp_audit') }}" class="dropdown-item">WhatsApp Audit</a>
-          <a href="{{ url_for('admin.sms_audit') }}" class="dropdown-item">SMS Audit</a>
+          <a href="{{ url_for('admin.server_list') }}" class="dropdown-item">Environments &amp; Server Management</a>
           <a href="{{ url_for('admin.service_audit') }}" class="dropdown-item">Service Audit Log</a>
+          {% endif %}
+          <div class="dropdown-divider"></div>
+          <button type="button" class="dropdown-item" id="dropdown-feedback-btn">Give Feedback & Suggestions</button>
+          {% if current_user.is_admin %}
           <a href="{{ url_for('admin.feedback_dashboard') }}" class="dropdown-item">Feedback Moderation</a>
           {% endif %}
           <div class="dropdown-divider"></div>

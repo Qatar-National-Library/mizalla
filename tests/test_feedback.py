@@ -377,11 +377,15 @@ def test_feedback_button_rendered_in_header_menu(app, client):
     assert 'class="nav-feedback-btn"' in html
     assert "Feedback" in html
 
-    # User dropdown feedback trigger
+    # User dropdown feedback trigger placed right before Sign Out
     assert 'id="dropdown-feedback-btn"' in html
+    assert "Give Feedback & Suggestions" in html
+    assert html.index('id="dropdown-feedback-btn"') < html.index('Sign Out')
 
-    # Mobile hamburger feedback trigger
-    assert 'id="hamburger-feedback-btn"' in html
+    # Hamburger menu is removed
+    assert 'id="hamburger"' not in html
+    assert 'id="hamburger-menu"' not in html
+    assert 'id="hamburger-feedback-btn"' not in html
 
     # Dialog modal and form
     assert 'id="feedback-modal"' in html

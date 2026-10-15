@@ -184,7 +184,7 @@ def rank_chunks(question: str, chunks, limit: int | None = None) -> list[dict]:
     scored.sort(key=lambda item: (-item["score"], item["chunk"].ordinal))
     top = scored[: (limit or max_chunks())]
     # Present them in document order so the model reads them as a narrative.
-    top.sort(key=lambda item: item["chunk"].ordinal)
+    top.sort(key=lambda item: (item["chunk"].document_id, item["chunk"].ordinal))
     return top
 
 
@@ -233,6 +233,7 @@ Rules:
 - If the extracts do not contain the answer, say so plainly. Do not use outside \
 knowledge and do not guess.
 - If the extracts disagree, say they disagree and quote both.
+- When information spans multiple documents or sections, synthesize the answer across all relevant documents and cite each source.
 - Answer in the language of the question.
 - Keep the answer tight: a short paragraph or a short list, no preamble."""
 

@@ -45,6 +45,7 @@
   - Version control commands: `git`
   - File system operations: create, delete, move, and edit files and directories across the filesystem
 - **Icon Standard**: Use Lucide icons (`<i data-lucide="..."></i>` with `lucide.createIcons()`) across all projects wherever icons are needed, unless otherwise specifically directed. Icons must use the primary brand green (`var(--green-dark, #103e30)`) on light backgrounds, and white (`#ffffff`) on green or dark backgrounds.
+- **Password Field Standard**: Across all projects and templates, wherever a password field is rendered, always use the in-field eye toggle approach ("click eye in the field to view password"). Wrap the input in `.password-input-wrapper` with right padding, place a `.password-toggle-btn` inside the right edge, toggle between `type="password"` and `type="text"`, swap Lucide icons (`eye` / `eye-off`) with `.icon-green`, and provide client-side delegated handlers and auto-enhancement (`initPasswordToggles()`).
 - **Python Package Management**: When working with Python code, **ALWAYS use `requirements.txt`** for package management (installing, updating, and pinning dependencies with `pip install -r requirements.txt`). Do not introduce or use alternative package managers unless explicitly instructed.
 - **Python Virtual Environment Lifecycle**:
   - Always use a virtual environment to develop, test, write code, or run Python applications and scripts.

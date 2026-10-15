@@ -2,83 +2,475 @@
 {% from "macros.html" import breadcrumb %}
 {% block title %}Edit member{% endblock %}
 {% block content %}
-{{ breadcrumb([("Projects", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Edit member", None)]) }}
+{{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Edit member", None)]) }}
 <div class="page-heading"><h1>Edit member</h1></div>
-<form method="post" class="form-panel form-stack narrow-form">
+
+<form method="post" id="member-edit-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <label>Name<input name="name" maxlength="120" value="{{ member.name }}" required></label>
-  <label>Email<input type="email" name="email" maxlength="254" value="{{ member.email }}" required></label>
-  <label>Designation<input name="designation" maxlength="120" value="{{ member.designation }}"></label>
-  <label>Department / organization<input name="department_organization" maxlength="160" value="{{ member.department_organization }}"></label>
-  <label>Replace password <span class="muted">Leave blank to keep current</span><input type="password" name="password" minlength="12" autocomplete="new-password"></label>
-  <label class="checkbox-inline"><input type="checkbox" name="is_pm" value="1" {% if member.is_pm %}checked{% endif %}> Project Manager <span class="muted">(may create new projects. Authority over an existing project comes from a role on it: open the project and assign Project Manager or Delegated PM.)</span></label>
-  
-  <fieldset class="checkbox-group" style="margin-top:1rem">
-    <legend>Service Access</legend>
-    <p class="muted">Tick every service this member may open. Untick to revoke.</p>
-    <div class="checkbox-grid">
-      {% for card in feature_cards %}
-        {% if card.key == 'bulk_whatsapp' %}
-          <div class="feature-item-wrap" style="grid-column: 1 / -1;">
-            <label class="checkbox-row">
-              <input type="checkbox" name="feature_ids" value="bulk_whatsapp" id="cb-bulk-whatsapp" {% if 'bulk_whatsapp' in current_feature_ids %}checked{% endif %} onchange="toggleWhatsappDevices(this)">
-              <span>{{ card.label }}</span>
-              <p class="checkbox-note">{{ card.note }}</p>
-              {% if not card.configured %}
-              <span class="pm-tag">not configured: {{ card.missing | join(', ') }}</span>
-              {% endif %}
+
+  <div class="member-edit-layout">
+    <!-- Main Form Panel (70% width) -->
+    <div class="form-panel form-stack main-form-col">
+      <label>Name<input name="name" maxlength="120" value="{{ member.name }}" required></label>
+      <label>Email<input type="email" name="email" maxlength="254" value="{{ member.email }}" required></label>
+      <label>Designation<input name="designation" maxlength="120" value="{{ member.designation }}"></label>
+      <label>Department / organization<input name="department_organization" maxlength="160" value="{{ member.department_organization }}"></label>
+      <label>Replace password <span class="muted">Leave blank to keep current</span>
+        <div class="password-input-wrapper">
+          <input type="password" name="password" minlength="12" autocomplete="new-password">
+          <button type="button" class="password-toggle-btn" aria-label="Show password" title="Show password" tabindex="-1">
+            <i data-lucide="eye" class="icon-green"></i>
+          </button>
+        </div>
+      </label>
+      
+      <label class="checkbox-inline" style="margin-top: 0.5rem;">
+        <input type="checkbox" name="is_pm" value="1" {% if member.is_pm %}checked{% endif %}>
+        <span><strong>Project Manager</strong> <span class="muted">(may create new projects. Authority over an existing project comes from a role on it: open the project and assign Project Manager or Delegated PM.)</span></span>
+      </label>
+      
+      <fieldset class="checkbox-group" style="margin-top:1.25rem;">
+        <input type="hidden" name="features_submitted" value="1">
+        <legend>Service Access</legend>
+        <p class="muted" style="margin-bottom: 0.6rem;">Tick every service this member may open. Untick to revoke.</p>
+        <div class="checkbox-grid">
+          {% for card in feature_cards %}
+            {% if card.key == 'bulk_whatsapp' %}
+              <label class="checkbox-row">
+                <input type="checkbox" name="feature_ids" value="bulk_whatsapp" id="cb-bulk-whatsapp" {% if 'bulk_whatsapp' in current_feature_ids %}checked{% endif %} onchange="updatePanelStates()">
+                <span>{{ card.label }}</span>
+                <p class="checkbox-note">{{ card.note }}</p>
+                {% if not card.configured %}
+                <span class="pm-tag">not configured: {{ card.missing | join(', ') }}</span>
+                {% endif %}
+              </label>
+            {% elif card.key == 'remote_exec' %}
+              <label class="checkbox-row">
+                <input type="checkbox" name="feature_ids" value="remote_exec" id="cb-remote-exec" {% if 'remote_exec' in current_feature_ids %}checked{% endif %} onchange="updatePanelStates()">
+                <span>{{ card.label }}</span>
+                <p class="checkbox-note">{{ card.note }}</p>
+                {% if not card.configured %}
+                <span class="pm-tag">not configured: {{ card.missing | join(', ') }}</span>
+                {% endif %}
+              </label>
+            {% else %}
+              <label class="checkbox-row">
+                <input type="checkbox" name="feature_ids" value="{{ card.key }}" {% if card.key in current_feature_ids %}checked{% endif %}>
+                <span>{{ card.label }}</span>
+                <p class="checkbox-note">{{ card.note }}</p>
+                {% if not card.configured %}
+                <span class="pm-tag">not configured: {{ card.missing | join(', ') }}</span>
+                {% endif %}
+              </label>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <div class="form-actions" style="margin-top: 1.5rem;">
+        <a class="button button-quiet" href="{{ url_for('admin.member_list') }}">Cancel</a>
+        <button class="button button-primary" type="submit">Save member</button>
+      </div>
+    </div>
+
+    <!-- Side Panels Column (30% width) -->
+    <div class="side-panels-col">
+      <!-- PANEL 1: REGISTERED DEVICES -->
+      <section class="detail-section side-panel-box" id="registered-devices-panel">
+        <div class="section-heading" style="margin-bottom: 0.6rem;">
+          <div>
+            <p class="eyebrow" style="margin-bottom: 0.15rem;">COMMUNICATION</p>
+            <h2 style="font-size: 1.15rem; margin: 0;">Registered Devices</h2>
+          </div>
+        </div>
+        <p class="muted" style="font-size: 0.8rem; margin: 0 0 0.85rem; line-height: 1.4;">WhatsApp Device Access: Select registered WhatsApp (GOWA) devices this member may send through.</p>
+
+        {% if devices %}
+          <div class="devices-stack" style="display: flex; flex-direction: column; gap: 0.45rem; max-height: 240px; overflow-y: auto; padding-right: 0.2rem;">
+            {% for device in devices %}
+            <label class="checkbox-row device-check-item" style="display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.35rem; font-size: 0.85rem;">
+              <input type="checkbox" name="device_ids" value="{{ device.id }}" {% if current_device_ids and device.id in current_device_ids %}checked{% endif %} class="device-checkbox" style="margin-top: 0.2rem;">
+              <span style="line-height: 1.35;">
+                <strong style="color: var(--ink);">{{ device.name }}</strong>
+                <small class="muted" style="display: block; font-size: 0.75rem;">{{ device.device_id }}</small>
+              </span>
             </label>
-            <fieldset id="whatsapp-device-fieldset" class="checkbox-group" style="margin: 0.5rem 0 0.5rem 1.5rem; padding: 0.75rem 1rem; border: 1px solid var(--line); border-radius: 6px; background: rgba(0,0,0,0.01);" {% if 'bulk_whatsapp' not in current_feature_ids %}disabled{% endif %}>
-              <legend style="font-size: 0.75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; padding: 0 0.4rem;">Registered WhatsApp Device Access</legend>
-              <p class="muted" style="font-size: 0.8rem; margin: 0 0 0.5rem;">Select registered GOWA devices this member may send through.</p>
-              {% if devices %}
-                <div class="checkbox-grid" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));">
-                  {% for device in devices %}
-                  <label class="checkbox-row">
-                    <input type="checkbox" name="device_ids" value="{{ device.id }}" {% if current_device_ids and device.id in current_device_ids %}checked{% endif %}>
-                    <span>{{ device.name }} <span class="muted">({{ device.device_id }})</span></span>
-                  </label>
-                  {% endfor %}
-                </div>
-              {% else %}
-                <p class="muted" style="font-size: 0.82rem; margin: 0;">No registered devices available yet. Register devices under <strong>WhatsApp Service</strong> in System Settings.</p>
-              {% endif %}
-            </fieldset>
+            {% endfor %}
           </div>
         {% else %}
-          <label class="checkbox-row">
-            <input type="checkbox" name="feature_ids" value="{{ card.key }}" {% if card.key in current_feature_ids %}checked{% endif %}>
-            <span>{{ card.label }}</span>
-            <p class="checkbox-note">{{ card.note }}</p>
-            {% if not card.configured %}
-            <span class="pm-tag">not configured: {{ card.missing | join(', ') }}</span>
-            {% endif %}
-          </label>
+          <p class="muted" style="font-size: 0.82rem; margin: 0;">No registered devices available yet. Register devices under <strong>WhatsApp Service</strong> in System Settings.</p>
         {% endif %}
-      {% endfor %}
-    </div>
-  </fieldset>
+      </section>
 
-  <div class="form-actions">
-    <a class="button button-quiet" href="{{ url_for('admin.member_list') }}">Cancel</a>
-    <button class="button button-primary" type="submit">Save member</button>
+      <!-- PANEL 2: REGISTERED SERVERS -->
+      <section class="detail-section side-panel-box" id="registered-servers-panel" style="margin-top: 1.25rem;">
+        <div class="section-heading" style="margin-bottom: 0.6rem;">
+          <div>
+            <p class="eyebrow" style="margin-bottom: 0.15rem;">INFRASTRUCTURE / {{ servers|length }}</p>
+            <h2 style="font-size: 1.15rem; margin: 0;">Registered Servers</h2>
+          </div>
+        </div>
+        <p class="muted" style="font-size: 0.8rem; margin: 0 0 0.85rem; line-height: 1.4;">Environments &amp; servers accessible by this account.</p>
+
+        {% if servers %}
+          <div class="servers-stack" id="servers-list-container" style="display: flex; flex-direction: column; gap: 0.75rem; max-height: 480px; overflow-y: auto; padding-right: 0.2rem;">
+            {% for server in servers %}
+            <article class="server-item-box" id="server-card-{{ server.id }}" style="padding: 0.75rem 0.85rem; border: 1px solid var(--line); border-radius: 4px; background: #fafbf9;">
+              <div style="display: flex; align-items: flex-start; gap: 0.65rem;">
+                <label class="checkbox-inline" style="margin: 0; cursor: pointer; padding-top: 0.15rem;" title="Grant access to {{ server.name }}">
+                  <input type="checkbox" name="server_ids" value="{{ server.id }}" {% if current_server_ids and server.id in current_server_ids %}checked{% endif %} class="server-checkbox" style="margin: 0; width: 1.15rem; height: 1.15rem; cursor: pointer;">
+                </label>
+                <div style="flex: 1; min-width: 0;">
+                  <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.25rem;">
+                    <strong style="font-size: 0.88rem; color: var(--ink);">{{ server.name }}</strong>
+                    <div id="badge-wrapper-{{ server.id }}">
+                      {% if server.agent_status == 'online' %}
+                        <span class="badge status-badge-online" id="status-badge-{{ server.id }}" style="background:#2e7d32; color:#fff; font-size:0.68rem; padding:0.12rem 0.4rem; border-radius:3px; font-weight:600;">ONLINE</span>
+                      {% elif server.agent_status == 'connecting' %}
+                        <span class="badge status-badge-connecting" id="status-badge-{{ server.id }}" style="background:#f57c00; color:#fff; font-size:0.68rem; padding:0.12rem 0.4rem; border-radius:3px; font-weight:600;">
+                          <span class="status-spinner" style="display:inline-block; width:8px; height:8px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite; margin-right:3px; vertical-align:middle;"></span>
+                          CONNECTING ({{ server.connection_attempts or 1 }}/5)
+                        </span>
+                      {% elif server.agent_status == 'failed' %}
+                        <span class="badge status-badge-failed" id="status-badge-{{ server.id }}" style="background:#c62828; color:#fff; font-size:0.68rem; padding:0.12rem 0.4rem; border-radius:3px; font-weight:600;">FAILED (5/5)</span>
+                      {% else %}
+                        <span class="badge status-badge-offline" id="status-badge-{{ server.id }}" style="background:#757575; color:#fff; font-size:0.68rem; padding:0.12rem 0.4rem; border-radius:3px; font-weight:600;">NOT CONNECTED</span>
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div style="font-size: 0.78rem; color: var(--muted); margin-bottom: 0.3rem;">
+                    <span id="server-ip-os-{{ server.id }}">{{ server.ip }} &middot; {{ server.operating_system }}</span>
+                  </div>
+
+                  <small id="connection-msg-{{ server.id }}" class="muted connection-status-msg" style="display:block; font-size: 0.74rem; margin-bottom: 0.45rem; line-height: 1.35;">
+                    {% if server.agent_status == 'connecting' %}
+                      <span class="status-spinner-inline" style="display:inline-block; width:9px; height:9px; border:2px solid #2e7d32; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite; margin-right:4px; vertical-align:middle;"></span>
+                      {{ server.connection_message or ("Initiating connection cycle (" ~ (server.connection_attempts or 1) ~ " of 5 retries)...") }}
+                    {% else %}
+                      {{ server.connection_message or server.technology_packages or "No technology / packages listed" }}
+                    {% endif %}
+                  </small>
+
+                  {# Telemetry Section #}
+                  <div class="server-telemetry-panel" id="telemetry-panel-{{ server.id }}" style="margin: 0.5rem 0; padding: 0.5rem 0.65rem; background: #f4f7f5; border: 1px solid rgba(16, 62, 48, 0.12); border-radius: 4px; font-size: 0.75rem; {% if not server.has_telemetry and server.agent_status != 'online' %}display:none;{% endif %}">
+                    {# 1. Memory Graphs #}
+                    <div style="display:flex; flex-direction:column; gap:0.35rem; margin-bottom:0.45rem;">
+                      <div style="display:flex; align-items:center; gap:0.45rem;">
+                        <span style="font-weight:600; min-width:60px; color:var(--ink); font-size:0.72rem; display:inline-flex; align-items:center; gap:0.2rem;">
+                          <i data-lucide="cpu" style="width:12px; height:12px; color:var(--green-dark, #103e30);"></i> RAM
+                        </span>
+                        <div style="flex:1; background:#e2e8f0; border-radius:3px; height:8px; overflow:hidden;" title="{{ server.ram_percent or 0 }}% RAM in use">
+                          <div id="ram-bar-fill-{{ server.id }}" style="background:#2e7d32; height:100%; width:{{ server.ram_percent or 0 }}%; border-radius:3px;"></div>
+                        </div>
+                        <span id="ram-text-{{ server.id }}" style="font-size:0.72rem; color:var(--ink); min-width:115px; text-align:right; font-weight:600; font-variant-numeric:tabular-nums;">
+                          {{ server.ram_used or '0 GB' }} / {{ server.ram_total or '0 GB' }}
+                        </span>
+                      </div>
+
+                      <div style="display:flex; align-items:center; gap:0.45rem;">
+                        <span style="font-weight:600; min-width:60px; color:var(--ink); font-size:0.72rem; display:inline-flex; align-items:center; gap:0.2rem;">
+                          <i data-lucide="hard-drive" style="width:12px; height:12px; color:var(--green-dark, #103e30);"></i> Storage
+                        </span>
+                        <div style="flex:1; background:#e2e8f0; border-radius:3px; height:8px; overflow:hidden;" title="{{ server.disk_percent or 0 }}% storage in use">
+                          <div id="disk-bar-fill-{{ server.id }}" style="background:#2e7d32; height:100%; width:{{ server.disk_percent or 0 }}%; border-radius:3px;"></div>
+                        </div>
+                        <span id="disk-text-{{ server.id }}" style="font-size:0.72rem; color:var(--ink); min-width:115px; text-align:right; font-weight:600; font-variant-numeric:tabular-nums;">
+                          {{ server.disk_used or '0 GB' }} / {{ server.disk_total or '0 GB' }}
+                        </span>
+                      </div>
+                    </div>
+
+                    {# 2. Server Capabilities & Core Tags #}
+                    <div id="telemetry-details-{{ server.id }}" style="display:flex; flex-wrap:wrap; gap:0.3rem 0.5rem; border-top:1px dashed rgba(16, 62, 48, 0.15); padding-top:0.35rem; font-size:0.72rem; color:var(--ink); line-height:1.4;">
+                      {% set tag_lines = server.get_tag_lines() %}
+                      {% if tag_lines %}
+                        {% for line in tag_lines %}
+                          {% set parts = line.split(':', 1) %}
+                          {% set tag_text = parts[1].strip() if parts | length > 1 else parts[0].strip() %}
+                          <div style="background:rgba(16, 62, 48, 0.05); border:1px solid rgba(16, 62, 48, 0.12); border-radius:4px; padding:0.15rem 0.45rem; display:inline-flex; align-items:center; gap:0.2rem;">
+                            <span>{{ tag_text }}</span>
+                          </div>
+                        {% endfor %}
+                      {% else %}
+                        <span class="muted">No additional capabilities detected</span>
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  {# Action controls: Delete button only #}
+                  <div style="display:flex; align-items:center; justify-content:flex-end; gap:0.4rem;">
+                    <button type="submit" 
+                            form="delete-server-form-{{ server.id }}" 
+                            class="text-button danger-text delete-server-btn" 
+                            id="delete-btn-{{ server.id }}"
+                            style="padding:0.15rem 0.4rem; font-size:0.75rem; text-decoration:none; cursor:pointer;"
+                            onclick="return confirm('Delete this server?')">Delete</button>
+                  </div>
+                </div>
+              </div>
+            </article>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted" style="font-size: 0.82rem; margin: 0;">No registered servers found.</p>
+        {% endif %}
+      </section>
+    </div>
   </div>
 </form>
 
+{% if servers %}
+  {% for server in servers %}
+  <form id="delete-server-form-{{ server.id }}" method="post" action="{{ url_for('admin.server_delete', server_id=server.id) }}" style="display:none;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  </form>
+  {% endfor %}
+{% endif %}
+
+<style>
+.member-edit-layout {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+  width: 100%;
+}
+.main-form-col {
+  flex: 0 0 70%;
+  max-width: 70%;
+  width: 70%;
+  box-sizing: border-box;
+}
+.side-panels-col {
+  flex: 0 0 calc(30% - 1.5rem);
+  max-width: calc(30% - 1.5rem);
+  width: calc(30% - 1.5rem);
+  box-sizing: border-box;
+}
+.side-panel-box {
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--line, #e2e8f0);
+  border-radius: 4px;
+  padding: 1.25rem 1.35rem;
+  transition: opacity 0.25s ease, filter 0.25s ease;
+}
+.side-panel-box.panel-disabled {
+  opacity: 0.45;
+  filter: grayscale(60%);
+  pointer-events: none;
+  user-select: none;
+}
+.side-panel-box.panel-disabled input[type="checkbox"],
+.side-panel-box.panel-disabled button,
+.side-panel-box.panel-disabled a {
+  pointer-events: none !important;
+  tabindex: -1;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.status-spinner {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #fff;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.status-spinner-inline {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--green, #103e30);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.reconnect-modal {
+  border: 1px solid var(--line, #cbd5e1);
+  border-radius: 8px;
+  padding: 1.5rem;
+  max-width: 440px;
+  width: 90%;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+  background: #ffffff;
+}
+.reconnect-modal::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+.reconnect-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--line, #e2e8f0);
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.close-modal-btn {
+  background: transparent;
+  border: none;
+  font-size: 1.35rem;
+  cursor: pointer;
+  color: var(--muted);
+  line-height: 1;
+}
+.close-modal-btn:hover {
+  color: var(--ink);
+}
+
+@media (max-width: 900px) {
+  .member-edit-layout {
+    flex-direction: column;
+  }
+  .main-form-col, .side-panels-col {
+    flex: 1 1 100%;
+    max-width: 100%;
+    width: 100%;
+  }
+}
+</style>
+
 <script>
-function toggleWhatsappDevices(cb) {
-  var fieldset = document.getElementById('whatsapp-device-fieldset');
-  if (!fieldset) return;
-  if (cb.checked) {
-    fieldset.removeAttribute('disabled');
-  } else {
-    fieldset.setAttribute('disabled', 'disabled');
-    var checkboxes = fieldset.querySelectorAll('input[type="checkbox"]');
-    checkboxes.forEach(function(deviceCb) {
-      deviceCb.checked = false;
+// State toggling for Registered Devices and Registered Servers panels
+function updatePanelStates() {
+  // 1. Bulk Messenger -> Registered Devices Panel
+  var bulkCb = document.getElementById('cb-bulk-whatsapp');
+  var devicesPanel = document.getElementById('registered-devices-panel');
+  if (devicesPanel) {
+    var isDevicesEnabled = bulkCb && bulkCb.checked;
+    devicesPanel.classList.toggle('panel-disabled', !isDevicesEnabled);
+    var deviceInputs = devicesPanel.querySelectorAll('input[type="checkbox"]');
+    deviceInputs.forEach(function(input) {
+      input.disabled = !isDevicesEnabled;
+    });
+  }
+
+  // 2. Remote Exec -> Registered Servers Panel
+  var remoteCb = document.getElementById('cb-remote-exec');
+  var serversPanel = document.getElementById('registered-servers-panel');
+  if (serversPanel) {
+    var isServersEnabled = remoteCb && remoteCb.checked;
+    serversPanel.classList.toggle('panel-disabled', !isServersEnabled);
+    var serverInputs = serversPanel.querySelectorAll('input[type="checkbox"]');
+    serverInputs.forEach(function(input) {
+      input.disabled = !isServersEnabled;
+    });
+    var deleteBtns = serversPanel.querySelectorAll('.delete-server-btn');
+    deleteBtns.forEach(function(btn) {
+      btn.disabled = !isServersEnabled;
+      if (!isServersEnabled) {
+        btn.setAttribute('aria-disabled', 'true');
+        btn.style.pointerEvents = 'none';
+      } else {
+        btn.removeAttribute('aria-disabled');
+        btn.style.pointerEvents = '';
+      }
     });
   }
 }
+
+function setServerConnectingUI(serverId, attempt, maxRetries) {
+  attempt = attempt || 1;
+  maxRetries = maxRetries || 5;
+
+  var badgeWrapper = document.getElementById('badge-wrapper-' + serverId);
+  if (badgeWrapper) {
+    badgeWrapper.innerHTML = '<span class="badge status-badge-connecting" id="status-badge-' + serverId + '" style="background:#f57c00; color:#fff; font-size:0.68rem; padding:0.12rem 0.4rem; border-radius:3px; font-weight:600;"><span class="status-spinner" style="display:inline-block; width:8px; height:8px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite; margin-right:3px; vertical-align:middle;"></span> CONNECTING (' + attempt + '/' + maxRetries + ')</span>';
+  }
+
+  var msgEl = document.getElementById('connection-msg-' + serverId);
+  if (msgEl) {
+    msgEl.innerHTML = '<span class="status-spinner-inline" style="display:inline-block; width:9px; height:9px; border:2px solid #2e7d32; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite; margin-right:4px; vertical-align:middle;"></span> Initiating connection cycle (' + attempt + ' of ' + maxRetries + ' retries)...';
+  }
+}
+
+var pollingIntervals = {};
+
+function startPollingForServer(serverId) {
+  if (pollingIntervals[serverId]) return;
+
+  pollingIntervals[serverId] = setInterval(async function() {
+    try {
+      var resp = await fetch('/apps/admin/servers/' + serverId + '/connection-status');
+      if (!resp.ok) return;
+      var data = await resp.json();
+
+      if (data.agent_status === 'connecting') {
+        setServerConnectingUI(serverId, data.connection_attempts, data.max_connection_attempts);
+      } else {
+        clearInterval(pollingIntervals[serverId]);
+        delete pollingIntervals[serverId];
+
+        var badgeWrapper = document.getElementById('badge-wrapper-' + serverId);
+        var msgEl = document.getElementById('connection-msg-' + serverId);
+        var ipOsEl = document.getElementById('server-ip-os-' + serverId);
+
+        if (data.is_online) {
+          if (badgeWrapper) {
+            badgeWrapper.innerHTML = '<span class="badge status-badge-online" id="status-badge-' + serverId + '" style="background:#2e7d32; color:#fff; font-size:0.68rem; padding:0.12rem 0.4rem; border-radius:3px; font-weight:600;">ONLINE</span>';
+          }
+          if (ipOsEl && data.operating_system) {
+            var parts = ipOsEl.textContent.split('·');
+            ipOsEl.textContent = (parts[0] || '').trim() + ' · ' + data.operating_system;
+          }
+          if (msgEl) {
+            msgEl.textContent = data.connection_message || data.technology_packages || 'Connected';
+          }
+
+          var panel = document.getElementById('telemetry-panel-' + serverId);
+          if (panel) {
+            panel.style.display = 'block';
+            var ramBar = document.getElementById('ram-bar-fill-' + serverId);
+            var ramText = document.getElementById('ram-text-' + serverId);
+            if (ramBar) ramBar.style.width = (data.ram_percent || 0) + '%';
+            if (ramText) ramText.textContent = (data.ram_used || '0 GB') + ' / ' + (data.ram_total || '0 GB');
+
+            var diskBar = document.getElementById('disk-bar-fill-' + serverId);
+            var diskText = document.getElementById('disk-text-' + serverId);
+            if (diskBar) diskBar.style.width = (data.disk_percent || 0) + '%';
+            if (diskText) diskText.textContent = (data.disk_used || '0 GB') + ' / ' + (data.disk_total || '0 GB');
+          }
+        } else {
+          var isFailed = data.agent_status === 'failed';
+          if (badgeWrapper) {
+            if (isFailed) {
+              badgeWrapper.innerHTML = '<span class="badge status-badge-failed" id="status-badge-' + serverId + '" style="background:#c62828; color:#fff; font-size:0.68rem; padding:0.12rem 0.4rem; border-radius:3px; font-weight:600;">FAILED (5/5)</span>';
+            } else {
+              badgeWrapper.innerHTML = '<span class="badge status-badge-offline" id="status-badge-' + serverId + '" style="background:#757575; color:#fff; font-size:0.68rem; padding:0.12rem 0.4rem; border-radius:3px; font-weight:600;">NOT CONNECTED</span>';
+            }
+          }
+          if (msgEl) {
+            msgEl.textContent = data.connection_message || (isFailed ? 'Failed after 5 attempts' : 'Not connected');
+          }
+        }
+
+        if (window.lucide) lucide.createIcons();
+      }
+    } catch (e) {
+      console.error('Status poll error:', e);
+    }
+  }, 2000);
+}
+
+// Initial initialization on load
+document.addEventListener('DOMContentLoaded', function() {
+  updatePanelStates();
+  if (window.lucide) {
+    lucide.createIcons();
+  }
+
+  // Check if any server is currently connecting and start polling for it
+  document.querySelectorAll('.status-badge-connecting').forEach(function(badge) {
+    var idParts = badge.id.split('-');
+    var serverId = idParts[idParts.length - 1];
+    if (serverId) {
+      startPollingForServer(serverId);
+    }
+  });
+});
 </script>
 {% endblock %}
-

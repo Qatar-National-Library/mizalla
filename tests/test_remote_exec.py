@@ -700,3 +700,66 @@ def test_command_group_full_log_accordion_look(app, client):
     assert "Removing temp cache..." in html
     assert "Dumping database..." in html
 
+
+def test_remote_exec_dashboard_displays_server_ram_disk_and_core_tags(client, app):
+    """Verify server cards on /apps/remote-exec/ display RAM/Disk bar graphs and Core tags capsules."""
+    with app.app_context():
+        user = make_member(name="Telemetry User", email="telem_user@example.com")
+        sync_member_features(user, [FEATURE_REMOTE_EXEC])
+
+        server = Server(
+            name="Orchestration Cluster Node 1",
+            ip="10.200.1.15",
+            os_type="linux",
+            os_version="Ubuntu 22.04 LTS",
+            status="available",
+            ram_total="32.0 GB",
+            ram_used="8.0 GB",
+            ram_percent=25.0,
+            disk_total="500.0 GB",
+            disk_used="100.0 GB",
+            disk_percent=20.0,
+            core_tags="drupal: Drupal 10.1 [/var/www/drupal] [Running on port 80]\r\ncontainerizers: Docker 24.0.5 [Compose: /opt/app/docker-compose.yml]\r\npython: Python 3.11.4",
+        )
+        db.session.add(server)
+        db.session.commit()
+        server_id = server.id
+
+    login(client, "telem_user@example.com")
+    resp = client.get("/apps/remote-exec/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+
+    # Server card presence
+    assert "Orchestration Cluster Node 1" in html
+    assert "10.200.1.15" in html
+
+    # Packages line is removed / ignored
+    assert "Packages: 887 packages installed" not in html
+    assert "<strong>Packages:</strong>" not in html
+
+    # RAM Bar Graph & Tabular Readout
+    assert f'id="ram-bar-fill-{server_id}"' in html
+    assert "width:25.0%" in html
+    assert f'id="ram-text-{server_id}"' in html
+    assert "8.0 GB / 32.0 GB" in html
+
+    # Storage Bar Graph & Tabular Readout
+    assert f'id="disk-bar-fill-{server_id}"' in html
+    assert "width:20.0%" in html
+    assert f'id="disk-text-{server_id}"' in html
+    assert "100.0 GB / 500.0 GB" in html
+
+    # Core Tags Capsule Badges (No redundant Drupal: / Containerizers: prefix label)
+    assert f'id="telemetry-details-{server_id}"' in html
+    assert "Drupal 10.1 [/var/www/drupal] [Running on port 80]" in html
+    assert "Docker 24.0.5 [Compose: /opt/app/docker-compose.yml]" in html
+    assert "Python 3.11.4" in html
+    assert "<strong>Drupal:</strong>" not in html
+    assert "<strong>Containerizers:</strong>" not in html
+
+    # Lucide icons standard
+    assert 'data-lucide="cpu"' in html
+    assert 'data-lucide="hard-drive"' in html
+
+

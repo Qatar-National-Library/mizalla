@@ -6,7 +6,7 @@
 
 
 <div class="upload-file">
-  {{ breadcrumb([("Projects", url_for('main.project_list')), ("Video Upload", None)]) }}
+  {{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Video Upload", None)]) }}
 
   <div class="page-heading">
     <h1>Video Upload</h1>
@@ -72,7 +72,7 @@
     {% if account_hint %}<p class="field-helper">Cloudflare account <code>{{ account_hint }}&hellip;</code></p>{% endif %}-->
     </div>
 
-    <aside class="detail-section">
+    <aside class="uploaded-videos-section">
       <div class="section-heading">
         <div>
           <p class="eyebrow">CLOUDFLARE STREAM / {{ videos | length }} VIDEO{{ '' if videos | length == 1 else 'S' }}
@@ -82,48 +82,44 @@
       </div>
 
       {% if videos %}
-      <ul class="document-list">
+      <div class="video-cards-list">
         {% for video in videos %}
-        <li>
-          <div>
-            <strong>{{ video.filename }}</strong>
-            {% if video.media_id %}
-            <div class="history-media-id">Video ID: <code>{{ video.media_id }}</code></div>
-            {% endif %}
-            <span class="muted"><small>
-                {{ (video.size_bytes / 1048576) | round(1) }} MB &middot; uploaded by {{ video.uploaded_by_name or
-                "unknown" }}{% if video.uploaded_by_id != current_user.id %} &middot; not yours{% endif %}
-                &middot; <span class="pm-tag">{{ video.status }}</span>{% if video.status_detail %} &middot; {{
-                video.status_detail }}{% endif %}
-              </small></span>
+        <div class="video-card-item">
+          <strong>{{ video.filename }}</strong>
+          {% if video.media_id %}
+          <div class="history-media-id">Video ID: <code>{{ video.media_id }}</code></div>
+          {% endif %}
+          <span class="muted"><small>
+              {{ (video.size_bytes / 1048576) | round(1) }} MB &middot; uploaded by {{ video.uploaded_by_name or
+              "unknown" }}{% if video.uploaded_by_id != current_user.id %} &middot; not yours{% endif %}
+              &middot; <span class="pm-tag">{{ video.status }}</span>
+            </small></span>
 
+          <div class="history-links">
             {% if video.media_id %}
-            <div class="history-links">
-              <a href="{{ video.watch_url }}" target="_blank" rel="noopener">Direct Watch</a>
-              <span class="muted">&middot;</span>
-              <a href="{{ video.embed_url }}" target="_blank" rel="noopener">Embed Player</a>
-              <span class="muted">&middot;</span>
-              <a href="{{ video.hls_manifest_url }}" target="_blank" rel="noopener">HLS Manifest</a>
-            </div>
+            <a href="{{ video.watch_url }}" target="_blank" rel="noopener">Direct Watch</a>
+            <span class="muted">&middot;</span>
+            <a href="{{ video.embed_url }}" target="_blank" rel="noopener">Embed Player</a>
+            <span class="muted">&middot;</span>
+            <a href="{{ video.hls_manifest_url }}" target="_blank" rel="noopener">HLS Manifest</a>
             {% endif %}
-          </div>
-          <div class="button-group">
             {% if can_delete(video) %}
+            {% if video.media_id %}<span class="muted">&middot;</span>{% endif %}
             <form method="post" action="{{ url_for('video_upload.delete', upload_id=video.id) }}"
               onsubmit="return confirm('Delete {{ video.filename }} from Cloudflare Stream? The video cannot be recovered.')">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="text-button danger-text" type="submit">Delete</button>
+              <button class="video-delete-btn" type="submit">Delete</button>
             </form>
             {% endif %}
           </div>
-        </li>
+        </div>
         {% endfor %}
-      </ul>
+      </div>
       {% else %}
       <p class="muted empty-inline">No videos yet. Choose one or more above to get started.</p>
       {% endif %}
 
-      <p class="field-helper">You can delete a video you uploaded. An administrator can delete anyone's. Deleting
+      <p class="field-helper" style="margin-top: 1.2rem;">You can delete a video you uploaded. An administrator can delete anyone's. Deleting
         removes it from Cloudflare Stream as well as from this list.</p>
     </aside>
   </section>

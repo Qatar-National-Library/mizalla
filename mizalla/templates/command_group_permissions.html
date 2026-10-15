@@ -3,9 +3,9 @@
 {% block title %}Access Permissions · {{ group.name }} · Mizalla{% endblock %}
 
 {% block content %}
-{{ breadcrumb([("Projects", url_for('main.project_list')), ("Remote Command Orchestration", url_for('remote_exec.dashboard')), (group.name, url_for('remote_exec.group_edit', group_id=group.id)), ("Access Permissions", None)]) }}
+{{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Remote Command Orchestration", url_for('remote_exec.dashboard')), (group.name, url_for('remote_exec.group_edit', group_id=group.id)), ("Access Permissions", None)]) }}
 
-<div class="remote-exec-container" style="max-width: 900px; margin: 0 auto; padding-bottom: 3rem;">
+<div class="remote-exec-container" style="max-width: 900px; margin: 0; padding-bottom: 3rem;">
   <div class="heading-row" style="margin-bottom: 1.5rem;">
     <p class="eyebrow">SECURITY & AUDIT COMPLIANCE</p>
     <h1 style="margin: 0.2rem 0 0; font: 400 clamp(1.6rem, 3vw, 2.2rem)/1.15 Georgia, serif;">

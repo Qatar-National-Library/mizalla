@@ -2,7 +2,7 @@
 {% from "macros.html" import breadcrumb %}
 {% block title %}Chat Service{% endblock %}
 {% block content %}<div class="ai-chat">
-{{ breadcrumb([("Projects", url_for('main.project_list')), ("Chat", None)]) }}
+{{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Chat", None)]) }}
 
 <div class="page-heading">
   <h1>Chat Service</h1>
@@ -55,14 +55,15 @@
     <form method="post" action="{{ url_for('ai.chat_document_upload') }}" enctype="multipart/form-data" class="form-stack">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label class="file-picker drop-zone" for="document" id="drop-zone-document">
-        <input type="file" id="document" name="document" accept="{{ accepted }}" required>
+        <span class="upload-symbol" aria-hidden="true">＋</span>
         <span class="file-picker-copy">
-          <strong id="document-label">Add a document or drop here</strong>
-          <small>DOCX, DOC, PDF, XLS, XLSX, PPT, PPTX, TXT, MD, CSV, RTF · up to 12 MB</small>
+          <strong id="document-label">Add documents or drop here</strong>
+          <small>DOCX, DOC, PDF, XLS, XLSX, PPT, PPTX, TXT, MD, CSV, RTF &middot; multiple allowed &middot; up to 12 MB each</small>
         </span>
+        <input type="file" id="document" name="document" accept="{{ accepted }}" multiple required>
       </label>
       <div class="form-actions">
-        <button class="button button-primary" type="submit">Add document</button>
+        <button class="button button-primary" type="submit">Add documents</button>
       </div>
     </form>
 
@@ -113,7 +114,13 @@
       }
     });
     input.addEventListener("change", () => {
-      label.textContent = input.files[0]?.name || "Add a document or drop here";
+      if (!input.files || input.files.length === 0) {
+        label.textContent = "Add documents or drop here";
+      } else if (input.files.length === 1) {
+        label.textContent = input.files[0].name;
+      } else {
+        label.textContent = `${input.files.length} documents selected`;
+      }
     });
   }
 

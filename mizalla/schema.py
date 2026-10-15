@@ -55,6 +55,13 @@ SQLITE_ADDITIONS = {
         "ssh_port": "INTEGER NOT NULL DEFAULT 22",
         "status": "VARCHAR(20) NOT NULL DEFAULT 'available'",
         "last_checked": "DATETIME",
+        "ram_total": "VARCHAR(40) DEFAULT ''",
+        "ram_used": "VARCHAR(40) DEFAULT ''",
+        "ram_percent": "FLOAT DEFAULT 0.0",
+        "disk_total": "VARCHAR(40) DEFAULT ''",
+        "disk_used": "VARCHAR(40) DEFAULT ''",
+        "disk_percent": "FLOAT DEFAULT 0.0",
+        "core_tags": "TEXT NOT NULL DEFAULT ''",
     },
     "command_audit": {
         "client_ip": "VARCHAR(45) DEFAULT ''",

@@ -2,7 +2,7 @@
 {% from "macros.html" import breadcrumb %}
 {% block title %}WhatsApp Devices{% endblock %}
 {% block content %}
-{{ breadcrumb([("Projects", url_for('main.project_list')), ("Settings", url_for('admin.settings_list') + '#panel-whatsapp'), ("Registered Devices", None)]) }}
+{{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Settings", url_for('admin.settings_list') + '#panel-whatsapp'), ("Registered Devices", None)]) }}
 <div class="page-heading"><p class="eyebrow">ADMINISTRATION / WHATSAPP</p><h1>WhatsApp Devices</h1></div>
 <div class="bulk-email-admin">
   <p class="intro-copy">View WhatsApp devices registered in the GOWA app and assign access to members. Device access control is configured below by the Administrator.</p>

@@ -2,7 +2,7 @@
 {% from "macros.html" import breadcrumb %}
 {% block title %}{{ "Edit project" if project else "New project" }}{% endblock %}
 {% block content %}
-{% if project %}{{ breadcrumb([("Projects", url_for('main.project_list')), (project.project_id, url_for('main.project_detail', project_id=project.id)), ("Edit project", None)]) }}{% else %}{{ breadcrumb([("Projects", url_for('main.project_list')), ("New project", None)]) }}{% endif %}
+{% if project %}{{ breadcrumb([("Mizalla", url_for('main.project_list')), (project.project_id, url_for('main.project_detail', project_id=project.id)), ("Edit project", None)]) }}{% else %}{{ breadcrumb([("Mizalla", url_for('main.project_list')), ("New project", None)]) }}{% endif %}
 <div class="page-heading"><p class="eyebrow">PROJECT / RECORD</p><h1>{{ "Edit project" if project else "New project" }}</h1></div>
 <form method="post" class="form-panel form-stack narrow-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

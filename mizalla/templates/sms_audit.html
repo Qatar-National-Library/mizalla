@@ -2,7 +2,7 @@
 {% from "macros.html" import breadcrumb, admin_nav %}
 {% block title %}SMS Audit · Administration{% endblock %}
 {% block content %}
-{{ breadcrumb([("Projects", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("SMS Audit", None)]) }}
+{{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("SMS Audit", None)]) }}
 
 {{ admin_nav('sms') }}
 <div class="bulk-email-admin">

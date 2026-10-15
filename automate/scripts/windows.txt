@@ -1,0 +1,40 @@
+# os_version
+powershell -Command "[System.Environment]::OSVersion.VersionString"
+
+# ram
+powershell -Command "Get-CimInstance Win32_OperatingSystem | ForEach-Object { \"$($_.TotalVisibleMemorySize),$($_.FreePhysicalMemory)\" }"
+
+# disk
+powershell -Command "Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\" | ForEach-Object { \"$($_.Size),$($_.FreeSpace)\" }"
+
+# external_storage
+powershell -Command "Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -in 2,4 } | Select-Object -ExpandProperty DeviceID"
+
+# docker
+docker --version
+docker info
+powershell -Command "Get-ChildItem -Path C:\ -Include 'docker-compose.yml','docker-compose.yaml','compose.yaml' -Recurse -Depth 4 -ErrorAction SilentlyContinue | Select-Object -First 3 -ExpandProperty FullName"
+
+# kubernetes
+kubectl version --client
+
+# python
+python --version
+
+# php
+php -v
+
+# nodejs
+node -v
+
+# uvicorn
+powershell -Command "uvicorn --version"
+
+# apache
+powershell -Command "httpd -v"
+
+# nginx
+powershell -Command "nginx -v"
+
+# drupal
+powershell -Command "Get-ChildItem -Path C:\inetpub, C:\xampp, C:\www -Filter Drupal.php -Recurse -Depth 4 -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName"

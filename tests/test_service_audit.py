@@ -78,3 +78,23 @@ def test_admin_service_audit_view_and_export(app, client):
     res_xlsx = client.get("/apps/admin/service-audit/export?format=xlsx")
     assert res_xlsx.status_code == 200
     assert res_xlsx.mimetype == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+    # Breadcrumb checks
+    assert b'<nav class="crumb"' in res.data
+    assert b'<a href="/apps/mizalla/">Mizalla</a>' in res.data
+    assert b'<a href="/apps/mizalla/">Projects</a>' not in res.data
+
+    # Separate audit tabs removed from admin nav
+    assert b"Email Audit</a>" not in res.data
+    assert b"WhatsApp Audit</a>" not in res.data
+    assert b"SMS Audit</a>" not in res.data
+
+    # Date range filtering
+    res_filtered = client.get("/apps/admin/service-audit?start_date=2020-01-01&end_date=2030-12-31")
+    assert res_filtered.status_code == 200
+    assert b"synthesize" in res_filtered.data
+
+    res_empty_date = client.get("/apps/admin/service-audit?start_date=2010-01-01&end_date=2010-01-02")
+    assert res_empty_date.status_code == 200
+    assert b"synthesize" not in res_empty_date.data
+    assert b"No service audit records found" in res_empty_date.data

@@ -2,7 +2,7 @@
 {% from "macros.html" import breadcrumb, admin_nav %}
 {% block title %}Members · Administration{% endblock %}
 {% block content %}
-{{ breadcrumb([("Projects", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Members", None)]) }}
+{{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Members", None)]) }}
 
 {{ admin_nav('members') }}
 <section class="detail-grid admin-grid">
@@ -18,7 +18,14 @@
       <label>Email<input type="email" name="email" maxlength="254" required></label>
       <label>Designation<input name="designation" maxlength="120"></label>
       <label>Department / organization<input name="department_organization" maxlength="160"></label>
-      <label>Initial password<input type="password" name="password" minlength="12" autocomplete="new-password" required></label>
+      <label>Initial password
+        <div class="password-input-wrapper">
+          <input type="password" name="password" minlength="12" autocomplete="new-password" required>
+          <button type="button" class="password-toggle-btn" aria-label="Show password" title="Show password" tabindex="-1">
+            <i data-lucide="eye" class="icon-green"></i>
+          </button>
+        </div>
+      </label>
       <label class="checkbox-inline"><input type="checkbox" name="is_pm" value="1" checked> Project Manager <span class="muted">(may create new projects. Authority over an existing project comes from a role on it: open the project and assign Project Manager or Delegated PM.)</span></label>
       <fieldset class="checkbox-group" style="margin-top:1rem">
         <legend>Service Access</legend>

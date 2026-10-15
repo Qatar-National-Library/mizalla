@@ -15,7 +15,14 @@
     <form method="post" class="form-stack">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label>Email address<input type="email" name="email" autocomplete="username" required autofocus></label>
-      <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
+      <label>Password
+        <div class="password-input-wrapper">
+          <input type="password" name="password" autocomplete="current-password" required>
+          <button type="button" class="password-toggle-btn" aria-label="Show password" title="Show password" tabindex="-1">
+            <i data-lucide="eye" class="icon-green"></i>
+          </button>
+        </div>
+      </label>
       <button class="button button-primary" type="submit">Continue <span aria-hidden="true">→</span></button>
     </form>
   </div>

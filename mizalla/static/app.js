@@ -1,21 +1,4 @@
 document.addEventListener("DOMContentLoaded", () => {
-  // Hamburger menu toggle
-  const hamburger = document.querySelector("#hamburger");
-  const menu = document.querySelector("#hamburger-menu");
-  if (hamburger && menu) {
-    hamburger.addEventListener("click", () => {
-      const isOpen = !menu.hidden;
-      menu.hidden = isOpen;
-      hamburger.setAttribute("aria-expanded", String(!isOpen));
-    });
-    document.addEventListener("click", (e) => {
-      if (!menu.contains(e.target) && e.target !== hamburger) {
-        menu.hidden = true;
-        hamburger.setAttribute("aria-expanded", "false");
-      }
-    });
-  }
-
   // User dropdown toggle
   const userToggle = document.querySelector("#user-dropdown-toggle");
   const userMenu = document.querySelector("#user-dropdown-menu");
@@ -66,7 +49,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ─── Utility Feedback & Suggestions Modal ───────────────────────────────
   const feedbackModal = document.querySelector("#feedback-modal");
-  const openFeedbackBtns = document.querySelectorAll("#open-feedback-btn, #dropdown-feedback-btn, #hamburger-feedback-btn");
+  const openFeedbackBtns = document.querySelectorAll("#open-feedback-btn, #dropdown-feedback-btn");
   const closeFeedbackBtn = document.querySelector("#feedback-modal-close");
   const cancelFeedbackBtn = document.querySelector("#feedback-cancel-btn");
   const tabExisting = document.querySelector("#tab-feedback-existing");
@@ -306,6 +289,58 @@ document.addEventListener("DOMContentLoaded", () => {
       if (feedbackSubmitBtn) feedbackSubmitBtn.disabled = false;
     }
   });
+
+  // ─── Password Field Visibility Toggle ("Click eye in field to view password") ─
+  const initPasswordToggles = (root = document) => {
+    root.querySelectorAll('input[type="password"]').forEach((input) => {
+      if (input.closest(".password-input-wrapper")) return;
+      const wrapper = document.createElement("div");
+      wrapper.className = "password-input-wrapper";
+      if (input.style.width === "100%") wrapper.style.width = "100%";
+      input.parentNode.insertBefore(wrapper, input);
+      wrapper.appendChild(input);
+
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "password-toggle-btn";
+      btn.setAttribute("aria-label", "Show password");
+      btn.setAttribute("title", "Show password");
+      btn.setAttribute("tabindex", "-1");
+      btn.innerHTML = '<i data-lucide="eye" class="icon-green"></i>';
+      wrapper.appendChild(btn);
+    });
+
+    if (window.lucide) {
+      lucide.createIcons();
+    }
+  };
+
+  initPasswordToggles();
+
+  document.addEventListener("click", (e) => {
+    const toggleBtn = e.target.closest(".password-toggle-btn");
+    if (!toggleBtn) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const wrapper = toggleBtn.closest(".password-input-wrapper");
+    const input = wrapper ? wrapper.querySelector("input") : toggleBtn.previousElementSibling;
+    if (!input) return;
+
+    const isPassword = input.type === "password";
+    input.type = isPassword ? "text" : "password";
+    toggleBtn.setAttribute("aria-label", isPassword ? "Hide password" : "Show password");
+    toggleBtn.setAttribute("title", isPassword ? "Hide password" : "Show password");
+    toggleBtn.innerHTML = isPassword
+      ? '<i data-lucide="eye-off" class="icon-green"></i>'
+      : '<i data-lucide="eye" class="icon-green"></i>';
+
+    if (window.lucide) {
+      lucide.createIcons();
+    }
+  });
+
+  window.initPasswordToggles = initPasswordToggles;
 });
 
 // Shared by the Bulk Emailer, Bulk SMS and Bulk Messenger composers.

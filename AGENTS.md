@@ -21,6 +21,16 @@ The AI Agent is authorized with full access to run:
 
 ---
 
+## Universal Password Field Standard ("Click eye in field to view password")
+- Across all projects and templates, wherever a **password field** is rendered:
+  - Always use an in-field eye toggle button allowing users to view/hide their password.
+  - Wrap the input in a `.password-input-wrapper` container with right-padding on the input so text does not overlap the icon.
+  - Position the toggle button (`.password-toggle-btn`) inside the right edge of the input.
+  - Use Lucide icons: `<i data-lucide="eye" class="icon-green"></i>` when obscured, swapping to `data-lucide="eye-off"` when revealed.
+  - Provide delegated click handlers and auto-enhancement (`initPasswordToggles()`) in client-side scripts to wire up static and dynamic password fields.
+
+---
+
 ## Workspace Architecture & Guidelines
 - Follow Flask application-factory conventions (`mizalla.create_app`).
 - Remote Execution module uses Agentless AsyncSSH (`mizalla.asyncssh_engine`).

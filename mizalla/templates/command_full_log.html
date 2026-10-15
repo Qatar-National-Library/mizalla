@@ -3,9 +3,9 @@
 {% block title %}Execution Log: {{ audit.title }} · Mizalla{% endblock %}
 
 {% block content %}
-{{ breadcrumb([("Projects", url_for('main.project_list')), ("Remote Command Orchestration", url_for('remote_exec.dashboard')), ("Execution Log #" ~ audit.id, None)]) }}
+{{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Remote Command Orchestration", url_for('remote_exec.dashboard')), ("Execution Log #" ~ audit.id, None)]) }}
 
-<div class="remote-exec-container" style="max-width: 1200px; margin: 0 auto; padding-bottom: 3rem;">
+<div class="remote-exec-container" style="max-width: 1200px; margin: 0; padding-bottom: 3rem;">
   <div class="heading-row" style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 1.5rem; flex-wrap:wrap; gap:1rem;">
     <div>
       <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">

@@ -3,7 +3,7 @@
 {% block title %}{{ project.name }}{% endblock %}
 {% block content %}
 {{ breadcrumb([
-  ("Projects", url_for('main.project_list')),
+  ("Mizalla", url_for('main.project_list')),
   (project.project_id, None)
 ]) }}
 {% set project_members = project.memberships | map(attribute='member') | unique %}

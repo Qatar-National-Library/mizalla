@@ -197,6 +197,15 @@ class Server(db.Model):
     max_connection_attempts = db.Column(db.Integer, nullable=False, default=5)
     connection_message = db.Column(db.String(255), nullable=True, default="")
 
+    # Comprehensive Hardware & Runtime Telemetry
+    ram_total = db.Column(db.String(40), nullable=True, default="")
+    ram_used = db.Column(db.String(40), nullable=True, default="")
+    ram_percent = db.Column(db.Float, nullable=True, default=0.0)
+    disk_total = db.Column(db.String(40), nullable=True, default="")
+    disk_used = db.Column(db.String(40), nullable=True, default="")
+    disk_percent = db.Column(db.Float, nullable=True, default=0.0)
+    core_tags = db.Column(db.Text, nullable=False, default="")
+
     test_projects = db.relationship("Project", foreign_keys="Project.test_server_id", back_populates="test_server")
     production_projects = db.relationship("Project", foreign_keys="Project.production_server_id", back_populates="production_server")
     credentials = db.relationship("ServerCredential", back_populates="server", cascade="all, delete-orphan")
@@ -233,6 +242,52 @@ class Server(db.Model):
         if not self.auth_token:
             self.auth_token = secrets.token_hex(32)
         return self.auth_token
+
+    def has_tag(self, keyword: str) -> bool:
+        """Fast case-insensitive check if a tag/capability is present (e.g. server.has_tag('drupal'))."""
+        return keyword.lower() in (self.core_tags or "").lower()
+
+    def get_tag_lines(self) -> list[str]:
+        """Returns non-empty lines from core_tags."""
+        if not self.core_tags:
+            return []
+        return [line.strip() for line in self.core_tags.splitlines() if line.strip()]
+
+    def get_tag_values(self) -> list[str]:
+        """Returns clean tag display values omitting any tag name prefix."""
+        values = []
+        for line in self.get_tag_lines():
+            if ":" in line:
+                val = line.split(":", 1)[1].strip()
+                if val:
+                    values.append(val)
+            else:
+                values.append(line.strip())
+        return values
+
+    @property
+    def has_telemetry(self) -> bool:
+        return bool(self.ram_total or self.disk_total or self.core_tags)
+
+
+
+class ServerAccess(db.Model):
+    """Member access to a Server (many-to-many)."""
+
+    __tablename__ = "server_access"
+
+    id = db.Column(db.Integer, primary_key=True)
+    server_id = db.Column(db.Integer, db.ForeignKey("server.id", ondelete="CASCADE"), nullable=False, index=True)
+    member_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="CASCADE"), nullable=False, index=True)
+    granted_by_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="SET NULL"), nullable=True)
+    granted_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    server = db.relationship("Server", backref=db.backref("access_grants", cascade="all, delete-orphan"))
+    member = db.relationship("Member", foreign_keys=[member_id], backref="server_access")
+    granted_by = db.relationship("Member", foreign_keys=[granted_by_id])
+
+    __table_args__ = (db.UniqueConstraint("server_id", "member_id"),)
+
 
 
 

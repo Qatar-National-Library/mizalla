@@ -598,3 +598,57 @@ def test_the_asking_route_requires_the_grant(app, credentials, client):
         make_member()
     client.post("/apps/login", data={"email": "user@example.com", "password": PASSWORD})
     assert client.post("/apps/ai/chat", data={"question": "Anything?"}).status_code == 403
+
+
+def test_multiple_documents_uploaded_together(app, credentials, client):
+    with app.app_context():
+        configure(credentials)
+        member = make_member()
+        sync_member_features(member, [FEATURE_CHAT])
+        db.session.commit()
+
+    client.post("/apps/login", data={"email": "user@example.com", "password": PASSWORD})
+    doc1_content = b"First document discusses alpha architecture specifications in detail."
+    doc2_content = b"Second document covers beta timeline milestones and deadlines."
+
+    response = client.post(
+        "/apps/ai/chat/documents",
+        data={
+            "document": [
+                (io.BytesIO(doc1_content), "alpha.txt"),
+                (io.BytesIO(doc2_content), "beta.txt"),
+            ]
+        },
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "Added 2 documents" in html
+
+    with app.app_context():
+        docs = ChatDocument.query.order_by(ChatDocument.filename).all()
+        assert len(docs) == 2
+        assert docs[0].filename == "alpha.txt"
+        assert docs[1].filename == "beta.txt"
+
+
+def test_chat_retrieves_across_all_uploaded_documents(app, credentials):
+    with app.app_context():
+        configure(credentials)
+        add_document("policy_europe.txt", "The office in London opens at 9am GMT every day.")
+        add_document("policy_asia.txt", "The office in Tokyo opens at 8am JST every day.")
+
+        # Question mentioning topics from both or either document
+        chunks = list(
+            db.session.scalars(
+                db.select(ChatDocumentChunk)
+                .options(db.joinedload(ChatDocumentChunk.document))
+                .order_by(ChatDocumentChunk.ordinal)
+            )
+        )
+        ranked = rank_chunks("London Tokyo office opens", chunks, limit=5)
+        filenames = {item["chunk"].document.filename for item in ranked}
+        assert "policy_europe.txt" in filenames
+        assert "policy_asia.txt" in filenames
+

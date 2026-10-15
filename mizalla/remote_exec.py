@@ -269,6 +269,20 @@ def save_fallback_credential(server_id: int):
         server.os_version = telemetry["os_version"]
     if telemetry.get("packages_summary"):
         server.packages_summary = telemetry["packages_summary"]
+    if telemetry.get("ram_total"):
+        server.ram_total = telemetry["ram_total"]
+    if telemetry.get("ram_used"):
+        server.ram_used = telemetry["ram_used"]
+    if "ram_percent" in telemetry:
+        server.ram_percent = float(telemetry.get("ram_percent") or 0.0)
+    if telemetry.get("disk_total"):
+        server.disk_total = telemetry["disk_total"]
+    if telemetry.get("disk_used"):
+        server.disk_used = telemetry["disk_used"]
+    if "disk_percent" in telemetry:
+        server.disk_percent = float(telemetry.get("disk_percent") or 0.0)
+    if "core_tags" in telemetry:
+        server.core_tags = telemetry.get("core_tags") or ""
 
     db.session.commit()
     return jsonify(
@@ -276,6 +290,14 @@ def save_fallback_credential(server_id: int):
         message="Connection verified! Server is now AVAILABLE.",
         os_type=server.os_type,
         os_version=server.os_version,
+        ram_total=server.ram_total,
+        ram_used=server.ram_used,
+        ram_percent=server.ram_percent,
+        disk_total=server.disk_total,
+        disk_used=server.disk_used,
+        disk_percent=server.disk_percent,
+        core_tags=server.core_tags,
+        tag_lines=server.get_tag_lines(),
     )
 
 

@@ -2,7 +2,26 @@
 {% from "macros.html" import breadcrumb %}
 {% block title %}Edit server{% endblock %}
 {% block content %}
-{{ breadcrumb([("Projects", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Servers", url_for('admin.server_list')), ("Edit", None)]) }}
+{{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Environments & Server Management", url_for('admin.server_list')), ("Edit", None)]) }}
 <div class="page-heading"><p class="eyebrow">INFRASTRUCTURE / {{ server.ip }}</p><h1>Edit server</h1></div>
-<form method="post" class="form-panel form-stack narrow-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Server name<input name="name" maxlength="160" value="{{ server.name }}" required></label><label>IP address<input name="ip" maxlength="45" value="{{ server.ip }}" required></label><label>Operating system<input name="operating_system" maxlength="160" value="{{ server.operating_system }}" required></label><label>Technology / packages<textarea name="technology_packages" rows="5">{{ server.technology_packages }}</textarea></label><div class="form-actions"><a class="button button-quiet" href="{{ url_for('admin.server_list') }}">Cancel</a><button class="button button-primary" type="submit">Save server</button></div></form>
+<form method="post" class="form-panel form-stack narrow-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Server name<input name="name" maxlength="160" value="{{ server.name }}" required></label>
+  <label>IP address<input name="ip" maxlength="45" value="{{ server.ip }}" required></label>
+  <label>Username<input name="username" maxlength="80" value="{{ (server.default_credential.username if server.default_credential else '') }}" placeholder="e.g. ubuntu, root"></label>
+  <label>Password
+    <div class="password-input-wrapper">
+      <input type="password" name="password" value="{{ (server.default_credential.password if server.default_credential else '') }}" placeholder="Server password">
+      <button type="button" class="password-toggle-btn" aria-label="Show password" title="Show password" tabindex="-1">
+        <i data-lucide="eye" class="icon-green"></i>
+      </button>
+    </div>
+  </label>
+  <label>Operating system<input name="operating_system" maxlength="160" value="{{ server.operating_system }}"></label>
+  <label>Technology / packages<textarea name="technology_packages" rows="4">{{ server.technology_packages }}</textarea></label>
+  <div class="form-actions">
+    <a class="button button-quiet" href="{{ url_for('admin.server_list') }}">Cancel</a>
+    <button class="button button-primary" type="submit">Save server</button>
+  </div>
+</form>
 {% endblock %}
