@@ -18,6 +18,7 @@ find /Users /opt /etc -maxdepth 4 \( -name "docker-compose.yml" -o -name "docker
 
 # kubernetes
 kubectl version --client 2>/dev/null
+kubectl get pods -A 2>/dev/null || kubectl get pods 2>/dev/null
 
 # python
 python3 --version 2>/dev/null || python --version 2>/dev/null

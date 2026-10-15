@@ -515,18 +515,67 @@ async def _probe_docker(conn, os_type: str = "linux", cmds: Optional[List[str]] 
         result += f" [Compose: {', '.join(unique_paths[:3])}]"
     return result
 
+def _parse_kubectl_pods(output: str) -> list[dict]:
+    """Parses kubectl get pods output into structured dictionaries."""
+    if not output or "No resources found" in output:
+        return []
 
-async def _probe_kubernetes(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
-    """Determine if Kubernetes (kubectl) is installed."""
+    lines = [ln.strip() for ln in output.splitlines() if ln.strip()]
+    if not lines:
+        return []
+
+    raw_pods = []
+    for line in lines:
+        tokens = line.split()
+        if not tokens:
+            continue
+        # Skip header lines
+        if tokens[0].upper() in ("NAMESPACE", "NAME"):
+            continue
+
+        # Format with NAMESPACE: [NAMESPACE, NAME, READY, STATUS, ..., AGE]
+        if len(tokens) >= 5 and re.match(r"^\d+/\d+$", tokens[2]):
+            raw_pods.append({
+                "namespace": tokens[0],
+                "name": tokens[1],
+                "ready": tokens[2],
+                "status": tokens[3],
+                "age": tokens[-1],
+            })
+        # Format without NAMESPACE: [NAME, READY, STATUS, ..., AGE]
+        elif len(tokens) >= 4 and re.match(r"^\d+/\d+$", tokens[1]):
+            raw_pods.append({
+                "namespace": "default",
+                "name": tokens[0],
+                "ready": tokens[1],
+                "status": tokens[2],
+                "age": tokens[-1],
+            })
+
+    # Deduplicate by (namespace, name) preserving order
+    seen = set()
+    pods = []
+    for p in raw_pods:
+        key = (p.get("namespace", ""), p.get("name", ""))
+        if key not in seen:
+            seen.add(key)
+            pods.append(p)
+
+    return pods
+
+
+async def _probe_kubernetes(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Tuple[Optional[str], list[dict]]:
+    """Determine if Kubernetes (kubectl) is installed and fetch pod status if running."""
     k8s_ver = ""
     is_running = False
+    pods: list[dict] = []
 
     if cmds:
         for cmd in cmds:
             try:
-                res = await conn.run(cmd, check=False, timeout=5.0)
+                res = await conn.run(cmd, check=False, timeout=8.0)
                 out = res.stdout.strip()
-                if "kubectl" in cmd:
+                if "version" in cmd:
                     if res.exit_status == 0 and out:
                         m = re.search(r"v\d+\.\d+[\.\d\w\-]*", out)
                         if m:
@@ -534,6 +583,11 @@ async def _probe_kubernetes(conn, os_type: str = "linux", cmds: Optional[List[st
                         else:
                             k8s_ver = "Kubernetes"
                         is_running = True
+                elif "get pods" in cmd:
+                    if res.exit_status == 0 and out:
+                        parsed = _parse_kubectl_pods(out)
+                        if parsed:
+                            pods.extend(parsed)
             except Exception:
                 pass
     else:
@@ -546,18 +600,33 @@ async def _probe_kubernetes(conn, os_type: str = "linux", cmds: Optional[List[st
         except Exception:
             pass
 
+    # If kubectl is running and we haven't fetched pods yet:
+    if is_running and not pods:
+        try:
+            pod_cmd = "kubectl get pods -A 2>/dev/null || kubectl get pods 2>/dev/null" if os_type != "windows" else "kubectl get pods -A"
+            res_p = await conn.run(pod_cmd, check=False, timeout=8.0)
+            if res_p.exit_status == 0 and res_p.stdout.strip():
+                pods = _parse_kubectl_pods(res_p.stdout)
+            elif os_type == "windows":
+                res_p2 = await conn.run("kubectl get pods", check=False, timeout=8.0)
+                if res_p2.exit_status == 0 and res_p2.stdout.strip():
+                    pods = _parse_kubectl_pods(res_p2.stdout)
+        except Exception:
+            pass
+
     if not k8s_ver:
-        return None
+        return None, []
 
     status = "Running" if is_running else "Stopped"
-    return f"{k8s_ver} ({status})"
+    return f"{k8s_ver} ({status})", pods
 
 
 async def _probe_containerizers(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
     """Combined probe for Docker and Kubernetes (for backward compatibility)."""
     d_res = await _probe_docker(conn, os_type=os_type, cmds=cmds)
-    k_res = await _probe_kubernetes(conn, os_type=os_type, cmds=cmds)
-    parts = [p for p in [d_res, k_res] if p]
+    k_res_val = await _probe_kubernetes(conn, os_type=os_type, cmds=cmds)
+    k_tag = k_res_val[0] if isinstance(k_res_val, tuple) else k_res_val
+    parts = [p for p in [d_res, k_tag] if p]
     return " · ".join(parts) if parts else None
 
 
@@ -942,10 +1011,17 @@ async def test_ssh_connection(
     disk_res = all_results[2] if isinstance(all_results[2], dict) else {}
     tag_results = all_results[3:]
 
-    # Collect core_tags lines (omit tags that are None or empty)
+    # Collect core_tags lines and pods (omit tags that are None or empty)
+    k8s_pods_list = []
     core_tag_lines = []
     for tag_name, tag_val in zip(tag_names, tag_results):
-        if isinstance(tag_val, str) and tag_val.strip():
+        if isinstance(tag_val, tuple):
+            tag_str, pods = tag_val
+            if pods:
+                k8s_pods_list = pods
+            if tag_str and tag_str.strip():
+                core_tag_lines.append(f"{tag_name}: {tag_str.strip()}")
+        elif isinstance(tag_val, str) and tag_val.strip():
             core_tag_lines.append(f"{tag_name}: {tag_val.strip()}")
 
     core_tags = "\r\n".join(core_tag_lines)
@@ -962,6 +1038,7 @@ async def test_ssh_connection(
         "disk_used": disk_res.get("disk_used", ""),
         "disk_percent": disk_res.get("disk_percent", 0.0),
         "core_tags": core_tags,
+        "k8s_pods": json.dumps(k8s_pods_list) if k8s_pods_list else "",
     }
 
     msg = f"SSH connection successful ({telemetry.get('operating_system', detected_os.title())})."

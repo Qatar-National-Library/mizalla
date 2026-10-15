@@ -1,3 +1,4 @@
+import json
 import secrets
 from datetime import date, datetime, timezone
 
@@ -205,6 +206,7 @@ class Server(db.Model):
     disk_used = db.Column(db.String(40), nullable=True, default="")
     disk_percent = db.Column(db.Float, nullable=True, default=0.0)
     core_tags = db.Column(db.Text, nullable=False, default="")
+    k8s_pods = db.Column(db.Text, nullable=True, default="")
 
     test_projects = db.relationship("Project", foreign_keys="Project.test_server_id", back_populates="test_server")
     production_projects = db.relationship("Project", foreign_keys="Project.production_server_id", back_populates="production_server")
@@ -267,7 +269,19 @@ class Server(db.Model):
 
     @property
     def has_telemetry(self) -> bool:
-        return bool(self.ram_total or self.disk_total or self.core_tags)
+        return bool(self.ram_total or self.disk_total or self.core_tags or self.k8s_pods)
+
+    def get_k8s_pods(self) -> list[dict]:
+        """Returns parsed list of pods: [{"name": ..., "status": ..., "age": ..., "namespace": ..., "ready": ...}]."""
+        if not self.k8s_pods:
+            return []
+        try:
+            data = json.loads(self.k8s_pods)
+            if isinstance(data, list):
+                return data
+        except Exception:
+            pass
+        return []
 
 
 

@@ -456,6 +456,22 @@ def probe_server_health_sync(server_id: int, app=None) -> Tuple[bool, str]:
                 server.os_version = telemetry["os_version"]
             if telemetry.get("packages_summary"):
                 server.packages_summary = telemetry["packages_summary"]
+            if telemetry.get("ram_total"):
+                server.ram_total = telemetry["ram_total"]
+            if telemetry.get("ram_used"):
+                server.ram_used = telemetry["ram_used"]
+            if "ram_percent" in telemetry:
+                server.ram_percent = float(telemetry.get("ram_percent") or 0.0)
+            if telemetry.get("disk_total"):
+                server.disk_total = telemetry["disk_total"]
+            if telemetry.get("disk_used"):
+                server.disk_used = telemetry["disk_used"]
+            if "disk_percent" in telemetry:
+                server.disk_percent = float(telemetry.get("disk_percent") or 0.0)
+            if "core_tags" in telemetry:
+                server.core_tags = telemetry.get("core_tags") or ""
+            if "k8s_pods" in telemetry:
+                server.k8s_pods = telemetry.get("k8s_pods") or ""
 
         db.session.commit()
         return ok, msg

@@ -62,6 +62,7 @@ SQLITE_ADDITIONS = {
         "disk_used": "VARCHAR(40) DEFAULT ''",
         "disk_percent": "FLOAT DEFAULT 0.0",
         "core_tags": "TEXT NOT NULL DEFAULT ''",
+        "k8s_pods": "TEXT DEFAULT ''",
     },
     "command_audit": {
         "client_ip": "VARCHAR(45) DEFAULT ''",

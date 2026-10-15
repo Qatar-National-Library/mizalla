@@ -17,6 +17,7 @@ powershell -Command "Get-ChildItem -Path C:\ -Include 'docker-compose.yml','dock
 
 # kubernetes
 kubectl version --client
+kubectl get pods -A
 
 # python
 python --version

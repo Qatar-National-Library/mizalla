@@ -283,6 +283,8 @@ def save_fallback_credential(server_id: int):
         server.disk_percent = float(telemetry.get("disk_percent") or 0.0)
     if "core_tags" in telemetry:
         server.core_tags = telemetry.get("core_tags") or ""
+    if "k8s_pods" in telemetry:
+        server.k8s_pods = telemetry.get("k8s_pods") or ""
 
     db.session.commit()
     return jsonify(
@@ -298,6 +300,7 @@ def save_fallback_credential(server_id: int):
         disk_percent=server.disk_percent,
         core_tags=server.core_tags,
         tag_lines=server.get_tag_lines(),
+        k8s_pods=server.get_k8s_pods(),
     )
 
 

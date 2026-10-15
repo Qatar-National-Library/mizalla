@@ -115,6 +115,46 @@
                 <span class="muted" style="font-size:0.75rem;">No additional capabilities detected</span>
               {% endif %}
             </div>
+
+            {# 3. Kubernetes Pods (if detected) #}
+            {% set pods = server.get_k8s_pods() %}
+            <div id="k8s-pods-container-{{ server.id }}" style="margin-top:0.5rem; border-top:1px dashed rgba(16, 62, 48, 0.15); padding-top:0.45rem; {% if not pods %}display:none;{% endif %}">
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.35rem;">
+                <span style="font-weight:600; font-size:0.75rem; color:var(--ink); display:inline-flex; align-items:center; gap:0.25rem;">
+                  <i data-lucide="layers" style="width:13px; height:13px; color:var(--green-dark, #103e30);"></i> Kubernetes Pods
+                </span>
+                <span id="k8s-pods-count-{{ server.id }}" style="font-size:0.7rem; color:var(--muted); font-weight:600;">
+                  {% if pods %}{{ pods | length }} pod{{ 's' if pods | length != 1 else '' }}{% endif %}
+                </span>
+              </div>
+              <div id="k8s-pods-list-{{ server.id }}" style="display:flex; flex-direction:column; gap:0.28rem; max-height:160px; overflow-y:auto; padding-right:2px;">
+                {% for pod in pods %}
+                  {% set is_running = pod.status in ['Running', 'Active'] %}
+                  {% set is_completed = pod.status in ['Completed', 'Succeeded'] %}
+                  {% set is_pending = pod.status in ['Pending', 'ContainerCreating'] %}
+                  {% set badge_bg = '#e8f5e9' if is_running else ('#f1f5f9' if is_completed else ('#fff8e1' if is_pending else '#ffebee')) %}
+                  {% set badge_color = '#2e7d32' if is_running else ('#475569' if is_completed else ('#f57f17' if is_pending else '#c62828')) %}
+                  <div style="display:flex; align-items:center; justify-content:space-between; background:#ffffff; border:1px solid #e2e8f0; border-radius:4px; padding:0.22rem 0.45rem; font-size:0.72rem; gap:0.4rem;">
+                    <div style="display:flex; align-items:center; gap:0.3rem; min-width:0; flex:1;">
+                      {% if pod.namespace and pod.namespace != 'default' %}
+                        <span style="color:var(--muted); font-size:0.68rem; background:#f1f5f9; padding:0.05rem 0.3rem; border-radius:3px;">{{ pod.namespace }}</span>
+                      {% endif %}
+                      <span style="font-family:monospace; font-weight:600; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ pod.name }}">
+                        {{ pod.name }}
+                      </span>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:0.35rem; flex-shrink:0;">
+                      <span style="background:{{ badge_bg }}; color:{{ badge_color }}; font-weight:600; padding:0.08rem 0.35rem; border-radius:3px; font-size:0.68rem;">
+                        {{ pod.status }}
+                      </span>
+                      <span style="color:var(--muted); font-size:0.68rem; min-width:30px; text-align:right;">
+                        {{ pod.age }}
+                      </span>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -632,6 +672,16 @@
 <script>
 const csrfToken = "{{ csrf_token() }}";
 
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 // ─── Clipboard Copy Password ──────────────────────────────────────────────
 async function copyServerPassword(serverId) {
   const btnText = document.getElementById("copy-btn-text-" + serverId);
@@ -702,7 +752,7 @@ async function testAndSaveFallback(serverId) {
         badge.style.background = "#2e7d32";
         badge.innerHTML = '<i data-lucide="check" class="icon-white"></i> AVAILABLE';
       }
-      if (data.ram_total || data.tag_lines) {
+      if (data.ram_total || data.tag_lines || data.k8s_pods) {
         const ramBar = document.getElementById("ram-bar-fill-" + serverId);
         const ramText = document.getElementById("ram-text-" + serverId);
         if (ramBar) ramBar.style.width = (data.ram_percent || 0) + "%";
@@ -719,8 +769,50 @@ async function testAndSaveFallback(serverId) {
             telemDetails.innerHTML = data.tag_lines.map(line => {
               const idx = line.indexOf(":");
               const val = idx !== -1 ? line.substring(idx + 1).trim() : line.trim();
-              return `<div style="background:rgba(16, 62, 48, 0.05); border:1px solid rgba(16, 62, 48, 0.12); border-radius:4px; padding:0.18rem 0.45rem; display:inline-flex; align-items:center; gap:0.25rem;"><span>${val}</span></div>`;
+              return `<div style="background:rgba(16, 62, 48, 0.05); border:1px solid rgba(16, 62, 48, 0.12); border-radius:4px; padding:0.18rem 0.45rem; display:inline-flex; align-items:center; gap:0.25rem;"><span>${escapeHtml(val)}</span></div>`;
             }).join("");
+          } else {
+            telemDetails.innerHTML = '<span class="muted" style="font-size:0.75rem;">No additional capabilities detected</span>';
+          }
+        }
+
+        const k8sContainer = document.getElementById("k8s-pods-container-" + serverId);
+        const k8sCount = document.getElementById("k8s-pods-count-" + serverId);
+        const k8sList = document.getElementById("k8s-pods-list-" + serverId);
+        if (k8sContainer && k8sList) {
+          if (data.k8s_pods && data.k8s_pods.length > 0) {
+            k8sContainer.style.display = "block";
+            if (k8sCount) k8sCount.textContent = `${data.k8s_pods.length} pod${data.k8s_pods.length !== 1 ? 's' : ''}`;
+            k8sList.innerHTML = data.k8s_pods.map(pod => {
+              const isRunning = pod.status === "Running" || pod.status === "Active";
+              const isCompleted = pod.status === "Completed" || pod.status === "Succeeded";
+              const isPending = pod.status === "Pending" || pod.status === "ContainerCreating";
+              let bg = "#ffebee", fg = "#c62828";
+              if (isRunning) { bg = "#e8f5e9"; fg = "#2e7d32"; }
+              else if (isCompleted) { bg = "#f1f5f9"; fg = "#475569"; }
+              else if (isPending) { bg = "#fff8e1"; fg = "#f57f17"; }
+              const nsBadge = (pod.namespace && pod.namespace !== 'default')
+                ? `<span style="color:var(--muted); font-size:0.68rem; background:#f1f5f9; padding:0.05rem 0.3rem; border-radius:3px;">${escapeHtml(pod.namespace)}</span>`
+                : '';
+              return `<div style="display:flex; align-items:center; justify-content:space-between; background:#ffffff; border:1px solid #e2e8f0; border-radius:4px; padding:0.22rem 0.45rem; font-size:0.72rem; gap:0.4rem;">
+                <div style="display:flex; align-items:center; gap:0.3rem; min-width:0; flex:1;">
+                  ${nsBadge}
+                  <span style="font-family:monospace; font-weight:600; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(pod.name)}">
+                    ${escapeHtml(pod.name)}
+                  </span>
+                </div>
+                <div style="display:flex; align-items:center; gap:0.35rem; flex-shrink:0;">
+                  <span style="background:${bg}; color:${fg}; font-weight:600; padding:0.08rem 0.35rem; border-radius:3px; font-size:0.68rem;">
+                    ${escapeHtml(pod.status)}
+                  </span>
+                  <span style="color:var(--muted); font-size:0.68rem; min-width:30px; text-align:right;">
+                    ${escapeHtml(pod.age || '')}
+                  </span>
+                </div>
+              </div>`;
+            }).join("");
+          } else {
+            k8sContainer.style.display = "none";
           }
         }
       }

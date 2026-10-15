@@ -867,6 +867,109 @@ def test_nodejs_and_uvicorn_return_none_when_not_installed():
     assert asyncio.run(_probe_uvicorn(mock_conn, "linux")) is None
 
 
+def test_parse_kubectl_pods():
+    """Verify _parse_kubectl_pods correctly parses all-namespace and single-namespace outputs."""
+    from mizalla.asyncssh_engine import _parse_kubectl_pods
+
+    # 1. Output from kubectl get pods -A
+    k8s_all_ns_output = """
+NAMESPACE     NAME                               READY   STATUS             RESTARTS       AGE
+kube-system   coredns-76f75df574-abcde           1/1     Running            0              10d
+default       my-app-6c9f7b59-xyz12              1/1     Running            1 (2m ago)     2h
+prod          api-gateway-5d8f76-m9q2            2/2     Running            0              45d
+test          job-worker-completed-123           0/1     Completed          0              1d
+ingress       traefik-9df8c                      0/1     CrashLoopBackOff   5 (1m ago)     30m
+"""
+    pods = _parse_kubectl_pods(k8s_all_ns_output)
+    assert len(pods) == 5
+    assert pods[0] == {
+        "namespace": "kube-system",
+        "name": "coredns-76f75df574-abcde",
+        "ready": "1/1",
+        "status": "Running",
+        "age": "10d",
+    }
+    assert pods[1]["name"] == "my-app-6c9f7b59-xyz12"
+    assert pods[1]["status"] == "Running"
+    assert pods[1]["age"] == "2h"
+    assert pods[4]["status"] == "CrashLoopBackOff"
+    assert pods[4]["age"] == "30m"
+
+    # 2. Output from kubectl get pods (single namespace)
+    k8s_single_ns_output = """
+NAME                               READY   STATUS      RESTARTS   AGE
+web-server-79d5f                   1/1     Running     0          4h
+db-migration-job                   0/1     Completed   0          5d
+"""
+    single_pods = _parse_kubectl_pods(k8s_single_ns_output)
+    assert len(single_pods) == 2
+    assert single_pods[0]["namespace"] == "default"
+    assert single_pods[0]["name"] == "web-server-79d5f"
+    assert single_pods[0]["status"] == "Running"
+    assert single_pods[0]["age"] == "4h"
+
+    # 3. No resources or empty
+    assert _parse_kubectl_pods("No resources found in default namespace.") == []
+    assert _parse_kubectl_pods("") == []
+
+
+def test_server_k8s_pods_telemetry_and_ui(client, app):
+    """Verify Server.k8s_pods is stored, parsed, and rendered on server cards and API."""
+    import json
+    login_admin(client, app)
+
+    sample_pods = [
+        {"namespace": "prod", "name": "web-api-abc", "ready": "1/1", "status": "Running", "age": "3d"},
+        {"namespace": "prod", "name": "worker-xyz", "ready": "0/1", "status": "Completed", "age": "1d"},
+    ]
+
+    with app.app_context():
+        server = Server(
+            name="K8s Worker Server",
+            ip="192.168.1.130",
+            operating_system="Ubuntu 22.04",
+            agent_status="online",
+            core_tags="kubernetes: Kubernetes v1.28.2 (Running)",
+            k8s_pods=json.dumps(sample_pods),
+        )
+        db.session.add(server)
+        db.session.commit()
+        server_id = server.id
+
+        assert server.has_telemetry is True
+        parsed_pods = server.get_k8s_pods()
+        assert len(parsed_pods) == 2
+        assert parsed_pods[0]["name"] == "web-api-abc"
+        assert parsed_pods[0]["status"] == "Running"
+        assert parsed_pods[0]["age"] == "3d"
+
+    # Verify JSON API connection-status
+    api_resp = client.get(f"/apps/admin/servers/{server_id}/connection-status")
+    assert api_resp.status_code == 200
+    data = api_resp.get_json()
+    assert "k8s_pods" in data
+    assert len(data["k8s_pods"]) == 2
+    assert data["k8s_pods"][0]["name"] == "web-api-abc"
+
+    # Verify Admin UI card rendering
+    admin_resp = client.get("/apps/admin/servers")
+    assert admin_resp.status_code == 200
+    admin_html = admin_resp.get_data(as_text=True)
+    assert f'id="k8s-pods-container-{server_id}"' in admin_html
+    assert "web-api-abc" in admin_html
+    assert "Running" in admin_html
+    assert "3d" in admin_html
+
+    # Verify Remote Exec card rendering
+    re_resp = client.get("/apps/remote-exec/", follow_redirects=True)
+    assert re_resp.status_code == 200
+    re_html = re_resp.get_data(as_text=True)
+    assert f'id="k8s-pods-container-{server_id}"' in re_html
+    assert "web-api-abc" in re_html
+    assert "Running" in re_html
+    assert "3d" in re_html
+
+
 
 
 

@@ -371,6 +371,8 @@ def _run_connection_cycle(app, server_id: int, username: str, password: str, max
                             server.disk_percent = 0.0
                     if "core_tags" in telemetry:
                         server.core_tags = telemetry.get("core_tags") or ""
+                    if "k8s_pods" in telemetry:
+                        server.k8s_pods = telemetry.get("k8s_pods") or ""
 
                     now = datetime.now(timezone.utc)
                     server.last_checked = now
@@ -578,6 +580,7 @@ def server_connection_status(server_id):
         "core_tags": server.core_tags or "",
         "tag_lines": server.get_tag_lines(),
         "has_telemetry": server.has_telemetry,
+        "k8s_pods": server.get_k8s_pods(),
     })
 
 
