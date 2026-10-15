@@ -42,8 +42,15 @@
               <h3 style="margin:0; font-size: 1.15rem; font-weight: 600;">{{ server.name }}</h3>
               <div style="display:flex; align-items:center; gap: 0.5rem; margin-top: 0.25rem;">
                 <span class="tag tag-mono" style="font-family:monospace; font-size:0.8rem; background:rgba(0,0,0,0.05); padding: 0.15rem 0.4rem; border-radius:3px;">{{ server.ip }}</span>
-                <span class="tag" style="font-size:0.75rem; text-transform:uppercase; background:rgba(26,115,232,0.1); color:#1a73e8; padding: 0.15rem 0.4rem; border-radius:3px; font-weight:600;">
-                  {% if server.os_type == 'windows' %}🪟 Windows{% else %}🐧 Linux{% endif %}
+                <span class="tag" id="server-os-tag-{{ server.id }}" style="font-size:0.75rem; background:rgba(26,115,232,0.1); color:#1a73e8; padding: 0.15rem 0.4rem; border-radius:3px; font-weight:600;">
+                  {% set os_label = server.operating_system or server.os_version %}
+                  {% if server.os_type == 'windows' %}
+                    🪟 {{ os_label or 'Windows' }}
+                  {% elif 'mac' in (server.os_type or '') or 'darwin' in (server.os_type or '') %}
+                    🍎 {{ os_label or 'macOS' }}
+                  {% else %}
+                    🐧 {{ os_label or ('Ubuntu' if server.os_type == 'ubuntu' else 'Linux') }}
+                  {% endif %}
                 </span>
               </div>
             </div>
@@ -751,6 +758,14 @@ async function testAndSaveFallback(serverId) {
         badge.className = "badge-status-available";
         badge.style.background = "#2e7d32";
         badge.innerHTML = '<i data-lucide="check" class="icon-white"></i> AVAILABLE';
+      }
+      const osTag = document.getElementById("server-os-tag-" + serverId);
+      if (osTag && (data.operating_system || data.os_version)) {
+        const osName = data.operating_system || data.os_version;
+        const isWin = (data.os_type === "windows");
+        const isMac = (data.os_type === "mac");
+        const icon = isWin ? "🪟 " : (isMac ? "🍎 " : "🐧 ");
+        osTag.textContent = icon + osName;
       }
       if (data.ram_total || data.tag_lines || data.k8s_pods) {
         const ramBar = document.getElementById("ram-bar-fill-" + serverId);

@@ -263,6 +263,10 @@ def save_fallback_credential(server_id: int):
     # Update server telemetry
     server.status = "available"
     server.last_checked = datetime.now(timezone.utc)
+    if telemetry.get("operating_system"):
+        server.operating_system = telemetry["operating_system"]
+    elif telemetry.get("os_version"):
+        server.operating_system = telemetry["os_version"]
     if telemetry.get("os_type"):
         server.os_type = telemetry["os_type"]
     if telemetry.get("os_version"):
@@ -292,6 +296,7 @@ def save_fallback_credential(server_id: int):
         message="Connection verified! Server is now AVAILABLE.",
         os_type=server.os_type,
         os_version=server.os_version,
+        operating_system=server.operating_system,
         ram_total=server.ram_total,
         ram_used=server.ram_used,
         ram_percent=server.ram_percent,

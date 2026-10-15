@@ -968,6 +968,65 @@ def test_server_k8s_pods_telemetry_and_ui(client, app):
     assert "web-api-abc" in re_html
     assert "Running" in re_html
     assert "3d" in re_html
+    # Verify card displays Ubuntu rather than generic Linux
+    assert "Ubuntu 22.04" in re_html
+
+
+def test_probe_kubernetes_and_pods_separated():
+    """Verify _probe_kubernetes and _probe_kubernetes_pods run and return cleanly when separated."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    from mizalla.asyncssh_engine import _probe_kubernetes, _probe_kubernetes_pods, _probe_os
+
+    mock_conn = MagicMock()
+
+    # 1. Test _probe_kubernetes version detection
+    async def mock_run_version(cmd, check=False, timeout=5.0):
+        res = MagicMock()
+        res.exit_status = 0
+        res.stdout = "Client Version: v1.29.1\nKustomize Version: v5.0.4-0.20230601165947-6ce0bd390ce3\n"
+        return res
+
+    mock_conn.run = AsyncMock(side_effect=mock_run_version)
+    k8s_tag = asyncio.run(_probe_kubernetes(mock_conn, "linux", cmds=["kubectl version --client 2>/dev/null"]))
+    assert k8s_tag == "Kubernetes v1.29.1 (Running)"
+
+    # 2. Test _probe_kubernetes_pods pod extraction
+    async def mock_run_pods(cmd, check=False, timeout=8.0):
+        res = MagicMock()
+        res.exit_status = 0
+        res.stdout = """
+NAMESPACE     NAME                      READY   STATUS    RESTARTS   AGE
+kube-system   coredns-76f75df574-abcde  1/1     Running   0          5d
+default       app-pod-123               1/1     Running   0          1h
+"""
+        return res
+
+    mock_conn.run = AsyncMock(side_effect=mock_run_pods)
+    tag_str, pods = asyncio.run(_probe_kubernetes_pods(mock_conn, "linux", cmds=["kubectl get pods -A 2>/dev/null"]))
+    assert tag_str is None
+    assert len(pods) == 2
+    assert pods[0]["name"] == "coredns-76f75df574-abcde"
+    assert pods[1]["name"] == "app-pod-123"
+
+    # 3. Test _probe_os extracts Ubuntu distro and version
+    async def mock_run_os(cmd, check=False, timeout=5.0):
+        res = MagicMock()
+        res.exit_status = 0
+        res.stdout = """NAME="Ubuntu"
+VERSION="22.04.4 LTS (Jammy Jellyfish)"
+ID=ubuntu
+ID_LIKE=debian
+PRETTY_NAME="Ubuntu 22.04.4 LTS"
+VERSION_ID="22.04"
+"""
+        return res
+
+    mock_conn.run = AsyncMock(side_effect=mock_run_os)
+    os_info = asyncio.run(_probe_os(mock_conn, "linux", cmds=["cat /etc/os-release 2>/dev/null"]))
+    assert os_info["os_type"] == "ubuntu"
+    assert os_info["operating_system"] == "Ubuntu 22.04.4 LTS"
+    assert os_info["os_version"] == "Ubuntu 22.04.4 LTS"
 
 
 

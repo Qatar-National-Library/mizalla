@@ -205,24 +205,37 @@ async def _probe_os(conn, os_type: str = "linux", cmds: Optional[List[str]] = No
             }
         else:
             rel_text = out.lower()
+            name_val = ""
+            ver_val = ""
             pretty = ""
             for line in out.splitlines():
                 if line.startswith("PRETTY_NAME="):
                     pretty = line.split("=", 1)[1].strip('"\'')
-                    break
+                elif line.startswith("NAME="):
+                    name_val = line.split("=", 1)[1].strip('"\'')
+                elif line.startswith("VERSION="):
+                    ver_val = line.split("=", 1)[1].strip('"\'')
+
+            if not pretty and name_val:
+                pretty = f"{name_val} {ver_val}".strip()
+
             if "ubuntu" in rel_text:
-                canonical_os = f"Ubuntu {pretty.replace('Ubuntu', '').strip()}" if pretty else "Ubuntu Linux"
+                canonical_os = pretty or "Ubuntu Linux"
+                os_distro = "ubuntu"
             elif any(k in rel_text for k in ["rhel", "red hat", "centos", "rocky", "almalinux", "fedora"]):
                 canonical_os = pretty or "RHEL"
+                os_distro = "rhel"
             elif "debian" in rel_text:
                 canonical_os = pretty or "Debian"
+                os_distro = "ubuntu"
             else:
                 canonical_os = pretty or "Linux"
+                os_distro = "linux"
 
             return {
-                "os_type": "linux",
+                "os_type": os_distro,
                 "operating_system": canonical_os,
-                "os_version": pretty or canonical_os,
+                "os_version": canonical_os,
             }
     res_linux = await conn.run("uname -s", check=False, timeout=5.0)
     out = res_linux.stdout.strip()
@@ -237,26 +250,39 @@ async def _probe_os(conn, os_type: str = "linux", cmds: Optional[List[str]] = No
         }
     elif "Linux" in out:
         rel = await conn.run("cat /etc/os-release 2>/dev/null", check=False, timeout=5.0)
-        rel_text = rel.stdout.lower()
+        rel_out = rel.stdout
+        rel_text = rel_out.lower()
         pretty = ""
-        for line in rel.stdout.splitlines():
+        name_val = ""
+        ver_val = ""
+        for line in rel_out.splitlines():
             if line.startswith("PRETTY_NAME="):
                 pretty = line.split("=", 1)[1].strip('"\'')
-                break
+            elif line.startswith("NAME="):
+                name_val = line.split("=", 1)[1].strip('"\'')
+            elif line.startswith("VERSION="):
+                ver_val = line.split("=", 1)[1].strip('"\'')
+
+        if not pretty and name_val:
+            pretty = f"{name_val} {ver_val}".strip()
 
         if "ubuntu" in rel_text:
-            canonical_os = f"Ubuntu {pretty.replace('Ubuntu', '').strip()}" if pretty else "Ubuntu Linux"
+            canonical_os = pretty or "Ubuntu Linux"
+            os_distro = "ubuntu"
         elif any(k in rel_text for k in ["rhel", "red hat", "centos", "rocky", "almalinux", "fedora"]):
             canonical_os = pretty or "RHEL"
+            os_distro = "rhel"
         elif "debian" in rel_text:
             canonical_os = pretty or "Debian"
+            os_distro = "ubuntu"
         else:
             canonical_os = pretty or "Linux"
+            os_distro = "linux"
 
         return {
-            "os_type": "linux",
+            "os_type": os_distro,
             "operating_system": canonical_os,
-            "os_version": pretty or canonical_os,
+            "os_version": canonical_os,
         }
     else:
         # Check Windows via PowerShell
@@ -564,18 +590,17 @@ def _parse_kubectl_pods(output: str) -> list[dict]:
     return pods
 
 
-async def _probe_kubernetes(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Tuple[Optional[str], list[dict]]:
-    """Determine if Kubernetes (kubectl) is installed and fetch pod status if running."""
+async def _probe_kubernetes(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
+    """Determine if Kubernetes (kubectl) is installed and running version."""
     k8s_ver = ""
     is_running = False
-    pods: list[dict] = []
 
     if cmds:
         for cmd in cmds:
             try:
-                res = await conn.run(cmd, check=False, timeout=8.0)
+                res = await conn.run(cmd, check=False, timeout=6.0)
                 out = res.stdout.strip()
-                if "version" in cmd:
+                if "kubectl" in cmd:
                     if res.exit_status == 0 and out:
                         m = re.search(r"v\d+\.\d+[\.\d\w\-]*", out)
                         if m:
@@ -583,11 +608,6 @@ async def _probe_kubernetes(conn, os_type: str = "linux", cmds: Optional[List[st
                         else:
                             k8s_ver = "Kubernetes"
                         is_running = True
-                elif "get pods" in cmd:
-                    if res.exit_status == 0 and out:
-                        parsed = _parse_kubectl_pods(out)
-                        if parsed:
-                            pods.extend(parsed)
             except Exception:
                 pass
     else:
@@ -600,25 +620,41 @@ async def _probe_kubernetes(conn, os_type: str = "linux", cmds: Optional[List[st
         except Exception:
             pass
 
-    # If kubectl is running and we haven't fetched pods yet:
-    if is_running and not pods:
+    if not k8s_ver:
+        return None
+
+    status = "Running" if is_running else "Stopped"
+    return f"{k8s_ver} ({status})"
+
+
+async def _probe_kubernetes_pods(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Tuple[Optional[str], list[dict]]:
+    """Determine running Kubernetes pods cleanly on a dedicated connection."""
+    pods = []
+    if cmds:
+        for cmd in cmds:
+            try:
+                res = await conn.run(cmd, check=False, timeout=8.0)
+                out = res.stdout.strip()
+                if res.exit_status == 0 and out:
+                    parsed = _parse_kubectl_pods(out)
+                    if parsed:
+                        pods.extend(parsed)
+            except Exception:
+                pass
+    else:
         try:
             pod_cmd = "kubectl get pods -A 2>/dev/null || kubectl get pods 2>/dev/null" if os_type != "windows" else "kubectl get pods -A"
-            res_p = await conn.run(pod_cmd, check=False, timeout=8.0)
-            if res_p.exit_status == 0 and res_p.stdout.strip():
-                pods = _parse_kubectl_pods(res_p.stdout)
+            res = await conn.run(pod_cmd, check=False, timeout=8.0)
+            if res.exit_status == 0 and res.stdout.strip():
+                pods = _parse_kubectl_pods(res.stdout)
             elif os_type == "windows":
-                res_p2 = await conn.run("kubectl get pods", check=False, timeout=8.0)
-                if res_p2.exit_status == 0 and res_p2.stdout.strip():
-                    pods = _parse_kubectl_pods(res_p2.stdout)
+                res2 = await conn.run("kubectl get pods", check=False, timeout=8.0)
+                if res2.exit_status == 0 and res2.stdout.strip():
+                    pods = _parse_kubectl_pods(res2.stdout)
         except Exception:
             pass
 
-    if not k8s_ver:
-        return None, []
-
-    status = "Running" if is_running else "Stopped"
-    return f"{k8s_ver} ({status})", pods
+    return None, pods
 
 
 async def _probe_containerizers(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Optional[str]:
@@ -983,6 +1019,7 @@ async def test_ssh_connection(
         "external_storage": _probe_external_storage,
         "docker": _probe_docker,
         "kubernetes": _probe_kubernetes,
+        "kubernetes_pods": _probe_kubernetes_pods,
         "python": _probe_python,
         "php": _probe_php,
         "nodejs": _probe_nodejs,
@@ -1018,7 +1055,7 @@ async def test_ssh_connection(
         if isinstance(tag_val, tuple):
             tag_str, pods = tag_val
             if pods:
-                k8s_pods_list = pods
+                k8s_pods_list.extend(pods)
             if tag_str and tag_str.strip():
                 core_tag_lines.append(f"{tag_name}: {tag_str.strip()}")
         elif isinstance(tag_val, str) and tag_val.strip():
@@ -1027,9 +1064,9 @@ async def test_ssh_connection(
     core_tags = "\r\n".join(core_tag_lines)
 
     telemetry: Dict[str, Any] = {
-        "os_type": detected_os,
+        "os_type": os_res.get("os_type") or detected_os,
         "operating_system": os_res.get("operating_system") or os_res.get("os_version") or detected_os.title(),
-        "os_version": os_res.get("os_version", ""),
+        "os_version": os_res.get("os_version") or os_res.get("operating_system") or detected_os.title(),
         "packages_summary": os_res.get("packages_summary", ""),
         "ram_total": ram_res.get("ram_total", ""),
         "ram_used": ram_res.get("ram_used", ""),

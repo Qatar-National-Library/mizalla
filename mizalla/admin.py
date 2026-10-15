@@ -339,7 +339,9 @@ def _run_connection_cycle(app, server_id: int, username: str, password: str, max
                     server.agent_status = "online"
                     server.connection_attempts = 0
                     server.connection_message = "Connected successfully."
-                    if telemetry.get("os_version"):
+                    if telemetry.get("operating_system"):
+                        server.operating_system = telemetry["operating_system"]
+                    elif telemetry.get("os_version"):
                         server.operating_system = telemetry["os_version"]
                     elif telemetry.get("os_type"):
                         server.operating_system = telemetry["os_type"].title()

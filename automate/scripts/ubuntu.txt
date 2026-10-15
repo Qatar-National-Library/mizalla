@@ -18,6 +18,8 @@ find /opt /etc /home /var/www /root -maxdepth 4 \( -name "docker-compose.yml" -o
 
 # kubernetes
 kubectl version --client 2>/dev/null
+
+# kubernetes_pods
 kubectl get pods -A 2>/dev/null || kubectl get pods 2>/dev/null
 
 # python
