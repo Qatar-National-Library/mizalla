@@ -1,137 +1,183 @@
-# Implementation Plan: Remote Execution Server Lifecycle & Role-Based Permissions Grid
+# Implementation Plan: Command Group UI Revamp
 
-## 1. Overview
-This plan implements the complete lifecycle for Registered Server Cards on `/apps/remote-exec`, user-driven connection verification with last-connected timestamps, selective server filtering for Command Items/Groups, and an Admin-only Permissions Grid for Servers, Command Items, and Command Groups.
+## 1. Overview & Objectives
+This plan outlines the UI/UX revamp for the Remote Command Orchestration dashboard (`/apps/remote-exec/`) and the unified Command Group creation and edit interface (`/apps/remote-exec/groups/new` and `/apps/remote-exec/groups/<id>/edit`).
 
----
-
-## 2. Server Cards Accordion Lifecycle & Connection Rules (`/apps/remote-exec`)
-
-### 2.1 Accordion Structure & Visual Design
-- **Removal of Redundant Elements**:
-  - The misleading "Live Status Sync" pill at the top of the server grid is removed.
-  - The static `AVAILABLE` and `FAILED` badges are removed from server cards.
-  - The standalone `RECONNECT` button is removed.
-- **Accordion Header (Always Visible)**:
-  - **Left**: Server Name, Host IP (`mono` badge), OS + Version badge (e.g. `🐧 Ubuntu 22.04 LTS`).
-  - **Right**:
-    - **`LAST_CONNECT` Indicator**:
-      - If previously connected: `<span id="last-connected-{{ server.id }}"><i data-lucide="clock"></i> Connected: [Date & Time]</span>`.
-      - If never connected by this user: `<span id="last-connected-{{ server.id }}" class="tag tag-unverified">UNVERIFIED</span>`.
-    - **Chevron**: Disclosure arrow `<i data-lucide="chevron-down" id="server-chevron-{{ server.id }}"></i>` that rotates $180^\circ$ when open.
-- **Accordion Body (Expanded on Demand)**:
-  - RAM usage bar graph (`ram_used` / `ram_total`, percentage fill).
-  - Storage usage bar graph (`disk_used` / `disk_total`, percentage fill).
-  - Core capability tag capsules (Drupal, Python, Docker, etc.).
-  - Kubernetes Pods list (if detected).
-  - Administrator Notes (if provided).
-  - Footer Controls:
-    - `Copy Password` button: Enabled if user saved own credentials; disabled (with tooltip) if Admin fallback or no credentials.
-    - `Credentials` button: Expands inline SSH credential drawer to update username/password.
-
-### 2.2 On-Demand Verification on Expand
-- Expanding an accordion automatically triggers a connection verification & telemetry refresh:
-  1. The accordion body opens. Multiple accordions can remain open simultaneously.
-  2. The header's `LAST_CONNECT` element is temporarily swapped with an inline spinner: `<span class="spinner"></span> Connecting...`.
-  3. Client dispatches `POST /apps/remote-exec/servers/<id>/verify`.
-  4. **On Success**:
-     - Header's `LAST_CONNECT` updates with fresh date & time (`Connected: [Timestamp]`).
-     - Live RAM, Storage, Core tags, and Pods immediately populate the accordion body.
-     - Server is marked connectable for Command Item / Group target dropdowns.
-     - Password copy button unlocks if permitted.
-  5. **On Failure**:
-     - Header's `LAST_CONNECT` displays `<span style="color:#c62828;"><i data-lucide="alert-circle"></i> Connection Failed</span>`.
-     - Credentials drawer inside the body automatically expands so the user can correct credentials immediately.
-
-### 2.3 Password Copy Endpoint Security
-- Secure `GET /apps/remote-exec/servers/<id>/password`:
-  - Returns password only if `user_cred` is present for `current_user`, OR if `current_user.is_admin`.
-  - Returns `403 Forbidden` if a regular member attempts to copy an Admin fallback password.
+### Key Goals
+1. **Streamline Dashboard**: Remove the two top-bar buttons (`+ NEW COMMAND ITEM` and `+ NEW COMMAND GROUP`).
+2. **Full-Width Command Groups on Dashboard**: Remove the Command Items panel from `/apps/remote-exec/`, allowing the **Command Groups** panel to expand to full container width.
+3. **Unified Group Edit Workflow**: Each Command Group card displays an **Edit** button that opens the unified Command Group builder with pre-populated values and attached Command Items.
+4. **70/30 Split Command Group Builder (`/groups/new` & `/groups/<id>/edit`)**:
+   - **Left Column (70%)**:
+     - *Command Group Form*: Group Name, Target Server dropdown, Description, Execution options (Sequential single-session vs. Parallel, Stop on error).
+     - *Group Execution Items List* (rendered beneath the form): Displays all items in the group with dynamic sequence numbers (`#1`, `#2`, ...). Supports **Drag & Drop** to reorder execution sequence and an **`x` button** to remove items.
+   - **Right Column (30%)**:
+     - *Available Command Items List*: Displays all Command Items the user created or has access to.
+     - *Accordion Item Format*: Each item displays its name and small muted subtitle `Created by: <Creator Name>`.
+     - *Actions*:
+       - `+` Button: Appends the Command Item to the Command Group list in the left column.
+       - Expand Button (Expand icon): Toggles the accordion body to view the full script/content and details.
 
 ---
 
-## 3. Server Access Control (Admin Grid Display)
+## 2. Technical Architecture & Component Design
 
-### 3.1 Rules
-- **Only Admin** can grant **View** or **Edit** access to MEMBERs for each registered server.
-- **View access**: Member can see the server card on `/apps/remote-exec`, view telemetry, and select the server in Command Items / Groups if connectable.
-- **Edit access**: Member has edit rights for server configuration.
-- Regular members without View access cannot see the server card.
+### 2.1 Dashboard Updates (`mizalla/templates/remote_exec_dashboard.html`)
+- **Top Header Action Area**: Remove the `+ New Command Item` button and `+ New Command Group` button from lines 19–26.
+- **Section 2 Grid Layout**:
+  - Remove the `<section>` containing the "Command Items" list.
+  - Convert the `display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));` layout into a single full-width container (`width: 100%`) for Command Groups.
+  - On the Command Groups panel header, ensure the `+ New Group` button remains accessible for users with `can_add_group` capability.
+  - Each Command Group card retains its **Run**, **Duplicate**, **Edit**, and **Delete** buttons.
+  - Clicking **Edit** navigates to `url_for('remote_exec.group_edit', group_id=grp.id)`.
 
-### 3.2 Data Model Updates
-- Update `ServerAccess` model:
-  - `can_view = db.Column(db.Boolean, nullable=False, default=True)`
-  - `can_edit = db.Column(db.Boolean, nullable=False, default=False)`
-  - `last_connected_at = db.Column(db.DateTime(timezone=True), nullable=True)`
-  - `connection_status = db.Column(db.String(20), nullable=False, default="unverified")`
+### 2.2 Unified Command Group Builder (`mizalla/templates/command_group_form.html`)
+- **Grid Layout**: 
+  - CSS layout with 70% left column and 30% right column:
+    ```css
+    .group-builder-grid {
+      display: grid;
+      grid-template-columns: 7fr 3fr;
+      gap: 1.5rem;
+      align-items: start;
+    }
+    @media (max-width: 992px) {
+      .group-builder-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    ```
+- **Left Column (70%)**:
+  1. **Command Group Form Fields**:
+     - Group Name (required text input)
+     - Target Server (required `<select>` of connectable servers)
+     - Description (optional `<textarea>`)
+     - Options: Run in Parallel (`run_in_parallel`), Stop on Error (`stop_on_error`)
+  2. **Command Items in this Group (Under the form)**:
+     - Header: "Command Items in this Group" with count badge and a "Clear All" button.
+     - Item cards render in order of execution with:
+       - Drag handle (`<i data-lucide="grip-vertical"></i>`) enabling HTML5 drag-and-drop reordering.
+       - Dynamic badge: `#1`, `#2`, `#3`... (auto-updated when items are added, removed, or dragged).
+       - Item Name and Command Type badge (`On Remote Server`, `On Local Server`, `Upload File(s)`).
+       - Remove button (`<button class="remove-item-btn"><i data-lucide="x"></i></button>`).
+       - Hidden input `<input type="hidden" name="item_ids[]" value="<item_id>">` maintaining the exact submitted sequence.
+     - Empty placeholder state: "No items added yet. Click '+' on any Command Item in the right column to add it to this group."
+  3. **Submit / Cancel Actions**:
+     - `Save Command Group` button and `Cancel` link.
 
-### 3.3 Admin UI Grid Display
-- Add Admin Permissions Matrix (`/apps/admin/permissions-matrix`):
-  - Dedicated tab in Admin navigation with Lucide icons.
-  - Tab 1: **Server Access Grid** (Servers vs Members with `[✓] View` and `[✓] Edit`).
-
----
-
-## 4. Command Items & Command Groups Access Control (Admin Grid Display)
-
-### 4.1 Rules
-- **Only Admin** can grant access to **VIEW**, **EDIT**, and **ADD** Command Items and Command Groups to MEMBERs.
-- **Ownership & Visibility**:
-  - A MEMBER only has access to Command Items and Command Groups:
-    1. Created by themselves (`created_by_id == member.id`), OR
-    2. Explicitly granted access to by an Admin.
-- **Permission Semantics**:
-  - **VIEW access** = Can view in dashboard + **Can RUN it** + Can view logs.
-  - **EDIT access** = Can view + **Can RUN it** + Can edit + **Can DELETE it** + Can duplicate.
-  - **ADD access** = Can create new Command Items / Command Groups (if unchecked, `+ New Item` and `+ New Group` buttons are hidden, and create endpoints reject requests).
-
-### 4.2 Data Model Updates
-- `Member` model:
-  - `can_add_command_items = db.Column(db.Boolean, nullable=False, default=False)`
-  - `can_add_command_groups = db.Column(db.Boolean, nullable=False, default=False)`
-- Permission helper alignment in `mizalla/remote_exec_client.py`:
-  - `user_can_view_item`: Creator, Admin, or granted View/Edit.
-  - `user_can_run_item`: Having VIEW access means you can also RUN it.
-  - `user_can_edit_item`: Creator, Admin, or granted Edit.
-  - `user_can_delete_item`: Having EDIT access means you can RUN/DELETE it.
-  - Same rules for `CommandGroup`.
-
-### 4.3 Admin UI Grid Display
-- In the Permissions Matrix view (`/apps/admin/permissions-matrix`):
-  - **Member Capabilities**: Grid toggling `[✓] Add Items` and `[✓] Add Groups`.
-  - **Command Items Grid**: Items vs Members with `[✓] View (Run)` and `[✓] Edit (Run/Delete)`.
-  - **Command Groups Grid**: Groups vs Members with `[✓] View (Run)` and `[✓] Edit (Run/Delete)`.
-  - Clean AJAX save / Form submission with instant feedback.
-
----
-
-## 5. Selective Target Server Filtering
-
-### 5.1 Dropdown Filtering
-- A server will only appear in the `Target Server` dropdown when creating a **Command Item** or **Command Group** if:
-  1. The member has **View access** to the server (`ServerAccess.can_view == True`), AND
-  2. The member has **connected to the server at least once** (`ServerAccess.last_connected_at is not None` and `connection_status == 'available'`).
-- Servers marked `UNVERIFIED` are omitted from the dropdown until the user connects via Reconnect.
-
-### 5.2 Server Creation/Edit Validation
-- Backend route validation in `remote_exec.py`:
-  - `item_save` and `group_create` / `group_edit` verify that the submitted `server_id` is connectable by `current_user`. If not, the request is rejected with a descriptive error.
-  - Dual runtime check on command execution verifying both item/group permission and server connectability.
+- **Right Column (30%)**:
+  1. **Header**: "Available Command Items" with count badge.
+  2. **Accordion Item Cards**:
+     - Header row with:
+       - Item Name and type badge.
+       - Subtitle in small muted text: `Created by: {{ item.creator.name if item.creator else 'Unknown' }}`.
+       - Action buttons:
+         - `+` Button: `<button type="button" class="button button-small button-primary add-to-group-btn" title="Add to group" onclick="appendItemToGroup({{ item.id }}, '{{ item.name|escape }}', '{{ type_label }}')"><i data-lucide="plus" class="icon-white"></i></button>`
+         - Expand Button: `<button type="button" class="button button-quiet button-small" onclick="toggleItemScriptAccordion({{ item.id }})" title="Expand script"><i data-lucide="chevron-down" id="item-chevron-{{ item.id }}" class="icon-green"></i></button>`
+     - Accordion Body:
+       - Collapsible container (`display: none` by default).
+       - Pre-formatted script / uploaded files view with syntax highlighting styling.
+       - Variable count and variable list if present.
 
 ---
 
-## 6. Implementation Sequence
-1. **Model Updates**: Enhance `ServerAccess` and `Member` in `mizalla/models.py`.
-2. **Permission Helpers**: Update `mizalla/remote_exec_client.py` for two-tier View=Run and Edit=Run/Delete semantics.
-3. **Backend Routes**:
-   - `POST /apps/remote-exec/servers/<id>/verify` in `mizalla/remote_exec.py`.
-   - Security check on `GET /apps/remote-exec/servers/<id>/password`.
-   - Connectable servers filtering for dashboard, item modal, and group forms.
-   - Admin permissions grid routes in `mizalla/admin.py`.
-4. **UI Templates**:
-   - Update `mizalla/templates/remote_exec_dashboard.html`: Transform registered server cards into interactive accordions (Header: Name, Host IP, OS+version, Last Connected / UNVERIFIED badge, Chevron; Body: RAM/Storage gauges, capability tags, Pods list, Copy Password, Credentials button with inline drawer; On-expand auto-verification with spinner; Remove Live Status Sync placeholder; Filtered target server select).
-   - Update `mizalla/templates/command_group_form.html`: Filtered target server select.
-   - Create `mizalla/templates/admin_permissions_grid.html` and add tab to `admin_nav` macro in `mizalla/templates/macros.html`.
-5. **Testing**:
-   - Write comprehensive tests in `tests/test_remote_exec.py` and `tests/test_server_management.py`.
-   - Run full pytest suite to verify 100% pass rate.
+## 3. Backend Routes & Controllers (`mizalla/remote_exec.py`)
+
+### 3.1 `group_create()` (`/apps/remote-exec/groups/new`)
+- **GET**:
+  - Pass `available_items`: all Command Items the current user has permission to view (`[i for i in CommandItem.query.order_by(CommandItem.name).all() if user_can_view_item(current_user, i)]`).
+  - Pass `servers`: list of connectable servers.
+  - Pass `group=None`.
+- **POST**:
+  - Retrieve form inputs: `name`, `server_id`, `description`, `run_in_parallel`, `stop_on_error`.
+  - Retrieve submitted items: `item_ids = request.form.getlist("item_ids[]") or request.form.getlist("item_ids")`.
+  - Create the `CommandGroup`.
+  - For each `item_id` in `item_ids`, insert a `CommandGroupItem` with `sequence_order = idx + 1`.
+  - Commit and redirect to `/apps/remote-exec/`.
+
+### 3.2 `group_edit()` (`/apps/remote-exec/groups/<int:group_id>/edit`)
+- **GET**:
+  - Pass `group`, `servers`, and `available_items`.
+- **POST**:
+  - Update `group.name`, `group.description`, `group.run_in_parallel`, `group.stop_on_error`.
+  - If `item_ids` are submitted in the form, sync group items to match the submitted list and order:
+    - Clear existing `CommandGroupItem` entries for this group.
+    - Add new entries with the exact updated sequence.
+  - Commit and redirect to `/apps/remote-exec/`.
+
+---
+
+## 4. Frontend Drag-and-Drop & Dynamic List Logic
+
+### 4.1 HTML5 Drag-and-Drop Implementation
+- Make each added group item draggable (`draggable="true"`).
+- Event handlers:
+  - `ondragstart`: store index/dragged element ID and apply dragging visual cue (`opacity: 0.5`).
+  - `ondragover`: prevent default and apply insertion indicator.
+  - `ondrop`: swap or insert dragged element before/after target element in the DOM.
+  - `ondragend`: remove drag styles and invoke `updateGroupSequenceBadges()`.
+
+### 4.2 Dynamic Synchronization
+- `appendItemToGroup(itemId, itemName, itemType)`:
+  - Appends new item card HTML into the `#group-items-container`.
+  - Appends `<input type="hidden" name="item_ids[]" value="${itemId}">`.
+  - Triggers `updateGroupSequenceBadges()` to update `#1`, `#2`... labels.
+  - Calls `lucide.createIcons()`.
+- `removeGroupItem(element)`:
+  - Removes the item card from `#group-items-container`.
+  - Triggers `updateGroupSequenceBadges()`.
+- `updateGroupSequenceBadges()`:
+  - Iterates through all child cards in `#group-items-container`.
+  - Updates the badge text `#${idx + 1}`.
+  - Toggles the empty placeholder message visibility.
+
+---
+
+## 5. Implementation Steps & Status
+
+- [x] **Step 1: Dashboard Refactor (`remote_exec_dashboard.html`)**
+  - Removed top `+ New Command Item` and `+ New Command Group` header buttons.
+  - Removed the Command Items `<section>`.
+  - Expanded Command Groups panel to full page width (`width: 100%`).
+  - Added "+ New Command Group" action button directly in the Command Groups panel header.
+  - Retained Edit button linking to `/apps/remote-exec/groups/<id>/edit`.
+
+- [x] **Step 2: Backend Route Enhancements (`mizalla/remote_exec.py`)**
+  - Updated `group_create`:
+    - On GET: Fetches viewable Command Items (`available_items`) and passes them to `command_group_form.html`.
+    - On POST: Reads `item_ids[]` array from form and creates initial `CommandGroupItem` records with proper sequence numbers (`position = 1..N`).
+    - Redirects to `/apps/remote-exec/`.
+  - Updated `group_edit`:
+    - On POST: Synchronizes `CommandGroupItem` sequence with submitted `item_ids[]` array, deleting removed associations and adding/updating existing ones in matching order.
+    - Redirects to `/apps/remote-exec/`.
+
+- [x] **Step 3: Redesign Command Group Form (`command_group_form.html`)**
+  - Implemented responsive 70/30 grid layout (`.group-builder-grid`).
+  - **Left column (70%)**:
+    - Group details form (Name, Target Server, Description, Parallel, Stop on error).
+    - Draggable Command Items sequence container with drag handles (`grip-vertical`), sequence badges (`#1`, `#2`...), hidden `item_ids[]` inputs, and `x` removal buttons.
+    - Dynamic empty state placeholder when no items are selected.
+  - **Right column (30%)**:
+    - Available Command Items browser.
+    - Each item displays its name and `Created by: <Creator Name>` in muted font.
+    - `+` button appends item to group in left column.
+    - Expand toggle button with chevron/expand icon opens accordion body showing full script text and inferred variables.
+  - **JavaScript interactions**:
+    - Native HTML5 drag-and-drop reordering with dragover visual feedback.
+    - `appendItemToGroup`: Appends item card, syncs badge sequence, and invokes `lucide.createIcons()`.
+    - `removeGroupItem`: Removes item card and updates sequence numbering.
+    - `toggleItemScriptAccordion`: Toggles collapsed/expanded state of script view.
+
+- [x] **Step 5: Command Item Creation & In-Place Editing Modals on Command Group New/Edit Pages**
+  - **New Command Item Trigger**: Added "+ New Command Item" button (`btn-new-command-item`) in the Available Command Items panel header of `command_group_form.html`, controlled by user capability `can_add_item`.
+  - **Modal Forms Integration**: Included `<dialog id="item-modal">` and `<dialog id="variables-modal">` directly within `command_group_form.html` to support adding new items or editing existing items without navigating away from in-progress group editing.
+  - **Edit Button on Command Items**:
+    - Right column available items cards display a pencil Edit button (`btn-edit-avail-item`) if the logged-in user is the item creator, an Admin, or has explicit `can_edit` permission granted by the Admin.
+    - Left column included items cards also display the pencil Edit button when editable.
+  - **Asynchronous In-Place Save**:
+    - `save_item` route in `mizalla/remote_exec.py` enhanced to handle `ajax=1` requests, returning JSON metadata (`id`, `name`, `type_label`, `command_content`, `creator_name`, `can_edit`, `variables`).
+    - Editing an item updates its title, type label, script preview, and variables in the Available Items panel and synchronizes all referencing cards in the included group list without page reload.
+    - Creating an item dynamically prepends the new item card into the Available Items browser, increments the count badge, and binds interactive handlers.
+  - **Testing**: Added `test_command_group_item_modal_and_edit_permissions` in `tests/test_remote_exec.py` verifying modal triggers, creator/RBAC edit button permissions, and AJAX creation/updating. Passed 29/29 tests in `test_remote_exec.py` and 28/28 in `test_server_management.py`.
+
+

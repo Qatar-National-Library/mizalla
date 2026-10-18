@@ -209,6 +209,7 @@ class Server(db.Model):
     disk_percent = db.Column(db.Float, nullable=True, default=0.0)
     core_tags = db.Column(db.Text, nullable=False, default="")
     k8s_pods = db.Column(db.Text, nullable=True, default="")
+    docker_compose_content = db.Column(db.Text, nullable=True, default="")
 
     test_projects = db.relationship("Project", foreign_keys="Project.test_server_id", back_populates="test_server")
     production_projects = db.relationship("Project", foreign_keys="Project.production_server_id", back_populates="production_server")
@@ -271,16 +272,59 @@ class Server(db.Model):
 
     @property
     def has_telemetry(self) -> bool:
-        return bool(self.ram_total or self.disk_total or self.core_tags or self.k8s_pods)
+        return bool(self.ram_total or self.disk_total or self.core_tags or self.k8s_pods or self.docker_compose_content)
 
-    def get_k8s_pods(self) -> list[dict]:
-        """Returns parsed list of pods: [{"name": ..., "status": ..., "age": ..., "namespace": ..., "ready": ...}]."""
+    @property
+    def has_docker_compose(self) -> bool:
+        """Returns True if docker compose is detected or docker_compose_content is present."""
+        return bool(self.docker_compose_content or "[compose:" in (self.core_tags or "").lower() or self.has_tag("compose") or self.has_tag("docker-compose"))
+
+    @property
+    def has_k8s(self) -> bool:
+        """Returns True if Kubectl or Kubernetes is detected for this server."""
+        return self.has_tag("kubernetes") or self.has_tag("kubectl") or bool(self.k8s_pods)
+
+    def get_k8s_pods(self, only_user_running: bool = True) -> list[dict]:
+        """Returns parsed list of pods: [{"name": ..., "id": ..., "status": ..., "age": ..., "namespace": ..., "ready": ...}].
+        When only_user_running is True (default), filters out kube-system pods and returns only user running pods.
+        """
         if not self.k8s_pods:
             return []
         try:
             data = json.loads(self.k8s_pods)
             if isinstance(data, list):
-                return data
+                result = []
+                for p in data:
+                    if isinstance(p, dict):
+                        item = dict(p)
+                        if "name" in item and "id" not in item:
+                            item["id"] = item["name"]
+                        elif "id" in item and "name" not in item:
+                            item["name"] = item["id"]
+                        result.append(item)
+                    elif isinstance(p, str):
+                        m = re.search(r"^(.*?)\s*\(([^)]+)\)$", p.strip())
+                        if m:
+                            pod_name = m.group(1).strip()
+                            pod_age = m.group(2).strip()
+                            result.append({"id": pod_name, "name": pod_name, "status": "Running", "age": pod_age, "namespace": "default", "ready": ""})
+                        else:
+                            result.append({"id": p, "name": p, "status": "Running", "age": "", "namespace": "default", "ready": ""})
+                if only_user_running:
+                    filtered = []
+                    for pod in result:
+                        ns = (pod.get("namespace") or "").strip().lower()
+                        if ns == "kube-system" or ns.startswith("kube-system"):
+                            continue
+                        name = (pod.get("name") or pod.get("id") or "").strip().lower()
+                        if name.startswith("kube-system/"):
+                            continue
+                        status = (pod.get("status") or "").strip().lower()
+                        if status and status not in ("running", "active"):
+                            continue
+                        filtered.append(pod)
+                    return filtered
+                return result
         except Exception:
             pass
         return []
@@ -726,7 +770,7 @@ class CommandItem(db.Model):
     __tablename__ = "command_item"
 
     id = db.Column(db.Integer, primary_key=True)
-    server_id = db.Column(db.Integer, db.ForeignKey("server.id", ondelete="CASCADE"), nullable=False, index=True)
+    server_id = db.Column(db.Integer, db.ForeignKey("server.id", ondelete="CASCADE"), nullable=True, index=True)
     name = db.Column(db.String(180), nullable=False)
     command_type = db.Column(db.String(30), nullable=False, default=COMMAND_TYPE_REMOTE)
     command_content = db.Column(db.Text, nullable=False, default="")
@@ -737,6 +781,46 @@ class CommandItem(db.Model):
     creator = db.relationship("Member", backref=db.backref("created_command_items", lazy="dynamic"))
     variables = db.relationship("CommandVariable", back_populates="command_item", cascade="all, delete-orphan")
     permissions = db.relationship("CommandItemPermission", back_populates="command_item", cascade="all, delete-orphan")
+
+    def sync_inferred_variables(self, var_overrides=None):
+        """Infer {{ Variable-Name }} placeholders from self.command_content.
+
+        Keep existing user overrides (var_type, default_value, description).
+        Prune variables no longer present in script.
+        """
+        import re
+        if self.command_type == "upload" or not self.command_content:
+            self.variables.clear()
+            return
+
+        found_names = []
+        for m in re.finditer(r"\{\{\s*([a-zA-Z0-9_\-]+)\s*\}\}", self.command_content):
+            name = m.group(1).strip()
+            if name and name not in found_names:
+                found_names.append(name)
+
+        existing_by_name = {v.name: v for v in self.variables}
+        new_vars = []
+        for name in found_names:
+            if name in existing_by_name:
+                v = existing_by_name[name]
+                if var_overrides and name in var_overrides:
+                    ov = var_overrides[name]
+                    v.var_type = ov.get("var_type", v.var_type)
+                    v.default_value = ov.get("default_value", v.default_value)
+                    v.description = ov.get("description", v.description)
+                new_vars.append(v)
+            else:
+                ov = (var_overrides or {}).get(name, {})
+                v = CommandVariable(
+                    command_item=self,
+                    name=name,
+                    var_type=ov.get("var_type", VAR_TYPE_TEXT),
+                    default_value=ov.get("default_value", ""),
+                    description=ov.get("description", ""),
+                )
+                new_vars.append(v)
+        self.variables = new_vars
 
 
 class CommandVariable(db.Model):

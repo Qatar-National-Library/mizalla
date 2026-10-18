@@ -29,3 +29,6 @@ The agent has full access and permission to execute:
 - **Creation when Missing**: If a virtual environment is not available, create one immediately (default name = `venv`, e.g., `python -m venv venv`).
 - **Drop & Recreate on Package Changes**: If Python packages change (new ones added, version changed, package list edited, etc.) as you develop/write code, drop the virtual environment and recreate it cleanly from scratch before reinstalling packages (`pip install -r requirements.txt`).
 
+
+
+

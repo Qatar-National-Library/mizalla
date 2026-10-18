@@ -920,7 +920,7 @@ def test_server_k8s_pods_telemetry_and_ui(client, app):
 
     sample_pods = [
         {"namespace": "prod", "name": "web-api-abc", "ready": "1/1", "status": "Running", "age": "3d"},
-        {"namespace": "prod", "name": "worker-xyz", "ready": "0/1", "status": "Completed", "age": "1d"},
+        {"namespace": "prod", "name": "worker-xyz", "ready": "1/1", "status": "Running", "age": "1d"},
     ]
 
     with app.app_context():
@@ -956,7 +956,11 @@ def test_server_k8s_pods_telemetry_and_ui(client, app):
     assert admin_resp.status_code == 200
     admin_html = admin_resp.get_data(as_text=True)
     assert f'id="k8s-pods-container-{server_id}"' in admin_html
+    assert "Kubernetes" in admin_html
+    assert "background:lightgreen" in admin_html or "background: lightgreen" in admin_html or "background-color:lightgreen" in admin_html
+    assert "rgba(144, 238, 144, 0.5)" in admin_html or "rgba(144,238,144,0.5)" in admin_html
     assert "web-api-abc" in admin_html
+    assert "worker-xyz" in admin_html
     assert "Running" in admin_html
     assert "3d" in admin_html
 
@@ -965,7 +969,11 @@ def test_server_k8s_pods_telemetry_and_ui(client, app):
     assert re_resp.status_code == 200
     re_html = re_resp.get_data(as_text=True)
     assert f'id="k8s-pods-container-{server_id}"' in re_html
+    assert "Kubernetes" in re_html
+    assert "background:lightgreen" in re_html or "background: lightgreen" in re_html or "background-color:lightgreen" in re_html
+    assert "rgba(144, 238, 144, 0.5)" in re_html or "rgba(144,238,144,0.5)" in re_html
     assert "web-api-abc" in re_html
+    assert "worker-xyz" in re_html
     assert "Running" in re_html
     assert "3d" in re_html
     # Verify card displays Ubuntu rather than generic Linux
@@ -1029,6 +1037,290 @@ VERSION_ID="22.04"
     assert os_info["os_version"] == "Ubuntu 22.04.4 LTS"
 
 
+def test_kubectl_detected_runs_pods_and_renders_panel(client, app):
+    """Test that when Kubectl is detected for a server, pod IDs are listed in a Kubernetes panel
+
+    with heading in light green and body in the same light green with alpha 0.5.
+    """
+    import json
+    from mizalla.asyncssh_engine import _parse_kubectl_pods
+    login_admin(client, app)
+
+    # 1. Test _parse_kubectl_pods with pod ID lists
+    pod_output = """
+pod/nginx-deployment-7b864d4b8f-12345
+pod/redis-leader-0
+pod/worker-queue-abcde
+"""
+    parsed = _parse_kubectl_pods(pod_output)
+    assert len(parsed) == 3
+    assert parsed[0]["name"] == "nginx-deployment-7b864d4b8f-12345"
+    assert parsed[1]["name"] == "redis-leader-0"
+    assert parsed[2]["name"] == "worker-queue-abcde"
+
+    # 2. Test rendering on Server cards
+    with app.app_context():
+        server = Server(
+            name="Prod Kubernetes Node",
+            ip="10.0.0.50",
+            operating_system="Ubuntu 24.04",
+            agent_status="online",
+            core_tags="kubernetes: Kubernetes v1.30.0 (Running)",
+            k8s_pods=json.dumps(parsed),
+        )
+        db.session.add(server)
+        db.session.commit()
+        sid = server.id
+
+        assert server.has_k8s is True
+        pods = server.get_k8s_pods()
+        assert len(pods) == 3
+        assert pods[0]["id"] == "nginx-deployment-7b864d4b8f-12345"
+
+    resp = client.get("/apps/admin/servers")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+
+    # Verify panel exists
+    assert f'id="k8s-pods-container-{sid}"' in html
+    # Verify heading is "Kubernetes"
+    assert "Kubernetes" in html
+    # Verify heading background is light green
+    assert "background:lightgreen" in html or "background: lightgreen" in html or "background-color:lightgreen" in html
+    # Verify body background is the same light green with alpha 0.5
+    assert "rgba(144, 238, 144, 0.5)" in html or "rgba(144,238,144,0.5)" in html
+    # Verify each pod ID is rendered in the body
+    assert "nginx-deployment-7b864d4b8f-12345" in html
+    assert "redis-leader-0" in html
+    assert "worker-queue-abcde" in html
 
 
+def test_k8s_pods_show_running_age_in_brackets(client, app):
+    """Test that when displaying k8s pods, running age is displayed in brackets () with each pod ID."""
+    import json
+    from mizalla.asyncssh_engine import _parse_kubectl_pods
+    login_admin(client, app)
+
+    # Output from kubectl get pods -A or kubectl get pods
+    kubectl_output = """
+NAMESPACE     NAME                                READY   STATUS    RESTARTS   AGE
+default       web-api-7b864d4b8f-11111            1/1     Running   0          3d2h
+kube-system   coredns-787d4945fb-22222            1/1     Running   0          14d
+monitoring    prometheus-server-0                 2/2     Running   1          28d
+"""
+    parsed = _parse_kubectl_pods(kubectl_output)
+    assert len(parsed) == 3
+    assert parsed[0]["name"] == "web-api-7b864d4b8f-11111"
+    assert parsed[0]["age"] == "3d2h"
+    assert parsed[1]["age"] == "14d"
+    assert parsed[2]["age"] == "28d"
+
+    with app.app_context():
+        server = Server(
+            name="Cluster Node With Pod Ages",
+            ip="10.0.5.10",
+            operating_system="Ubuntu 22.04",
+            agent_status="online",
+            core_tags="kubernetes: Kubernetes v1.28.0 (Running)",
+            k8s_pods=json.dumps(parsed),
+        )
+        db.session.add(server)
+        db.session.commit()
+        sid = server.id
+
+    resp = client.get("/apps/admin/servers")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+
+    # Verify user running pod IDs are displayed with running age in brackets ()
+    assert "web-api-7b864d4b8f-11111 (3d2h)" in html
+    assert "prometheus-server-0 (28d)" in html
+    # kube-system pods should NOT be shown
+    assert "coredns-787d4945fb-22222" not in html
+
+
+def test_k8s_pods_filters_kube_system_and_non_running(client, app):
+    """Verify that when showing k8s pods, kube-system pods and non-running pods are never shown."""
+    import json
+    from mizalla.asyncssh_engine import _parse_kubectl_pods
+    login_admin(client, app)
+
+    k8s_mixed_output = """
+NAMESPACE     NAME                               READY   STATUS             RESTARTS   AGE
+kube-system   coredns-76f75df574-abcde           1/1     Running            0          10d
+kube-system   kube-proxy-j9x2k                   1/1     Running            0          10d
+default       frontend-web-123                   1/1     Running            0          2h
+production    api-service-456                    2/2     Running            1          5d
+analytics     spark-job-done-789                 0/1     Completed          0          1d
+ingress       nginx-ingress-failing              0/1     CrashLoopBackOff   4          30m
+staging       worker-starting                    0/1     Pending            0          5m
+"""
+    # 1. Verify _parse_kubectl_pods with only_user_running=True
+    user_running = _parse_kubectl_pods(k8s_mixed_output, only_user_running=True)
+    assert len(user_running) == 2
+    assert user_running[0]["name"] == "frontend-web-123"
+    assert user_running[0]["namespace"] == "default"
+    assert user_running[1]["name"] == "api-service-456"
+    assert user_running[1]["namespace"] == "production"
+
+    # 2. Verify server.get_k8s_pods() filters out kube-system and non-running pods
+    all_parsed = _parse_kubectl_pods(k8s_mixed_output)
+    assert len(all_parsed) == 7
+
+    with app.app_context():
+        server = Server(
+            name="K8s Filter Test Node",
+            ip="10.0.99.1",
+            operating_system="Ubuntu 22.04",
+            agent_status="online",
+            core_tags="kubernetes: Kubernetes v1.29.0 (Running)",
+            k8s_pods=json.dumps(all_parsed),
+        )
+        db.session.add(server)
+        db.session.commit()
+        sid = server.id
+
+        displayed_pods = server.get_k8s_pods()
+        assert len(displayed_pods) == 2
+        pod_names = [p["name"] for p in displayed_pods]
+        assert "frontend-web-123" in pod_names
+        assert "api-service-456" in pod_names
+        assert "coredns-76f75df574-abcde" not in pod_names
+        assert "kube-proxy-j9x2k" not in pod_names
+        assert "spark-job-done-789" not in pod_names
+        assert "nginx-ingress-failing" not in pod_names
+        assert "worker-starting" not in pod_names
+
+        # Raw pods can still be retrieved with only_user_running=False
+        assert len(server.get_k8s_pods(only_user_running=False)) == 7
+
+    # 3. Verify HTML rendering on admin servers page
+    resp = client.get("/apps/admin/servers")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+
+    assert "frontend-web-123" in html
+    assert "api-service-456" in html
+    assert "coredns-76f75df574-abcde" not in html
+    assert "kube-proxy-j9x2k" not in html
+    assert "spark-job-done-789" not in html
+    assert "nginx-ingress-failing" not in html
+    assert "worker-starting" not in html
+
+    # 4. Verify admin connection-status endpoint returns only user running pods
+    resp_telemetry = client.get(f"/apps/admin/servers/{sid}/connection-status")
+    assert resp_telemetry.status_code == 200
+    t_data = resp_telemetry.get_json()
+    assert len(t_data["k8s_pods"]) == 2
+    t_names = [p["name"] for p in t_data["k8s_pods"]]
+    assert "frontend-web-123" in t_names
+    assert "api-service-456" in t_names
+    assert "coredns-76f75df574-abcde" not in t_names
+
+    # 5. Verify remote exec dashboard renders only user running pods
+    re_resp = client.get("/apps/remote-exec/", follow_redirects=True)
+    assert re_resp.status_code == 200
+    re_html = re_resp.get_data(as_text=True)
+    assert "frontend-web-123" in re_html
+    assert "api-service-456" in re_html
+    assert "coredns-76f75df574-abcde" not in re_html
+    assert "kube-proxy-j9x2k" not in re_html
+    assert "spark-job-done-789" not in re_html
+    assert "nginx-ingress-failing" not in re_html
+    assert "worker-starting" not in re_html
+
+
+def test_asyncssh_locate_and_read_docker_compose():
+    """Test _locate_docker_compose_file and _read_docker_compose_file helpers."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    from mizalla.asyncssh_engine import _locate_docker_compose_file, _read_docker_compose_file
+
+    mock_conn = MagicMock()
+    # Mock locate
+    mock_locate_res = MagicMock()
+    mock_locate_res.exit_status = 0
+    mock_locate_res.stdout = "/opt/myapp/docker-compose.yml\n"
+    mock_conn.run = AsyncMock(return_value=mock_locate_res)
+
+    loc = asyncio.run(_locate_docker_compose_file(mock_conn, "linux"))
+    assert loc == "/opt/myapp/docker-compose.yml"
+
+    # Mock read
+    sample_yaml = "version: '3.8'\nservices:\n  app:\n    image: python:3.11\n    restart: always"
+    mock_read_res = MagicMock()
+    mock_read_res.exit_status = 0
+    mock_read_res.stdout = sample_yaml
+    mock_conn.run = AsyncMock(return_value=mock_read_res)
+
+    content = asyncio.run(_read_docker_compose_file(mock_conn, loc, "linux"))
+    assert "version: '3.8'" in content
+    assert "image: python:3.11" in content
+
+
+def test_docker_compose_detected_renders_collapsed_accordion_with_yaml(client, app):
+    """Test that when docker compose is detected, an accordion with heading 'docker-compose.yml'
+
+    is rendered with full YAML contents and hidden (collapsed) by default.
+    """
+    login_admin(client, app)
+
+    sample_yaml = """version: '3.8'
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: secretpassword
+"""
+
+    with app.app_context():
+        server = Server(
+            name="Docker Compose App Server",
+            ip="192.168.1.120",
+            operating_system="Ubuntu 22.04",
+            agent_status="online",
+            core_tags="docker: Docker 26.0.0 (Running) [Compose: /opt/app/docker-compose.yml]",
+            docker_compose_content=sample_yaml,
+        )
+        db.session.add(server)
+        db.session.commit()
+        sid = server.id
+
+        assert server.has_docker_compose is True
+        assert server.has_telemetry is True
+        assert "services:" in server.docker_compose_content
+
+    # 1. Verify on Admin Environments & Servers page
+    resp = client.get("/apps/admin/servers")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+
+    # Accordion element exists
+    assert f'id="docker-compose-accordion-{sid}"' in html
+    assert f'id="docker-compose-content-{sid}"' in html
+
+    # Accordion heading is "docker-compose.yml"
+    assert "docker-compose.yml" in html
+
+    # Accordion is collapsed by default (does NOT contain open attribute on this details)
+    # Extract the details tag
+    accordion_start = html.find(f'id="docker-compose-accordion-{sid}"')
+    details_tag = html[accordion_start - 30 : accordion_start + 60]
+    assert "open" not in details_tag.split(">")[0]
+
+    # Body contains formatted YAML content
+    assert "image: nginx:alpine" in html
+    assert "image: postgres:15" in html
+    assert 'POSTGRES_PASSWORD: secretpassword' in html
+
+    # 2. Verify connection status endpoint returns docker compose content
+    status_resp = client.get(f"/apps/admin/servers/{sid}/connection-status")
+    assert status_resp.status_code == 200
+    data = status_resp.get_json()
+    assert data["has_docker_compose"] is True
+    assert "version: '3.8'" in data["docker_compose_content"]
 

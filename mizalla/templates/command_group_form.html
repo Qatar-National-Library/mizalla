@@ -5,232 +5,951 @@
 {% block content %}
 {{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Remote Command Orchestration", url_for('remote_exec.dashboard')), (group.name if group else "New Group", None)]) }}
 
-<div class="remote-exec-container" style="max-width: 900px; margin: 0; padding-bottom: 3rem;">
+<div class="remote-exec-container" style="max-width: 1400px; margin: 0; padding-bottom: 3rem;">
   <div class="heading-row" style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 1.5rem; flex-wrap:wrap; gap:1rem;">
     <div>
-      <p class="eyebrow">ORCHESTRATION PIPELINE</p>
+      <p class="eyebrow" style="letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: var(--muted); margin-bottom: 0.3rem;">ORCHESTRATION PIPELINE</p>
       <h1 style="margin: 0.2rem 0 0; font: 400 clamp(1.6rem, 3vw, 2.2rem)/1.15 Georgia, serif;">
         {% if group %}Edit Command Group: {{ group.name }}{% else %}Create Command Group{% endif %}
       </h1>
       <p class="lede" style="margin-top:0.3rem; color:var(--muted);">
-        Combine multiple Command Items to run sequentially in a single persistent session (preserving <code>cd</code> and environment state) or in parallel.
+        Combine and order Command Items to run sequentially in a single persistent session (preserving <code>cd</code> and environment state) or in parallel.
       </p>
     </div>
     {% if group and current_user.is_admin %}
     <div>
-      <a href="{{ url_for('remote_exec.group_permissions', group_id=group.id) }}" class="button button-quiet button-small">
+      <a href="{{ url_for('remote_exec.group_permissions', group_id=group.id) }}" class="button button-quiet button-small" style="display:inline-flex; align-items:center; gap:0.3rem;">
         <i data-lucide="shield" class="icon-green"></i> Manage Access Permissions
       </a>
     </div>
     {% endif %}
   </div>
 
-  <form method="post" class="form-stack">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <!-- 70/30 Split Layout -->
+  <div class="group-builder-grid" style="display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 3fr); gap: 1.75rem; align-items: start;">
+    
+    <!-- Left Column (70%): Command Group Form & Execution Items Sequence -->
+    <div class="builder-left-col">
+      <form method="post" id="group-builder-form" class="form-stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-    <div class="detail-section" style="margin-bottom: 1.5rem; border-radius: 8px; border: 1px solid var(--border-color, #e0e0e0); padding: 1.25rem;">
-      <div style="display:flex; gap:1rem; flex-wrap:wrap;">
-        <label style="flex:2 1 240px;">
-          Group Name <span style="color:#c62828;">*</span>
-          <input type="text" name="name" required value="{{ group.name if group else '' }}" placeholder="e.g. Deploy Web Frontend, Full Nightly Backup" style="width:100%; padding:0.5rem; border:1px solid #ccc; border-radius:4px;">
-        </label>
-        <label style="flex:1 1 200px;">
-          Target Server <span style="color:#c62828;">*</span>
-          <select name="server_id" required {% if group %}disabled{% endif %} style="width:100%; padding:0.5rem; border:1px solid #ccc; border-radius:4px;">
-            <option value="">-- Choose Target Server --</option>
-            {% for s in servers %}
-            <option value="{{ s.id }}" {% if group and group.server_id == s.id %}selected{% endif %}>
-              {{ s.name }} ({{ s.ip }})
-            </option>
-            {% endfor %}
-          </select>
-          {% if not servers %}
-          <small style="color:#c62828; display:block; margin-top:0.3rem; font-size:0.75rem;">
-            No verified servers available. Connect to a server at least once from the Remote Execution dashboard before creating a Command Group.
-          </small>
-          {% endif %}
-          {% if group %}<input type="hidden" name="server_id" value="{{ group.server_id }}">{% endif %}
-        </label>
-      </div>
+        <!-- Group Definition Card -->
+        <div class="detail-section" style="margin-bottom: 1.5rem; border-radius: 8px; border: 1px solid var(--border-color, #e0e0e0); padding: 1.25rem; background: #fff;">
+          <h2 style="font-size: 1.15rem; margin: 0 0 1rem; font-weight: 600;">Command Group Details</h2>
+          
+          <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+            <label style="flex:2 1 240px;">
+              Group Name <span style="color:#c62828;">*</span>
+              <input type="text" name="name" required value="{{ group.name if group else '' }}" placeholder="e.g. Deploy Web Frontend, Full Nightly Backup" style="width:100%; padding:0.5rem; border:1px solid #ccc; border-radius:4px;">
+            </label>
+            <label style="flex:1 1 200px;">
+              Target Server <span style="color:#c62828;">*</span>
+              <select name="server_id" required {% if group %}disabled{% endif %} style="width:100%; padding:0.5rem; border:1px solid #ccc; border-radius:4px;">
+                <option value="">-- Choose Target Server --</option>
+                {% for s in servers %}
+                <option value="{{ s.id }}"{% if group and group.server_id == s.id %} selected{% endif %}>
+                  {{ s.name }} ({{ s.ip }})
+                </option>
+                {% endfor %}
+              </select>
+              {% if not servers %}
+              <small style="color:#c62828; display:block; margin-top:0.3rem; font-size:0.75rem;">
+                No verified servers available. Connect to a server at least once from the dashboard before creating a Command Group.
+              </small>
+              {% endif %}
+              {% if group %}<input type="hidden" name="server_id" value="{{ group.server_id }}">{% endif %}
+            </label>
+          </div>
 
-      <label style="margin-top: 0.75rem;">
-        Description (Optional)
-        <textarea name="description" rows="2" placeholder="Describe the workflow purpose..." style="width:100%; padding:0.5rem; border:1px solid #ccc; border-radius:4px;">{{ group.description if group else '' }}</textarea>
-      </label>
+          <label style="margin-top: 0.85rem; display:block;">
+            Description (Optional)
+            <textarea name="description" rows="2" placeholder="Describe the workflow purpose..." style="width:100%; padding:0.5rem; border:1px solid #ccc; border-radius:4px;">{{ group.description if group else '' }}</textarea>
+          </label>
 
-      <!-- Execution Options -->
-      <div style="display:flex; flex-direction:column; gap:0.6rem; margin-top:1.25rem; background:#fafafa; padding:0.85rem 1rem; border:1px solid var(--line, #e0e0e0); border-radius:6px;">
-        <label class="checkbox-row" style="margin:0;">
-          <input type="checkbox" name="run_in_parallel" value="1" {% if group and group.run_in_parallel %}checked{% endif %}>
-          <span><strong>Run in Parallel</strong> <span class="muted">(Default: Sequential single persistent session)</span></span>
-        </label>
-        <label class="checkbox-row" style="margin:0;">
-          <input type="checkbox" name="stop_on_error" value="1" {% if not group or group.stop_on_error %}checked{% endif %}>
-          <span><strong>Stop on Error</strong> <span class="muted">(Default: True)</span></span>
-        </label>
-      </div>
+          <!-- Execution Options -->
+          <div style="display:flex; flex-direction:column; gap:0.6rem; margin-top:1.1rem; background:#fafafa; padding:0.85rem 1rem; border:1px solid var(--line, #e0e0e0); border-radius:6px;">
+            <label class="checkbox-row" style="margin:0;">
+              <input type="checkbox" name="run_in_parallel" value="1" {% if group and group.run_in_parallel %}checked{% endif %}>
+              <span><strong>Run in Parallel</strong> <span class="muted">(Default: Sequential single persistent session)</span></span>
+            </label>
+            <label class="checkbox-row" style="margin:0;">
+              <input type="checkbox" name="stop_on_error" value="1" {% if not group or group.stop_on_error %}checked{% endif %}>
+              <span><strong>Stop on Error</strong> <span class="muted">(Default: True)</span></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Ordered Items in this Command Group -->
+        <div class="detail-section" style="margin-bottom: 1.5rem; border-radius: 8px; border: 1px solid var(--border-color, #e0e0e0); padding: 1.25rem; background: #fff;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.85rem; flex-wrap:wrap; gap:0.5rem;">
+            <div>
+              <h2 style="font-size: 1.15rem; margin: 0; font-weight: 600; display:inline-flex; align-items:center; gap:0.5rem;">
+                Command Items in this Group
+                <span id="group-items-badge" class="tag" style="background:#f0f4f8; color:var(--ink); font-size:0.75rem; padding:0.15rem 0.5rem; border-radius:12px; font-weight:700;">
+                  {{ group.items|length if group else 0 }} items
+                </span>
+              </h2>
+              <p class="muted" style="margin:0.2rem 0 0; font-size:0.8rem;">
+                Drag items to change their execution order. Click <strong>x</strong> to remove.
+              </p>
+            </div>
+            <button type="button" class="button button-quiet button-small danger-text" onclick="clearAllAddedItems()" style="font-size:0.8rem;">
+              <i data-lucide="trash-2" class="icon-green"></i> Clear All
+            </button>
+          </div>
+
+          <!-- Added Items List (Draggable) -->
+          <div id="group-items-container" style="display:flex; flex-direction:column; gap:0.6rem; min-height: 80px;">
+            {% if group and group.items %}
+              {% for g_item in group.items %}
+              {% set item = g_item.command_item %}
+              {% if item %}
+              {% set type_label = 'On Remote Server' if item.command_type == 'remote' else ('On Local Server' if item.command_type == 'local' else ('Upload File(s)' if item.command_type == 'upload' else item.command_type)) %}
+              {% set can_edit_this = can_edit_item(item) if can_edit_item is defined else false %}
+              <div class="added-item-card" data-item-id="{{ item.id }}" draggable="true" style="display:flex; justify-content:space-between; align-items:center; padding: 0.75rem 1rem; border: 1px solid #d0d7de; border-radius: 6px; background: #fafafa; cursor: grab; transition: background 0.15s, box-shadow 0.15s; user-select:none;">
+                <input type="hidden" name="item_ids[]" value="{{ item.id }}">
+                <div style="display:flex; align-items:center; gap:0.65rem; min-width:0; flex:1;">
+                  <span class="drag-handle" style="color:var(--muted); display:inline-flex; align-items:center; cursor:grab;" title="Drag to reorder"><i data-lucide="grip-vertical" class="icon-green"></i></span>
+                  <span class="step-seq-badge" style="font-weight:700; font-size:0.82rem; background:#e8f0fe; color:#1a73e8; padding:0.15rem 0.45rem; border-radius:4px; min-width:28px; text-align:center;">#{{ loop.index }}</span>
+                  <div style="min-width:0;">
+                    <strong class="group-item-title" style="font-size:0.95rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block;">{{ item.name }}</strong>
+                    <div style="display:flex; align-items:center; gap:0.4rem; margin-top:0.2rem;">
+                      <span class="tag group-item-type-tag" style="font-size:0.68rem; background:rgba(0,0,0,0.06); padding:0.05rem 0.35rem; border-radius:3px;">{{ type_label }}</span>
+                      <span class="muted" style="font-size:0.75rem;">Created by: {{ item.creator.name if item.creator else 'Unknown' }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:0.4rem;">
+                  {% if can_edit_this %}
+                  <button type="button" class="button button-quiet button-small" onclick="openEditItemModal({{ item.id }})" title="Edit Command Item" style="padding:0.25rem 0.45rem;">
+                    <i data-lucide="pencil" class="icon-green"></i>
+                  </button>
+                  {% endif %}
+                  <button type="button" class="button button-quiet button-small" onclick="removeGroupItem(this)" title="Remove from Group" style="padding:0.25rem 0.45rem; color:#c62828;">
+                    <i data-lucide="x" class="icon-green"></i>
+                  </button>
+                </div>
+              </div>
+              {% endif %}
+              {% endfor %}
+            {% endif %}
+          </div>
+
+          <!-- Empty State Message -->
+          <div id="group-empty-state" style="display:{% if group and group.items %}none{% else %}block{% endif %}; padding: 1.75rem 1rem; text-align:center; border: 1px dashed #ccc; border-radius:6px; background:#fbfcfb; margin-top:0.5rem;">
+            <i data-lucide="layers" class="icon-green" style="width:28px; height:28px; margin-bottom:0.4rem; opacity:0.6;"></i>
+            <p style="margin:0; font-size:0.9rem; font-weight:600; color:var(--ink);">No Command Items in this group yet</p>
+            <p class="muted" style="margin:0.25rem 0 0; font-size:0.8rem;">
+              Click the <strong style="color:var(--green-dark, #103e30);">+</strong> button on any Command Item in the right column to add it to this sequence.
+            </p>
+          </div>
+        </div>
+
+        <!-- Form Actions -->
+        <div style="display:flex; justify-content:flex-end; gap:0.6rem; margin-top:1rem;">
+          <a href="{{ url_for('remote_exec.dashboard') }}" class="button button-quiet">Cancel</a>
+          <button type="submit" class="button button-primary">Save Command Group</button>
+        </div>
+      </form>
     </div>
 
-    {% if group %}
-    <!-- Command Items Fieldset with ADD and CLEAR buttons at top -->
-    <fieldset style="border: 1px solid var(--border-color, #e0e0e0); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem; background:#fff;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; flex-wrap:wrap; gap:0.5rem;">
-        <legend style="font-size: 1.05rem; font-weight: 600; padding: 0 0.5rem;">Command Items in this Group</legend>
-        
-        <!-- Fieldset Top Controls: ADD and CLEAR -->
-        <div style="display:flex; gap: 0.5rem;">
-          <button type="button" class="button button-small" onclick="openAddItemModal()" style="background:#1a73e8; color:#fff; font-weight:600;">
-            <i data-lucide="plus" class="icon-white"></i> ADD
-          </button>
-          <button type="button" class="button button-quiet button-small danger-text" onclick="clearAllItems({{ group.id }})" style="font-weight:600;">
-            <i data-lucide="trash-2" class="icon-green"></i> CLEAR
-          </button>
-        </div>
+    <!-- Right Column (30%): Available Command Items Browser -->
+    <div class="builder-right-col" style="background:#fff; border: 1px solid var(--border-color, #e0e0e0); border-radius: 8px; padding: 1.25rem; position:sticky; top: 1rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.5rem; flex-wrap:wrap; gap:0.5rem;">
+        <h2 style="font-size: 1.15rem; margin:0; font-weight:600; display:inline-flex; align-items:center; gap:0.4rem;">
+          Command Items
+          <span id="avail-items-count-badge" class="tag" style="background:#e8f5e9; color:#2e7d32; font-size:0.75rem; padding:0.15rem 0.5rem; border-radius:12px; font-weight:700;">
+            {{ available_items|length }}
+          </span>
+        </h2>
+        {% if can_add_item is not defined or can_add_item %}
+        <button type="button" class="button button-quiet button-small" onclick="openNewItemModal()" id="btn-new-command-item" style="display:inline-flex; align-items:center; gap:0.3rem; font-size:0.8rem;">
+          <i data-lucide="plus" class="icon-green"></i> New Command Item
+        </button>
+        {% endif %}
       </div>
+      <p class="muted" style="margin:0 0 1rem; font-size:0.8rem; line-height:1.4;">
+        Available items you created or have access to. Click <strong>+</strong> to append to the group, or click expand to inspect the script.
+      </p>
 
-      <!-- Items List -->
-      <div style="display:flex; flex-direction:column; gap:0.6rem;">
-        {% set total_items = group.items|length %}
-        {% for g_item in group.items %}
-        {% set item = g_item.command_item %}
-        <div style="display:flex; justify-content:space-between; align-items:center; padding: 0.75rem 1rem; border: 1px solid #e0e0e0; border-radius: 6px; background: #fafafa; flex-wrap:wrap; gap:0.5rem;">
-          <div style="display:flex; align-items:center; gap: 0.6rem; flex: 1 1 auto;">
-            <span style="font-weight:700; color:var(--muted); font-size:0.85rem; width: 24px;">#{{ loop.index }}</span>
-            <div>
-              <strong style="font-size:0.95rem;">{{ item.name if item else "Unknown Item" }}</strong>
-              <div style="display:flex; align-items:center; gap:0.4rem; margin-top:0.2rem;">
-                <span class="tag" style="font-size:0.7rem; text-transform:uppercase; background:rgba(0,0,0,0.06); padding:0.1rem 0.35rem; border-radius:3px;">
-                  {{ item.command_type if item else "remote" }}
+      <!-- Accordion Items List -->
+      <div class="available-items-list" style="display:flex; flex-direction:column; gap:0.65rem; max-height: calc(100vh - 220px); overflow-y:auto; padding-right:0.25rem;">
+        {% for item in available_items %}
+        {% set type_label = 'On Remote Server' if item.command_type == 'remote' else ('On Local Server' if item.command_type == 'local' else ('Upload File(s)' if item.command_type == 'upload' else item.command_type)) %}
+        {% set can_edit_this = can_edit_item(item) if can_edit_item is defined else false %}
+        <div class="avail-item-accordion" id="avail-item-{{ item.id }}" data-item-id="{{ item.id }}" style="border: 1px solid #e0e0e0; border-radius: 6px; overflow:hidden; background:#fafafa; transition: border-color 0.15s ease;">
+          
+          <!-- Accordion Header -->
+          <div class="avail-item-header" style="padding: 0.65rem 0.8rem; display:flex; justify-content:space-between; align-items:flex-start; gap:0.4rem; background:#fff;">
+            <div style="min-width:0; flex:1;">
+              <strong class="avail-item-name" style="font-size:0.88rem; display:block; color:var(--ink); word-break:break-word;">{{ item.name }}</strong>
+              <div class="muted avail-item-creator" style="font-size:0.74rem; margin-top:0.15rem;">
+                Created by: {{ item.creator.name if item.creator else (item.creator.email if item.creator else 'Unknown') }}
+              </div>
+              <div style="margin-top:0.25rem;">
+                <span class="tag avail-item-type-tag" style="font-size:0.68rem; background:rgba(0,0,0,0.06); padding:0.05rem 0.35rem; border-radius:3px;">
+                  {{ type_label }}
                 </span>
-                <span class="muted" style="font-size:0.75rem;">
-                  {{ item.variables|length if item else 0 }} variables
+                <span class="muted avail-item-vars-tag" style="font-size:0.72rem; margin-left:0.3rem; {% if item.command_type == 'upload' or not item.variables %}display:none;{% endif %}">
+                  ({{ item.variables|length }} var{{ 's' if item.variables|length != 1 else '' }})
                 </span>
               </div>
             </div>
+
+            <!-- Action Buttons: Edit, Expand, and Add (+) -->
+            <div style="display:flex; align-items:center; gap:0.25rem; flex-shrink:0;">
+              {% if can_edit_this %}
+              <button type="button" class="button button-quiet button-small btn-edit-avail-item" onclick="openEditItemModal({{ item.id }})" title="Edit Command Item" style="padding:0.25rem 0.4rem;">
+                <i data-lucide="pencil" class="icon-green"></i>
+              </button>
+              {% endif %}
+              <!-- Expand / Collapse Script Button -->
+              <button type="button" class="button button-quiet button-small btn-expand-avail-item" onclick="toggleItemScriptAccordion({{ item.id }})" title="View script/content" style="padding:0.25rem 0.4rem;">
+                <i data-lucide="chevron-down" id="avail-chevron-{{ item.id }}" class="icon-green" style="transition:transform 0.2s ease;"></i>
+              </button>
+              
+              <!-- Append to Group Button -->
+              <button type="button" class="button button-primary button-small btn-add-avail-item" onclick="appendItemToGroup({{ item.id }}, '{{ item.name|replace('\\', '\\\\')|replace('\'', '\\\'') }}', '{{ type_label }}', '{{ (item.creator.name if item.creator else 'Unknown')|replace('\\', '\\\\')|replace('\'', '\\\'') }}', {{ 'true' if can_edit_this else 'false' }})" title="Append to Command Group" style="padding:0.25rem 0.5rem; display:inline-flex; align-items:center; gap:0.2rem;">
+                <i data-lucide="plus" class="icon-white"></i>
+              </button>
+            </div>
           </div>
 
-          <!-- Controls: MOVE UP, MOVE DOWN, EDIT, REMOVE -->
-          <div style="display:flex; align-items:center; gap:0.35rem;" onclick="event.stopPropagation();">
-            <!-- MOVE UP -->
-            <button type="button" class="button button-quiet button-small" 
-                    {% if loop.first %}disabled title="Top item cannot move up"{% else %}onclick="moveItem({{ group.id }}, {{ g_item.id }}, 'up')"{% endif %}
-                    style="padding:0.25rem 0.5rem; font-size:0.75rem;">
-              <i data-lucide="arrow-up" class="icon-green"></i> MOVE UP
-            </button>
-
-            <!-- MOVE DOWN -->
-            <button type="button" class="button button-quiet button-small"
-                    {% if loop.last %}disabled title="Bottom item cannot move down"{% else %}onclick="moveItem({{ group.id }}, {{ g_item.id }}, 'down')"{% endif %}
-                    style="padding:0.25rem 0.5rem; font-size:0.75rem;">
-              <i data-lucide="arrow-down" class="icon-green"></i> MOVE DOWN
-            </button>
-
-            <!-- EDIT (Opens Item Modal) -->
-            {% if item %}
-            <button type="button" class="button button-quiet button-small" onclick="openEditItemModal({{ item.id }})" style="padding:0.25rem 0.5rem; font-size:0.75rem;">
-              <i data-lucide="pencil" class="icon-green"></i> EDIT
-            </button>
-            {% endif %}
-
-            <!-- REMOVE -->
-            <button type="button" class="button button-quiet button-small danger-text" onclick="removeItem({{ group.id }}, {{ g_item.id }})" style="padding:0.25rem 0.5rem; font-size:0.75rem;">
-              <i data-lucide="x" class="icon-green"></i> REMOVE
-            </button>
+          <!-- Accordion Body: Script & Variable Details -->
+          <div class="avail-item-body" id="avail-body-{{ item.id }}" style="display:none; padding: 0.65rem 0.8rem; border-top:1px solid #eee; background:#fdfdfd;">
+            <div style="font-size:0.72rem; font-weight:600; color:var(--muted); margin-bottom:0.25rem; text-transform:uppercase;">Script / Content</div>
+            <pre class="avail-item-script-pre" style="margin:0; font-family:monospace; font-size:0.75rem; background:#1e1e1e; color:#dcdcdc; padding:0.55rem; border-radius:4px; max-height:140px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;">{{ item.command_content or "(Upload Step)" }}</pre>
+            
+            <div class="avail-item-vars-container" style="margin-top:0.4rem; font-size:0.72rem; {% if not item.variables %}display:none;{% endif %}">
+              <span style="font-weight:600; color:var(--muted);">Variables:</span>
+              <span class="avail-item-vars-text" style="color:var(--ink);">{{ item.variables|map(attribute='name')|join(', ') }}</span>
+            </div>
           </div>
         </div>
         {% else %}
-        <p class="muted" style="font-size:0.9rem; margin: 0.5rem 0;">
-          No Command Items in this group yet. Click <strong>+ ADD</strong> above to select items.
-        </p>
+        <p class="muted avail-items-empty-msg" style="font-size:0.85rem; text-align:center; padding:1.5rem 0;">No Command Items available.</p>
         {% endfor %}
       </div>
-    </fieldset>
-    {% endif %}
-
-    <div style="display:flex; justify-content:flex-end; gap:0.6rem; margin-top:1.5rem;">
-      <a href="{{ url_for('remote_exec.dashboard') }}" class="button button-quiet">Cancel</a>
-      <button type="submit" class="button button-primary">Save Command Group</button>
     </div>
-  </form>
+  </div>
 </div>
 
-{% if group %}
-<!-- Modal: Add Command Item to Group -->
-<dialog id="add-item-modal" class="modal-dialog" style="border:none; border-radius:8px; padding:0; max-width:500px; width:90%; box-shadow:0 10px 30px rgba(0,0,0,0.25);">
+<!-- ─── New / Edit Command Item Modal ────────────────────────────────────── -->
+<dialog id="item-modal" class="modal-dialog" style="border:none; border-radius:8px; padding:0; max-width:620px; width:90%; box-shadow:0 10px 30px rgba(0,0,0,0.25);">
   <div style="padding: 1.5rem; background:#fff; border-radius:8px;">
-    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 1rem;">
-      <h3 style="margin:0; font-size:1.2rem;">Add Command Item</h3>
-      <button type="button" onclick="document.getElementById('add-item-modal').close()" style="background:none; border:none; font-size:1.5rem; cursor:pointer;">&times;</button>
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 1.25rem;">
+      <h3 id="item-modal-heading" style="margin:0; font-size:1.3rem;">Command Item</h3>
+      <button type="button" onclick="closeItemModal()" style="background:none; border:none; cursor:pointer; color:var(--green-dark); padding:0;"><i data-lucide="x" class="icon-green"></i></button>
     </div>
 
-    <form method="post" action="{{ url_for('remote_exec.group_add_item', group_id=group.id) }}" class="form-stack">
+    <form method="post" action="{{ url_for('remote_exec.save_item') }}" class="form-stack" enctype="multipart/form-data" id="item-form" onsubmit="submitItemForm(event)">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label>
-        Select Command Item (Target Server: {{ group.server.name }})
-        <select name="item_id" required style="width:100%; padding:0.5rem; border:1px solid #ccc; border-radius:4px; font-size:0.9rem;">
-          <option value="">-- Choose Item --</option>
-          {% for item in available_items %}
-          <option value="{{ item.id }}">{{ item.name }} ({{ item.command_type }})</option>
-          {% endfor %}
-        </select>
-      </label>
+      <input type="hidden" name="item_id" id="edit-item-id" value="">
+      <input type="hidden" name="next" value="{{ request.url }}">
 
-      <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1rem;">
-        <button type="button" class="button button-quiet" onclick="document.getElementById('add-item-modal').close()">Cancel</button>
-        <button type="submit" class="button button-primary">Add to Group</button>
+      <!-- Hidden inputs for variable overrides, synced from variables modal -->
+      <div id="item-vars-hidden-container"></div>
+
+      <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+        <label style="flex:2 1 240px;">
+          Item Name
+          <input type="text" name="name" id="item-input-name" required placeholder="e.g. Restart App, Pull Git Repo" style="width:100%; padding:0.45rem; border:1px solid #ccc; border-radius:4px;">
+        </label>
+        <label style="flex:1 1 200px;">
+          Command Type
+          <select name="command_type" id="item-input-type" onchange="toggleItemTypeFields()" style="width:100%; padding:0.45rem; border:1px solid #ccc; border-radius:4px;">
+            <option value="remote">On Remote Server</option>
+            <option value="local">On Local Server</option>
+            <option value="upload">Upload File(s)</option>
+          </select>
+        </label>
+      </div>
+
+      <!-- Script & Inferred Variables (Shown for remote / local) -->
+      <div id="item-command-container">
+        <label>
+          Command(s) Script
+          <textarea name="command_content" id="item-input-content" rows="4" oninput="updateInferredVarsBadge()" placeholder="Enter shell commands. Use &#123;&#123; Variable-Name &#125;&#125; for dynamic values..." style="width:100%; padding:0.45rem; font-family:monospace; border:1px solid #ccc; border-radius:4px;"></textarea>
+        </label>
+
+        <!-- Inferred Variables Trigger Card -->
+        <div style="display:flex; justify-content:space-between; align-items:center; background:#f4fbf7; border:1px solid rgba(16, 62, 48, 0.2); border-radius:6px; padding:0.6rem 0.85rem; margin-top:0.75rem;">
+          <div>
+            <span style="font-weight:600; font-size:0.85rem; color:var(--green-dark, #103e30);">Placeholder Variables:</span>
+            <span id="var-count-text" style="font-size:0.8rem; color:var(--muted); margin-left:0.35rem;">0 inferred from script</span>
+          </div>
+          <button type="button" class="button button-quiet button-small" onclick="openVariablesModal()" id="btn-open-variables-modal" style="font-size:0.75rem; padding:0.25rem 0.6rem; display:inline-flex; align-items:center; gap:0.3rem;">
+            <i data-lucide="sliders" class="icon-green"></i> Edit Variables
+          </button>
+        </div>
+      </div>
+
+      <!-- File Upload Drop-Zone (Shown for upload) -->
+      <div id="item-upload-container" style="display:none; margin-top:0.5rem;">
+        <label class="field-label" style="display:block; font-weight:600; font-size:0.85rem; margin-bottom:0.35rem;">
+          Attached Files <span class="muted" style="font-weight:normal; font-size:0.75rem;">(All file types allowed · Max 5 MB per file)</span>
+        </label>
+        <label class="file-picker drop-zone" for="item-upload-files" id="drop-zone-item-upload">
+          <span class="upload-symbol" aria-hidden="true">＋</span>
+          <span class="file-picker-copy">
+            <strong id="item-upload-label">Choose files or drop here</strong>
+            <small>Any file type · max 5 MB per file · multiple allowed</small>
+          </span>
+          <input id="item-upload-files" name="upload_files" type="file" multiple onchange="handleItemFilesSelected(event)">
+        </label>
+        <p id="item-upload-error" style="color:#c62828; font-size:0.8rem; margin:0.35rem 0 0; display:none;"></p>
+        
+        <div id="item-uploaded-list" style="margin-top:0.65rem; display:flex; flex-direction:column; gap:0.35rem;">
+          <!-- Attached/existing files rendered dynamically -->
+        </div>
+      </div>
+
+      <p id="item-modal-error" style="color:#c62828; font-size:0.82rem; margin:0.6rem 0 0; display:none;"></p>
+
+      <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.25rem;">
+        <button type="button" class="button button-quiet" onclick="closeItemModal()">Cancel</button>
+        <button type="submit" class="button button-primary" id="item-modal-save-btn">Save Command Item</button>
       </div>
     </form>
   </div>
 </dialog>
-{% endif %}
+
+<!-- ─── Dedicated Placeholder Variables Modal ────────────────────────────── -->
+<dialog id="variables-modal" class="modal-dialog" style="border:none; border-radius:8px; padding:0; max-width:560px; width:92%; box-shadow:0 15px 40px rgba(0,0,0,0.3); z-index:1050;">
+  <div style="padding: 1.5rem; background:#fff; border-radius:8px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 0.85rem; border-bottom:1px solid #eee; padding-bottom:0.75rem;">
+      <div>
+        <p class="eyebrow" style="margin:0; font-size:0.75rem; color:var(--muted);">COMMAND ITEM</p>
+        <h3 style="margin:0.2rem 0 0; font-size:1.2rem; color:var(--green-dark, #103e30);">Placeholder Variables</h3>
+      </div>
+      <button type="button" onclick="closeVariablesModal()" style="background:none; border:none; cursor:pointer; color:var(--green-dark); padding:0;"><i data-lucide="x" class="icon-green"></i></button>
+    </div>
+
+    <p style="font-size:0.82rem; color:var(--muted); margin:0 0 1rem 0;">
+      Variables are inferred directly from your script (<code>&#123;&#123; Variable-Name &#125;&#125;</code>). Set the data type and default value for each variable.
+    </p>
+
+    <div id="variables-modal-list" style="display:flex; flex-direction:column; gap:0.85rem; max-height:360px; overflow-y:auto; padding-right:0.25rem;">
+      <!-- Populated via openVariablesModal() -->
+    </div>
+
+    <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.25rem; border-top:1px solid #eee; padding-top:0.75rem;">
+      <button type="button" class="button button-quiet" onclick="closeVariablesModal()">Cancel</button>
+      <button type="button" class="button button-primary" onclick="saveVariablesModal()">Save Variables</button>
+    </div>
+  </div>
+</dialog>
 
 <script>
 const csrfToken = "{{ csrf_token() }}";
 
-function openAddItemModal() {
-  const modal = document.getElementById("add-item-modal");
+// ─── Drag and Drop & Group Sequence Management ──────────────────────────────
+let draggedElement = null;
+
+function initDragAndDrop() {
+  const container = document.getElementById("group-items-container");
+  if (!container) return;
+
+  container.addEventListener("dragstart", (e) => {
+    const card = e.target.closest(".added-item-card");
+    if (!card) return;
+    draggedElement = card;
+    card.style.opacity = "0.4";
+    e.dataTransfer.effectAllowed = "move";
+  });
+
+  container.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const target = e.target.closest(".added-item-card");
+    if (target && target !== draggedElement) {
+      const rect = target.getBoundingClientRect();
+      const next = (e.clientY - rect.top) / (rect.bottom - rect.top) > 0.5;
+      container.insertBefore(draggedElement, next && target.nextSibling || target);
+    }
+  });
+
+  container.addEventListener("dragend", () => {
+    if (draggedElement) {
+      draggedElement.style.opacity = "1";
+      draggedElement = null;
+      updateSequenceBadges();
+    }
+  });
+}
+
+function updateSequenceBadges() {
+  const container = document.getElementById("group-items-container");
+  const emptyState = document.getElementById("group-empty-state");
+  const countBadge = document.getElementById("group-items-badge");
+  if (!container) return;
+
+  const cards = container.querySelectorAll(".added-item-card");
+  cards.forEach((card, idx) => {
+    const badge = card.querySelector(".step-seq-badge");
+    if (badge) badge.textContent = `#${idx + 1}`;
+  });
+
+  if (emptyState) {
+    emptyState.style.display = cards.length === 0 ? "block" : "none";
+  }
+  if (countBadge) {
+    countBadge.textContent = `${cards.length} item${cards.length === 1 ? '' : 's'}`;
+  }
+}
+
+function appendItemToGroup(itemId, itemName, itemType, creatorName, canEdit = false) {
+  const container = document.getElementById("group-items-container");
+  if (!container) return;
+
+  const card = document.createElement("div");
+  card.className = "added-item-card";
+  card.setAttribute("data-item-id", itemId);
+  card.setAttribute("draggable", "true");
+  card.style.cssText = "display:flex; justify-content:space-between; align-items:center; padding: 0.75rem 1rem; border: 1px solid #d0d7de; border-radius: 6px; background: #fafafa; cursor: grab; transition: background 0.15s, box-shadow 0.15s; user-select:none;";
+
+  card.innerHTML = `
+    <input type="hidden" name="item_ids[]" value="${itemId}">
+    <div style="display:flex; align-items:center; gap:0.65rem; min-width:0; flex:1;">
+      <span class="drag-handle" style="color:var(--muted); display:inline-flex; align-items:center; cursor:grab;" title="Drag to reorder"><i data-lucide="grip-vertical" class="icon-green"></i></span>
+      <span class="step-seq-badge" style="font-weight:700; font-size:0.82rem; background:#e8f0fe; color:#1a73e8; padding:0.15rem 0.45rem; border-radius:4px; min-width:28px; text-align:center;">#1</span>
+      <div style="min-width:0;">
+        <strong class="group-item-title" style="font-size:0.95rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block;">${escapeHtml(itemName)}</strong>
+        <div style="display:flex; align-items:center; gap:0.4rem; margin-top:0.2rem;">
+          <span class="tag group-item-type-tag" style="font-size:0.68rem; background:rgba(0,0,0,0.06); padding:0.05rem 0.35rem; border-radius:3px;">${escapeHtml(itemType)}</span>
+          <span class="muted" style="font-size:0.75rem;">Created by: ${escapeHtml(creatorName || 'Unknown')}</span>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:0.4rem;">
+      ${canEdit ? `
+      <button type="button" class="button button-quiet button-small" onclick="openEditItemModal(${itemId})" title="Edit Command Item" style="padding:0.25rem 0.45rem;">
+        <i data-lucide="pencil" class="icon-green"></i>
+      </button>` : ''}
+      <button type="button" class="button button-quiet button-small" onclick="removeGroupItem(this)" title="Remove from Group" style="padding:0.25rem 0.45rem; color:#c62828;">
+        <i data-lucide="x" class="icon-green"></i>
+      </button>
+    </div>
+  `;
+
+  container.appendChild(card);
+  updateSequenceBadges();
+
+  if (window.lucide) {
+    lucide.createIcons();
+  }
+}
+
+function removeGroupItem(buttonEl) {
+  const card = buttonEl.closest(".added-item-card");
+  if (card) {
+    card.remove();
+    updateSequenceBadges();
+  }
+}
+
+function clearAllAddedItems() {
+  const container = document.getElementById("group-items-container");
+  if (!container) return;
+  if (!confirm("Are you sure you want to remove all items from this group?")) return;
+  container.innerHTML = "";
+  updateSequenceBadges();
+}
+
+function toggleItemScriptAccordion(itemId) {
+  const body = document.getElementById(`avail-body-${itemId}`);
+  const chevron = document.getElementById(`avail-chevron-${itemId}`);
+  if (!body) return;
+
+  const isOpen = body.style.display !== "none";
+  body.style.display = isOpen ? "none" : "block";
+  if (chevron) {
+    chevron.style.transform = isOpen ? "rotate(0deg)" : "rotate(180deg)";
+  }
+}
+
+// ─── Command Item & Inferred Variables State ──────────────────────────────
+let currentVariablesMap = {}; // { [varName]: { var_type, default_value, description } }
+let currentExistingFiles = [];
+
+function extractVariablesFromScript(script) {
+  if (!script) return [];
+  const pattern = /\{\{\s*([a-zA-Z0-9_\-]+)\s*\}\}/g;
+  const names = [];
+  let m;
+  while ((m = pattern.exec(script)) !== null) {
+    const name = m[1].trim();
+    if (name && !names.includes(name)) {
+      names.push(name);
+    }
+  }
+  return names;
+}
+
+function updateInferredVarsBadge() {
+  const script = (document.getElementById("item-input-content") || {}).value || "";
+  const names = extractVariablesFromScript(script);
+  const badge = document.getElementById("var-count-text");
+  if (badge) {
+    badge.textContent = `${names.length} inferred from script`;
+  }
+}
+
+function openVariablesModal() {
+  const script = (document.getElementById("item-input-content") || {}).value || "";
+  const names = extractVariablesFromScript(script);
+  const container = document.getElementById("variables-modal-list");
+  if (!container) return;
+
+  if (names.length === 0) {
+    container.innerHTML = `
+      <div style="padding:1.5rem 1rem; text-align:center; background:#f9f9f9; border:1px dashed #ccc; border-radius:6px;">
+        <i data-lucide="info" class="icon-green" style="width:24px; height:24px; margin-bottom:0.4rem;"></i>
+        <p style="margin:0; font-size:0.85rem; color:var(--muted);">No placeholder variables found in the script.<br>Add <code>&#123;&#123; Variable-Name &#125;&#125;</code> to your command script to define dynamic values.</p>
+      </div>
+    `;
+  } else {
+    container.innerHTML = names.map(name => {
+      const v = currentVariablesMap[name] || { var_type: "text", default_value: "", description: "" };
+      return `
+        <div class="var-card" style="border:1px solid #e0e0e0; border-radius:6px; padding:0.85rem; background:#fafafa;">
+          <div style="margin-bottom:0.6rem; display:flex; align-items:center; gap:0.4rem;">
+            <span style="font-weight:700; font-size:0.8rem; color:#666;">Variable Name:</span>
+            <code style="font-weight:700; font-size:0.85rem; color:var(--green-dark, #103e30); background:#fff; padding:0.15rem 0.4rem; border:1px solid #ddd; border-radius:3px;">&#123;&#123; ${escapeHtml(name)} &#125;&#125;</code>
+          </div>
+          <div style="display:grid; grid-template-columns: 140px 1fr; gap:0.6rem;">
+            <div>
+              <label for="vmodal-type-${escapeHtml(name)}" style="display:block; font-size:0.75rem; font-weight:700; color:#444; margin-bottom:0.25rem;">Type</label>
+              <select id="vmodal-type-${escapeHtml(name)}" style="width:100%; padding:0.35rem; font-size:0.82rem; border:1px solid #ccc; border-radius:4px;">
+                <option value="text" ${v.var_type === 'text' ? 'selected' : ''}>Text</option>
+                <option value="number" ${v.var_type === 'number' ? 'selected' : ''}>Number</option>
+                <option value="boolean" ${v.var_type === 'boolean' ? 'selected' : ''}>Boolean</option>
+              </select>
+            </div>
+            <div>
+              <label for="vmodal-default-${escapeHtml(name)}" style="display:block; font-size:0.75rem; font-weight:700; color:#444; margin-bottom:0.25rem;">Default Value</label>
+              <input type="text" id="vmodal-default-${escapeHtml(name)}" value="${escapeHtml(v.default_value || '')}" placeholder="Fallback default value..." style="width:100%; padding:0.35rem; font-size:0.82rem; border:1px solid #ccc; border-radius:4px;">
+            </div>
+          </div>
+          <div style="margin-top:0.5rem;">
+            <label for="vmodal-desc-${escapeHtml(name)}" style="display:block; font-size:0.75rem; font-weight:700; color:#444; margin-bottom:0.25rem;">Description (Optional)</label>
+            <input type="text" id="vmodal-desc-${escapeHtml(name)}" value="${escapeHtml(v.description || '')}" placeholder="Describe how this variable is used..." style="width:100%; padding:0.35rem; font-size:0.82rem; border:1px solid #ccc; border-radius:4px;">
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  const modal = document.getElementById("variables-modal");
   if (modal) modal.showModal();
+  if (window.lucide) lucide.createIcons();
 }
 
-function clearAllItems(groupId) {
-  if (!confirm("Are you sure you want to CLEAR all Command Items from this group?")) return;
-  const form = document.createElement("form");
-  form.method = "POST";
-  form.action = `/apps/remote-exec/groups/${groupId}/clear`;
-  const csrf = document.createElement("input");
-  csrf.type = "hidden";
-  csrf.name = "csrf_token";
-  csrf.value = csrfToken;
-  form.appendChild(csrf);
-  document.body.appendChild(form);
-  form.submit();
+function closeVariablesModal() {
+  const modal = document.getElementById("variables-modal");
+  if (modal) modal.close();
 }
 
-function removeItem(groupId, linkId) {
-  if (!confirm("Remove this item from the group?")) return;
-  const form = document.createElement("form");
-  form.method = "POST";
-  form.action = `/apps/remote-exec/groups/${groupId}/remove-item/${linkId}`;
-  const csrf = document.createElement("input");
-  csrf.type = "hidden";
-  csrf.name = "csrf_token";
-  csrf.value = csrfToken;
-  form.appendChild(csrf);
-  document.body.appendChild(form);
-  form.submit();
+function saveVariablesModal() {
+  const script = (document.getElementById("item-input-content") || {}).value || "";
+  const names = extractVariablesFromScript(script);
+
+  names.forEach(name => {
+    const typeEl = document.getElementById(`vmodal-type-${name}`);
+    const defEl = document.getElementById(`vmodal-default-${name}`);
+    const descEl = document.getElementById(`vmodal-desc-${name}`);
+    if (typeEl && defEl) {
+      currentVariablesMap[name] = {
+        var_type: typeEl.value,
+        default_value: defEl.value,
+        description: descEl ? descEl.value : "",
+      };
+    }
+  });
+
+  syncVariablesToHiddenInputs();
+  closeVariablesModal();
 }
 
-function moveItem(groupId, linkId, direction) {
-  const form = document.createElement("form");
-  form.method = "POST";
-  form.action = `/apps/remote-exec/groups/${groupId}/move/${linkId}/${direction}`;
-  const csrf = document.createElement("input");
-  csrf.type = "hidden";
-  csrf.name = "csrf_token";
-  csrf.value = csrfToken;
-  form.appendChild(csrf);
-  document.body.appendChild(form);
-  form.submit();
+function syncVariablesToHiddenInputs() {
+  const script = (document.getElementById("item-input-content") || {}).value || "";
+  const names = extractVariablesFromScript(script);
+  const hiddenContainer = document.getElementById("item-vars-hidden-container");
+  if (!hiddenContainer) return;
+
+  hiddenContainer.innerHTML = "";
+  names.forEach(name => {
+    const v = currentVariablesMap[name] || { var_type: "text", default_value: "", description: "" };
+    hiddenContainer.innerHTML += `
+      <input type="hidden" name="var_name[]" value="${escapeHtml(name)}">
+      <input type="hidden" name="var_type[]" value="${escapeHtml(v.var_type || 'text')}">
+      <input type="hidden" name="var_default[]" value="${escapeHtml(v.default_value || '')}">
+      <input type="hidden" name="var_desc[]" value="${escapeHtml(v.description || '')}">
+    `;
+  });
+  updateInferredVarsBadge();
 }
+
+function toggleItemTypeFields() {
+  const type = document.getElementById("item-input-type").value;
+  const cmdContainer = document.getElementById("item-command-container");
+  const uploadContainer = document.getElementById("item-upload-container");
+
+  if (type === "upload") {
+    if (cmdContainer) cmdContainer.style.display = "none";
+    if (uploadContainer) uploadContainer.style.display = "block";
+  } else {
+    if (cmdContainer) cmdContainer.style.display = "block";
+    if (uploadContainer) uploadContainer.style.display = "none";
+  }
+}
+
+function handleItemFilesSelected(event) {
+  const files = event.target.files;
+  const errEl = document.getElementById("item-upload-error");
+  if (errEl) {
+    errEl.style.display = "none";
+    errEl.textContent = "";
+  }
+
+  const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    if (f.size > MAX_SIZE) {
+      if (errEl) {
+        errEl.textContent = `File "${f.name}" exceeds the 5 MB limit (${(f.size / (1024 * 1024)).toFixed(2)} MB). Please select smaller files.`;
+        errEl.style.display = "block";
+      }
+      event.target.value = "";
+      renderUploadedFilesList();
+      return;
+    }
+  }
+
+  renderUploadedFilesList();
+}
+
+function renderUploadedFilesList() {
+  const container = document.getElementById("item-uploaded-list");
+  if (!container) return;
+
+  const input = document.getElementById("item-upload-files");
+  const newFiles = input && input.files ? Array.from(input.files) : [];
+  const itemId = document.getElementById("edit-item-id").value;
+
+  let html = "";
+  // 1. Existing saved files
+  currentExistingFiles.forEach(f => {
+    const sizeKB = (f.size / 1024).toFixed(1);
+    html += `
+      <div style="display:flex; justify-content:space-between; align-items:center; background:#f4fbf7; border:1px solid rgba(16, 62, 48, 0.15); border-radius:4px; padding:0.35rem 0.6rem; font-size:0.8rem;">
+        <span style="display:inline-flex; align-items:center; gap:0.35rem; color:var(--ink);">
+          <i data-lucide="file" class="icon-green" style="width:14px; height:14px;"></i>
+          <strong>${escapeHtml(f.name)}</strong>
+          <span class="muted" style="font-size:0.75rem;">(${sizeKB} KB - Saved)</span>
+        </span>
+        <button type="button" onclick="deleteExistingItemFile(${itemId}, '${escapeJs(f.name)}')" style="background:none; border:none; color:#c62828; cursor:pointer; font-weight:600; font-size:0.75rem;">
+          <i data-lucide="trash-2" class="icon-green" style="width:13px; height:13px;"></i> Remove
+        </button>
+      </div>
+    `;
+  });
+
+  // 2. Newly staged files
+  newFiles.forEach((f) => {
+    const sizeKB = (f.size / 1024).toFixed(1);
+    html += `
+      <div style="display:flex; justify-content:space-between; align-items:center; background:#fff; border:1px solid #ddd; border-radius:4px; padding:0.35rem 0.6rem; font-size:0.8rem;">
+        <span style="display:inline-flex; align-items:center; gap:0.35rem; color:var(--ink);">
+          <i data-lucide="file-up" class="icon-green" style="width:14px; height:14px;"></i>
+          <strong>${escapeHtml(f.name)}</strong>
+          <span class="muted" style="font-size:0.75rem;">(${sizeKB} KB - Pending upload)</span>
+        </span>
+        <span class="muted" style="font-size:0.75rem; color:var(--green-dark, #103e30); font-weight:600;">Ready</span>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+  if (window.lucide) lucide.createIcons();
+}
+
+async function deleteExistingItemFile(itemId, filename) {
+  if (!confirm(`Delete attached file "${filename}"?`)) return;
+  const formData = new FormData();
+  formData.append("csrf_token", csrfToken);
+  formData.append("filename", filename);
+
+  try {
+    const resp = await fetch(`/apps/remote-exec/items/${itemId}/delete-file`, {
+      method: "POST",
+      body: formData,
+    });
+    const data = await resp.json();
+    if (data.success) {
+      currentExistingFiles = currentExistingFiles.filter(f => f.name !== filename);
+      renderUploadedFilesList();
+    } else {
+      alert(data.error || "Failed to delete file.");
+    }
+  } catch (e) {
+    alert("Network error: " + e);
+  }
+}
+
+function openNewItemModal() {
+  document.getElementById("edit-item-id").value = "";
+  document.getElementById("item-modal-heading").textContent = "New Command Item";
+  document.getElementById("item-input-name").value = "";
+  document.getElementById("item-input-content").value = "";
+  document.getElementById("item-input-type").value = "remote";
+  currentVariablesMap = {};
+  currentExistingFiles = [];
+  const fileInput = document.getElementById("item-upload-files");
+  if (fileInput) fileInput.value = "";
+  const errEl = document.getElementById("item-upload-error");
+  if (errEl) {
+    errEl.style.display = "none";
+    errEl.textContent = "";
+  }
+  const modalErr = document.getElementById("item-modal-error");
+  if (modalErr) {
+    modalErr.style.display = "none";
+    modalErr.textContent = "";
+  }
+
+  syncVariablesToHiddenInputs();
+  toggleItemTypeFields();
+  renderUploadedFilesList();
+  document.getElementById("item-modal").showModal();
+  if (window.lucide) lucide.createIcons();
+}
+
+async function openEditItemModal(itemId) {
+  openNewItemModal();
+  document.getElementById("edit-item-id").value = itemId;
+  document.getElementById("item-modal-heading").textContent = "Edit Command Item";
+
+  try {
+    const resp = await fetch(`/apps/remote-exec/items/${itemId}/data`);
+    if (!resp.ok) {
+      alert("Failed to load Command Item data.");
+      return;
+    }
+    const data = await resp.json();
+
+    document.getElementById("item-input-name").value = data.name || "";
+    document.getElementById("item-input-type").value = data.command_type || "remote";
+    document.getElementById("item-input-content").value = data.command_content || "";
+
+    currentVariablesMap = {};
+    (data.variables || []).forEach(v => {
+      currentVariablesMap[v.name] = {
+        var_type: v.var_type || "text",
+        default_value: v.default_value || "",
+        description: v.description || "",
+      };
+    });
+
+    currentExistingFiles = data.files || [];
+    toggleItemTypeFields();
+    syncVariablesToHiddenInputs();
+    renderUploadedFilesList();
+  } catch (e) {
+    console.error("Failed to load Command Item data:", e);
+  }
+}
+
+function closeItemModal() {
+  const modal = document.getElementById("item-modal");
+  if (modal) modal.close();
+}
+
+async function submitItemForm(event) {
+  event.preventDefault();
+  const form = document.getElementById("item-form");
+  const saveBtn = document.getElementById("item-modal-save-btn");
+  const errEl = document.getElementById("item-modal-error");
+  if (errEl) {
+    errEl.style.display = "none";
+    errEl.textContent = "";
+  }
+
+  const origBtnText = saveBtn ? saveBtn.innerHTML : "Save Command Item";
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+  }
+
+  const formData = new FormData(form);
+  formData.append("ajax", "1");
+
+  try {
+    const resp = await fetch(form.action, {
+      method: "POST",
+      body: formData,
+    });
+    const data = await resp.json();
+
+    if (!resp.ok || !data.success) {
+      if (errEl) {
+        errEl.textContent = data.error || "Failed to save Command Item.";
+        errEl.style.display = "block";
+      } else {
+        alert(data.error || "Failed to save Command Item.");
+      }
+      return;
+    }
+
+    const item = data.item;
+    closeItemModal();
+
+    // 1. Update in Available Items list (Right Column)
+    let availCard = document.getElementById(`avail-item-${item.id}`);
+    if (availCard) {
+      // Existing item edited: update fields
+      const nameEl = availCard.querySelector(".avail-item-name");
+      if (nameEl) nameEl.textContent = item.name;
+
+      const typeTag = availCard.querySelector(".avail-item-type-tag");
+      if (typeTag) typeTag.textContent = item.type_label;
+
+      const scriptPre = availCard.querySelector(".avail-item-script-pre");
+      if (scriptPre) scriptPre.textContent = item.command_content || (item.command_type === "upload" ? "(Upload Step)" : "(Empty Script)");
+
+      const varsContainer = availCard.querySelector(".avail-item-vars-container");
+      const varsTag = availCard.querySelector(".avail-item-vars-tag");
+      const varsText = availCard.querySelector(".avail-item-vars-text");
+      if (item.command_type !== "upload" && item.variables && item.variables.length > 0) {
+        if (varsTag) {
+          varsTag.textContent = `(${item.variables.length} var${item.variables.length !== 1 ? 's' : ''})`;
+          varsTag.style.display = "inline";
+        }
+        if (varsContainer && varsText) {
+          varsText.textContent = item.variables.join(", ");
+          varsContainer.style.display = "block";
+        }
+      } else {
+        if (varsTag) varsTag.style.display = "none";
+        if (varsContainer) varsContainer.style.display = "none";
+      }
+
+      // Update onclick of + button with new name
+      const addBtn = availCard.querySelector(".btn-add-avail-item");
+      if (addBtn) {
+        addBtn.setAttribute("onclick", `appendItemToGroup(${item.id}, '${escapeJs(item.name)}', '${escapeJs(item.type_label)}', '${escapeJs(item.creator_name)}', ${item.can_edit ? 'true' : 'false'})`);
+      }
+    } else {
+      // Newly created item: create and prepend new accordion card
+      const listContainer = document.querySelector(".available-items-list");
+      if (listContainer) {
+        const emptyMsg = listContainer.querySelector(".avail-items-empty-msg");
+        if (emptyMsg) emptyMsg.remove();
+
+        const newCard = document.createElement("div");
+        newCard.className = "avail-item-accordion";
+        newCard.id = `avail-item-${item.id}`;
+        newCard.setAttribute("data-item-id", item.id);
+        newCard.style.cssText = "border: 1px solid #e0e0e0; border-radius: 6px; overflow:hidden; background:#fafafa; transition: border-color 0.15s ease;";
+
+        newCard.innerHTML = `
+          <div class="avail-item-header" style="padding: 0.65rem 0.8rem; display:flex; justify-content:space-between; align-items:flex-start; gap:0.4rem; background:#fff;">
+            <div style="min-width:0; flex:1;">
+              <strong class="avail-item-name" style="font-size:0.88rem; display:block; color:var(--ink); word-break:break-word;">${escapeHtml(item.name)}</strong>
+              <div class="muted avail-item-creator" style="font-size:0.74rem; margin-top:0.15rem;">
+                Created by: ${escapeHtml(item.creator_name || 'Unknown')}
+              </div>
+              <div style="margin-top:0.25rem;">
+                <span class="tag avail-item-type-tag" style="font-size:0.68rem; background:rgba(0,0,0,0.06); padding:0.05rem 0.35rem; border-radius:3px;">
+                  ${escapeHtml(item.type_label)}
+                </span>
+                <span class="muted avail-item-vars-tag" style="font-size:0.72rem; margin-left:0.3rem; ${item.command_type === 'upload' || !item.variables || item.variables.length === 0 ? 'display:none;' : ''}">
+                  (${item.variables ? item.variables.length : 0} var${item.variables && item.variables.length === 1 ? '' : 's'})
+                </span>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:0.25rem; flex-shrink:0;">
+              ${item.can_edit ? `
+              <button type="button" class="button button-quiet button-small btn-edit-avail-item" onclick="openEditItemModal(${item.id})" title="Edit Command Item" style="padding:0.25rem 0.4rem;">
+                <i data-lucide="pencil" class="icon-green"></i>
+              </button>` : ''}
+              <button type="button" class="button button-quiet button-small btn-expand-avail-item" onclick="toggleItemScriptAccordion(${item.id})" title="View script/content" style="padding:0.25rem 0.4rem;">
+                <i data-lucide="chevron-down" id="avail-chevron-${item.id}" class="icon-green" style="transition:transform 0.2s ease;"></i>
+              </button>
+              <button type="button" class="button button-primary button-small btn-add-avail-item" onclick="appendItemToGroup(${item.id}, '${escapeJs(item.name)}', '${escapeJs(item.type_label)}', '${escapeJs(item.creator_name)}', ${item.can_edit ? 'true' : 'false'})" title="Append to Command Group" style="padding:0.25rem 0.5rem; display:inline-flex; align-items:center; gap:0.2rem;">
+                <i data-lucide="plus" class="icon-white"></i>
+              </button>
+            </div>
+          </div>
+          <div class="avail-item-body" id="avail-body-${item.id}" style="display:none; padding: 0.65rem 0.8rem; border-top:1px solid #eee; background:#fdfdfd;">
+            <div style="font-size:0.72rem; font-weight:600; color:var(--muted); margin-bottom:0.25rem; text-transform:uppercase;">Script / Content</div>
+            <pre class="avail-item-script-pre" style="margin:0; font-family:monospace; font-size:0.75rem; background:#1e1e1e; color:#dcdcdc; padding:0.55rem; border-radius:4px; max-height:140px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;">${escapeHtml(item.command_content || (item.command_type === "upload" ? "(Upload Step)" : "(Empty Script)"))}</pre>
+            <div class="avail-item-vars-container" style="margin-top:0.4rem; font-size:0.72rem; ${!item.variables || item.variables.length === 0 ? 'display:none;' : ''}">
+              <span style="font-weight:600; color:var(--muted);">Variables:</span>
+              <span class="avail-item-vars-text" style="color:var(--ink);">${escapeHtml((item.variables || []).join(", "))}</span>
+            </div>
+          </div>
+        `;
+
+        listContainer.prepend(newCard);
+
+        const badge = document.getElementById("avail-items-count-badge");
+        if (badge) {
+          const currentCount = parseInt(badge.textContent.trim()) || 0;
+          badge.textContent = (currentCount + 1).toString();
+        }
+      }
+    }
+
+    // 2. Also update all cards currently added in the left column
+    const addedCards = document.querySelectorAll(`#group-items-container .added-item-card[data-item-id="${item.id}"]`);
+    addedCards.forEach(card => {
+      const titleEl = card.querySelector(".group-item-title");
+      if (titleEl) titleEl.textContent = item.name;
+      const typeTag = card.querySelector(".group-item-type-tag");
+      if (typeTag) typeTag.textContent = item.type_label;
+    });
+
+    if (window.lucide) {
+      lucide.createIcons();
+    }
+  } catch (err) {
+    if (errEl) {
+      errEl.textContent = "Network error: " + err;
+      errEl.style.display = "block";
+    } else {
+      alert("Network error: " + err);
+    }
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = origBtnText;
+      if (window.lucide) lucide.createIcons();
+    }
+  }
+}
+
+function escapeHtml(text) {
+  if (!text) return "";
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function escapeJs(str) {
+  if (!str) return "";
+  return String(str).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  initDragAndDrop();
+  updateSequenceBadges();
+  if (window.lucide) {
+    lucide.createIcons();
+  }
+});
 </script>
 {% endblock %}

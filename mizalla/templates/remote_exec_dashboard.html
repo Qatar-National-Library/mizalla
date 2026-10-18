@@ -16,14 +16,6 @@
         Cross-platform AsyncSSH command execution across Ubuntu, RedHat, and Windows. Single-session workflows, variable templating, and role-based log auditing.
       </p>
     </div>
-    <div style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap;">
-      {% if can_add_item %}
-      <button type="button" class="button button-secondary" onclick="openNewItemModal()">+ New Command Item</button>
-      {% endif %}
-      {% if can_add_group %}
-      <a href="{{ url_for('remote_exec.group_create') }}" class="button button-primary">+ New Command Group</a>
-      {% endif %}
-    </div>
   </div>
 
   <!-- Informational Callout Banner -->
@@ -132,45 +124,63 @@
               {% endif %}
             </div>
 
-            {# 3. Kubernetes Pods (if detected) #}
+            {# 3. Kubernetes Panel (if detected) #}
             {% set pods = server.get_k8s_pods() %}
-            <div id="k8s-pods-container-{{ server.id }}" style="margin-top:0.5rem; border-top:1px dashed rgba(16, 62, 48, 0.15); padding-top:0.45rem; {% if not pods %}display:none;{% endif %}">
-              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.35rem;">
-                <span style="font-weight:600; font-size:0.75rem; color:var(--ink); display:inline-flex; align-items:center; gap:0.25rem;">
-                  <i data-lucide="layers" style="width:13px; height:13px; color:var(--green-dark, #103e30);"></i> Kubernetes Pods
+            {% set has_k8s = server.has_k8s if server.has_k8s is defined else (server.has_tag('kubernetes') or server.has_tag('kubectl') or pods) %}
+            <div id="k8s-pods-container-{{ server.id }}" class="k8s-panel" style="margin-top:0.65rem; border:1px solid rgba(16, 62, 48, 0.2); border-radius:6px; overflow:hidden; {% if not has_k8s and not pods %}display:none;{% endif %}">
+              <div class="k8s-panel-heading" style="background:lightgreen; background-color:lightgreen; padding:0.4rem 0.65rem; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid rgba(16, 62, 48, 0.15);">
+                <span class="k8s-panel-title" style="font-weight:700; font-size:0.8rem; color:var(--green-dark, #103e30); display:inline-flex; align-items:center; gap:0.35rem;">
+                  <i data-lucide="layers" style="width:14px; height:14px; color:var(--green-dark, #103e30);"></i> Kubernetes
                 </span>
-                <span id="k8s-pods-count-{{ server.id }}" style="font-size:0.7rem; color:var(--muted); font-weight:600;">
+                <span id="k8s-pods-count-{{ server.id }}" style="font-size:0.7rem; color:var(--green-dark, #103e30); font-weight:600;">
                   {% if pods %}{{ pods | length }} pod{{ 's' if pods | length != 1 else '' }}{% endif %}
                 </span>
               </div>
-              <div id="k8s-pods-list-{{ server.id }}" style="display:flex; flex-direction:column; gap:0.28rem; max-height:160px; overflow-y:auto; padding-right:2px;">
+              <div id="k8s-pods-list-{{ server.id }}" class="k8s-panel-body" style="background:rgba(144, 238, 144, 0.5); background-color:rgba(144, 238, 144, 0.5); padding:0.45rem 0.65rem; display:flex; flex-direction:column; gap:0.25rem; max-height:160px; overflow-y:auto;">
                 {% for pod in pods %}
-                  {% set is_running = pod.status in ['Running', 'Active'] %}
-                  {% set is_completed = pod.status in ['Completed', 'Succeeded'] %}
-                  {% set is_pending = pod.status in ['Pending', 'ContainerCreating'] %}
+                  {% set pod_id = pod.id if pod is mapping and pod.id else (pod.name if pod is mapping and pod.name else (pod if pod is string else '')) %}
+                  {% set is_running = pod.status in ['Running', 'Active'] if pod is mapping else false %}
+                  {% set is_completed = pod.status in ['Completed', 'Succeeded'] if pod is mapping else false %}
+                  {% set is_pending = pod.status in ['Pending', 'ContainerCreating'] if pod is mapping else false %}
                   {% set badge_bg = '#e8f5e9' if is_running else ('#f1f5f9' if is_completed else ('#fff8e1' if is_pending else '#ffebee')) %}
                   {% set badge_color = '#2e7d32' if is_running else ('#475569' if is_completed else ('#f57f17' if is_pending else '#c62828')) %}
-                  <div style="display:flex; align-items:center; justify-content:space-between; background:#ffffff; border:1px solid #e2e8f0; border-radius:4px; padding:0.22rem 0.45rem; font-size:0.72rem; gap:0.4rem;">
-                    <div style="display:flex; align-items:center; gap:0.3rem; min-width:0; flex:1;">
-                      {% if pod.namespace and pod.namespace != 'default' %}
-                        <span style="color:var(--muted); font-size:0.68rem; background:#f1f5f9; padding:0.05rem 0.3rem; border-radius:3px;">{{ pod.namespace }}</span>
+                  <div class="k8s-pod-line" style="display:flex; align-items:center; justify-content:space-between; padding:0.22rem 0.4rem; background:rgba(255, 255, 255, 0.65); border:1px solid rgba(16, 62, 48, 0.1); border-radius:4px; font-size:0.73rem; gap:0.4rem;">
+                    <div style="display:flex; align-items:center; gap:0.35rem; min-width:0; flex:1;">
+                      {% if pod is mapping and pod.namespace and pod.namespace != 'default' %}
+                        <span style="color:var(--muted); font-size:0.68rem; background:rgba(255, 255, 255, 0.85); padding:0.05rem 0.3rem; border-radius:3px;">{{ pod.namespace }}</span>
                       {% endif %}
-                      <span style="font-family:monospace; font-weight:600; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ pod.name }}">
-                        {{ pod.name }}
+                      {% set pod_age = pod.age if pod is mapping and pod.age else '' %}
+                      <span class="k8s-pod-id" style="font-family:monospace; font-weight:600; color:var(--green-dark, #103e30); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ pod_id }}{% if pod_age %} ({{ pod_age }}){% endif %}">
+                        {{ pod_id }}{% if pod_age %} ({{ pod_age }}){% endif %}
                       </span>
                     </div>
+                    {% if pod is mapping and pod.status %}
                     <div style="display:flex; align-items:center; gap:0.35rem; flex-shrink:0;">
                       <span style="background:{{ badge_bg }}; color:{{ badge_color }}; font-weight:600; padding:0.08rem 0.35rem; border-radius:3px; font-size:0.68rem;">
                         {{ pod.status }}
                       </span>
-                      <span style="color:var(--muted); font-size:0.68rem; min-width:30px; text-align:right;">
-                        {{ pod.age }}
-                      </span>
                     </div>
+                    {% endif %}
                   </div>
+                {% else %}
+                  <span class="muted" style="font-size:0.72rem; color:var(--green-dark, #103e30);">No pods running</span>
                 {% endfor %}
               </div>
             </div>
+
+            {# 4. Docker Compose Accordion (if detected) #}
+            {% set has_compose = server.has_docker_compose %}
+            {% set compose_content = server.docker_compose_content or '' %}
+            <details class="accordion docker-compose-accordion" id="docker-compose-accordion-{{ server.id }}" style="margin-top:0.65rem; border:1px solid rgba(16, 62, 48, 0.2); border-radius:6px; overflow:hidden; {% if not has_compose and not compose_content %}display:none;{% endif %}">
+              <summary class="accordion-head" style="background:#f4fbf7; padding:0.45rem 0.65rem; display:flex; align-items:center; gap:0.5rem; cursor:pointer; font-weight:600; font-size:0.8rem; color:var(--green-dark, #103e30); user-select:none;">
+                <span class="accordion-chevron" aria-hidden="true"></span>
+                <i data-lucide="file-code" style="width:14px; height:14px; color:var(--green-dark, #103e30);"></i>
+                <span class="accordion-heading" style="font-weight:700;">docker-compose.yml</span>
+              </summary>
+              <div class="accordion-body" style="padding:0; margin:0; border-top:1px solid rgba(16, 62, 48, 0.15); background:#1e1e1e;">
+                <pre id="docker-compose-content-{{ server.id }}" class="docker-compose-pre" style="margin:0; padding:0.75rem 1rem; color:#f0f0f0; background:#1e1e1e; font-family:Consolas, Monaco, 'Courier New', monospace; font-size:0.75rem; line-height:1.45; overflow-x:auto; white-space:pre; tab-size:2; max-height:360px; overflow-y:auto;">{{ compose_content if compose_content else '# No docker-compose.yml file found' }}</pre>
+              </div>
+            </details>
           </div>
 
           <!-- Card Footer Controls -->
@@ -219,20 +229,19 @@
     </div>
   </section>
 
-  <!-- Section 2: Command Groups & Command Items Tabs / Two Columns -->
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; margin-bottom: 2.5rem;">
-    
-    <!-- Command Groups -->
-    <section class="detail-section" style="margin: 0;">
-      <div class="section-heading" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
-        <div>
-          <p class="eyebrow" style="font-size:0.75rem; color:var(--muted); margin:0;">SEQUENTIAL & PARALLEL</p>
-          <h2 style="font-size:1.2rem; margin:0;">Command Groups</h2>
-        </div>
-        {% if can_add_group %}
-        <a href="{{ url_for('remote_exec.group_create') }}" class="button button-secondary button-small">+ New Group</a>
-        {% endif %}
+  <!-- Section 2: Command Groups (Full Width) -->
+  <section class="detail-section" style="margin: 0 0 2.5rem 0; width: 100%;">
+    <div class="section-heading" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
+      <div>
+        <p class="eyebrow" style="font-size:0.75rem; color:var(--muted); margin:0;">SEQUENTIAL &amp; PARALLEL</p>
+        <h2 style="font-size:1.25rem; margin:0;">Command Groups</h2>
       </div>
+      {% if can_add_group %}
+      <a href="{{ url_for('remote_exec.group_create') }}" class="button button-primary button-small" style="display:inline-flex; align-items:center; gap:0.3rem;">
+        <i data-lucide="plus" class="icon-white"></i> New Command Group
+      </a>
+      {% endif %}
+    </div>
 
       <div style="display:flex; flex-direction:column; gap: 0.75rem;">
         {% for grp in command_groups %}
@@ -349,84 +358,7 @@
         <p class="muted" style="font-size:0.9rem;">No Command Groups created yet.</p>
         {% endfor %}
       </div>
-    </section>
-
-    <!-- Command Items -->
-    <section class="detail-section" style="margin: 0;">
-      <div class="section-heading" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
-        <div>
-          <p class="eyebrow" style="font-size:0.75rem; color:var(--muted); margin:0;">MODULAR STEPS</p>
-          <h2 style="font-size:1.2rem; margin:0;">Command Items</h2>
-        </div>
-        {% if can_add_item %}
-        <button type="button" class="button button-secondary button-small" onclick="openNewItemModal()" style="display:inline-flex; align-items:center; gap:0.25rem;"><i data-lucide="plus" class="icon-green"></i> New Item</button>
-        {% endif %}
-      </div>
-
-      <div style="display:flex; flex-direction:column; gap: 0.75rem;">
-        {% for item in command_items %}
-        {% set is_item_running = item.id in running_item_ids %}
-        <div class="item-card target-entity-card" id="item-card-{{ item.id }}" data-item-id="{{ item.id }}" style="border: 1px solid var(--border-color, #e0e0e0); border-radius: 6px; padding: 0.85rem 1rem; background: #fff;">
-          <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:0.5rem;">
-            <div>
-              <div style="display:flex; align-items:center; gap: 0.5rem;">
-                <strong style="font-size: 1rem;">{{ item.name }}</strong>
-                <span class="tag" style="font-size:0.7rem; background:#f0f4f8; color:#333; padding:0.1rem 0.35rem; border-radius:3px;">
-                  {{ item.server.name if item.server else "Server" }}
-                </span>
-                <span class="tag" style="font-size:0.7rem; text-transform:uppercase; background:rgba(0,0,0,0.06); padding:0.1rem 0.35rem; border-radius:3px;">
-                  {{ item.command_type }}
-                </span>
-              </div>
-              <code style="font-size:0.8rem; color:#444; display:block; margin-top:0.3rem; max-width: 320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                {{ item.command_content or "(File Upload Step)" }}
-              </code>
-            </div>
-
-            <!-- Action Buttons & Running State -->
-            <div class="action-btn-group" id="item-btns-{{ item.id }}" style="display:flex; align-items:center; gap:0.35rem;">
-              <button type="button" class="button button-small run-trigger-btn" onclick="openRunModal('item', {{ item.id }})" style="font-weight:600; background: #1a73e8; color: #fff; display:inline-flex; align-items:center; gap:0.3rem; {% if is_item_running %}pointer-events:none; opacity:0.5;{% endif %}" {% if is_item_running %}disabled{% endif %}>
-                <i data-lucide="play" class="icon-white"></i> Run
-              </button>
-
-              {% if user_can_duplicate_item(item) %}
-              <form method="post" action="{{ url_for('remote_exec.duplicate_item', item_id=item.id) }}" style="margin:0; display:inline;">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="button button-quiet button-small" title="Duplicate this Command Item" style="display:inline-flex; align-items:center; gap:0.25rem; {% if is_item_running %}disabled style="pointer-events:none; opacity:0.5;"{% endif %}>
-                  <i data-lucide="copy" class="icon-green"></i> Duplicate
-                </button>
-              </form>
-              {% endif %}
-
-              {% if user_can_edit_item(item) %}
-              <button type="button" class="button button-quiet button-small" onclick="openEditItemModal({{ item.id }})" style="display:inline-flex; align-items:center; gap:0.25rem; {% if is_item_running %}pointer-events:none; opacity:0.5;{% endif %}" {% if is_item_running %}disabled{% endif %}>
-                <i data-lucide="pencil" class="icon-green"></i> Edit
-              </button>
-              {% endif %}
-
-              {% if user_can_delete_item(item) %}
-              <form method="post" action="{{ url_for('remote_exec.delete_item', item_id=item.id) }}" style="margin:0; display:inline;" onsubmit="return confirm('Delete this Command Item?');">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="button button-quiet button-small" title="Delete this Command Item" style="display:inline-flex; align-items:center; gap:0.25rem; color:#c62828; {% if is_item_running %}pointer-events:none; opacity:0.5;{% endif %}" {% if is_item_running %}disabled{% endif %}>
-                  <i data-lucide="trash-2" class="icon-green"></i> Delete
-                </button>
-              </form>
-              {% endif %}
-            </div>
-
-            <!-- SPINNER with RUNNING indicator -->
-            <div class="running-indicator-badge" id="item-running-{{ item.id }}" style="display:{% if is_item_running %}inline-flex{% else %}none{% endif %}; align-items:center; gap:0.4rem; background: #ef6c00; color: #fff; font-size: 0.8rem; font-weight: 700; padding: 0.3rem 0.7rem; border-radius: 4px;">
-              <span class="status-spinner" style="display:inline-block; width:10px; height:10px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
-              RUNNING
-            </div>
-          </div>
-        </div>
-        {% else %}
-        <p class="muted" style="font-size:0.9rem;">No Command Items created yet.</p>
-        {% endfor %}
-      </div>
-    </section>
-  </div>
+  </section>
 
   <!-- Section 3: Historical Command Accordions (Paginated 25 per page) -->
   <section class="detail-section" style="margin: 0;">
@@ -649,58 +581,98 @@
       <button type="button" onclick="closeItemModal()" style="background:none; border:none; cursor:pointer; color:var(--green-dark); padding:0;"><i data-lucide="x" class="icon-green"></i></button>
     </div>
 
-    <form method="post" action="{{ url_for('remote_exec.save_item') }}" class="form-stack">
+    <form method="post" action="{{ url_for('remote_exec.save_item') }}" class="form-stack" enctype="multipart/form-data" id="item-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="item_id" id="edit-item-id" value="">
+
+      <!-- Hidden inputs for variable overrides, synced from variables modal -->
+      <div id="item-vars-hidden-container"></div>
 
       <div style="display:flex; gap:1rem; flex-wrap:wrap;">
         <label style="flex:2 1 240px;">
           Item Name
           <input type="text" name="name" id="item-input-name" required placeholder="e.g. Restart App, Pull Git Repo" style="width:100%; padding:0.45rem; border:1px solid #ccc; border-radius:4px;">
         </label>
-        <label style="flex:1 1 180px;">
-          Target Server
-          <select name="server_id" id="item-input-server" required style="width:100%; padding:0.45rem; border:1px solid #ccc; border-radius:4px;">
-            <option value="">-- Choose Server --</option>
-            {% for s in connectable_servers %}
-            <option value="{{ s.id }}">{{ s.name }} ({{ s.ip }})</option>
-            {% else %}
-            <option value="" disabled>No connected servers available (Reconnect first)</option>
-            {% endfor %}
+        <label style="flex:1 1 200px;">
+          Command Type
+          <select name="command_type" id="item-input-type" onchange="toggleItemTypeFields()" style="width:100%; padding:0.45rem; border:1px solid #ccc; border-radius:4px;">
+            <option value="remote">On Remote Server</option>
+            <option value="local">On Local Server</option>
+            <option value="upload">Upload File(s)</option>
           </select>
         </label>
       </div>
 
-      <label>
-        Command Type
-        <select name="command_type" id="item-input-type" onchange="toggleItemTypeFields()" style="width:100%; padding:0.45rem; border:1px solid #ccc; border-radius:4px;">
-          <option value="remote">Run Remote Command(s) (Target Server via AsyncSSH)</option>
-          <option value="local">Run Local Command(s) (PyWA Server Subprocess)</option>
-          <option value="upload">Upload Files (Upload to Target Server Current Directory)</option>
-        </select>
-      </label>
-
+      <!-- Script & Inferred Variables (Shown for remote / local) -->
       <div id="item-command-container">
         <label>
           Command(s) Script
-          <textarea name="command_content" id="item-input-content" rows="4" placeholder="Enter shell commands. Use &#123;&#123; Variable-Name &#125;&#125; for dynamic values..." style="width:100%; padding:0.45rem; font-family:monospace; border:1px solid #ccc; border-radius:4px;"></textarea>
+          <textarea name="command_content" id="item-input-content" rows="4" oninput="updateInferredVarsBadge()" placeholder="Enter shell commands. Use &#123;&#123; Variable-Name &#125;&#125; for dynamic values..." style="width:100%; padding:0.45rem; font-family:monospace; border:1px solid #ccc; border-radius:4px;"></textarea>
         </label>
+
+        <!-- Inferred Variables Trigger Card -->
+        <div style="display:flex; justify-content:space-between; align-items:center; background:#f4fbf7; border:1px solid rgba(16, 62, 48, 0.2); border-radius:6px; padding:0.6rem 0.85rem; margin-top:0.75rem;">
+          <div>
+            <span style="font-weight:600; font-size:0.85rem; color:var(--green-dark, #103e30);">Placeholder Variables:</span>
+            <span id="var-count-text" style="font-size:0.8rem; color:var(--muted); margin-left:0.35rem;">0 inferred from script</span>
+          </div>
+          <button type="button" class="button button-quiet button-small" onclick="openVariablesModal()" id="btn-open-variables-modal" style="font-size:0.75rem; padding:0.25rem 0.6rem; display:inline-flex; align-items:center; gap:0.3rem;">
+            <i data-lucide="sliders" class="icon-green"></i> Edit Variables
+          </button>
+        </div>
       </div>
 
-      <!-- Variables Builder -->
-      <fieldset style="border: 1px solid #e0e0e0; border-radius: 6px; padding: 0.85rem; margin-top: 0.5rem;">
-        <legend style="font-size:0.85rem; font-weight:600; padding: 0 0.4rem;">Placeholder Variables (Optional)</legend>
-        <div id="item-vars-container" style="display:flex; flex-direction:column; gap:0.5rem;">
-          <!-- Dynamically added -->
+      <!-- File Upload Drop-Zone (Shown for upload) -->
+      <div id="item-upload-container" style="display:none; margin-top:0.5rem;">
+        <label class="field-label" style="display:block; font-weight:600; font-size:0.85rem; margin-bottom:0.35rem;">
+          Attached Files <span class="muted" style="font-weight:normal; font-size:0.75rem;">(All file types allowed · Max 5 MB per file)</span>
+        </label>
+        <label class="file-picker drop-zone" for="item-upload-files" id="drop-zone-item-upload">
+          <span class="upload-symbol" aria-hidden="true">＋</span>
+          <span class="file-picker-copy">
+            <strong id="item-upload-label">Choose files or drop here</strong>
+            <small>Any file type · max 5 MB per file · multiple allowed</small>
+          </span>
+          <input id="item-upload-files" name="upload_files" type="file" multiple onchange="handleItemFilesSelected(event)">
+        </label>
+        <p id="item-upload-error" style="color:#c62828; font-size:0.8rem; margin:0.35rem 0 0; display:none;"></p>
+        
+        <div id="item-uploaded-list" style="margin-top:0.65rem; display:flex; flex-direction:column; gap:0.35rem;">
+          <!-- Attached/existing files rendered dynamically -->
         </div>
-        <button type="button" class="button button-quiet button-small" onclick="addVariableRow()" style="margin-top:0.5rem;">+ Add Variable</button>
-      </fieldset>
+      </div>
 
       <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.25rem;">
         <button type="button" class="button button-quiet" onclick="closeItemModal()">Cancel</button>
         <button type="submit" class="button button-primary">Save Command Item</button>
       </div>
     </form>
+  </div>
+</dialog>
+
+<!-- ─── Dedicated Placeholder Variables Modal ────────────────────────────── -->
+<dialog id="variables-modal" class="modal-dialog" style="border:none; border-radius:8px; padding:0; max-width:560px; width:92%; box-shadow:0 15px 40px rgba(0,0,0,0.3); z-index:1050;">
+  <div style="padding: 1.5rem; background:#fff; border-radius:8px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 0.85rem; border-bottom:1px solid #eee; padding-bottom:0.75rem;">
+      <div>
+        <p class="eyebrow" style="margin:0; font-size:0.75rem; color:var(--muted);">COMMAND ITEM</p>
+        <h3 style="margin:0.2rem 0 0; font-size:1.2rem; color:var(--green-dark, #103e30);">Placeholder Variables</h3>
+      </div>
+      <button type="button" onclick="closeVariablesModal()" style="background:none; border:none; cursor:pointer; color:var(--green-dark); padding:0;"><i data-lucide="x" class="icon-green"></i></button>
+    </div>
+
+    <p style="font-size:0.82rem; color:var(--muted); margin:0 0 1rem 0;">
+      Variables are inferred directly from your script (<code>&#123;&#123; Variable-Name &#125;&#125;</code>). Set the data type and default value for each variable.
+    </p>
+
+    <div id="variables-modal-list" style="display:flex; flex-direction:column; gap:0.85rem; max-height:360px; overflow-y:auto; padding-right:0.25rem;">
+      <!-- Populated via openVariablesModal() -->
+    </div>
+
+    <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.25rem; border-top:1px solid #eee; padding-top:0.75rem;">
+      <button type="button" class="button button-quiet" onclick="closeVariablesModal()">Cancel</button>
+      <button type="button" class="button button-primary" onclick="saveVariablesModal()">Save Variables</button>
+    </div>
   </div>
 </dialog>
 
@@ -793,41 +765,64 @@ function updateServerCardTelemetry(serverId, data) {
     const k8sCount = document.getElementById("k8s-pods-count-" + serverId);
     const k8sList = document.getElementById("k8s-pods-list-" + serverId);
     if (k8sContainer && k8sList) {
-      if (data.k8s_pods && data.k8s_pods.length > 0) {
+      const userPods = (data.k8s_pods || []).filter(pod => {
+        const ns = ((pod && pod.namespace) || '').trim().toLowerCase();
+        if (ns === 'kube-system' || ns.startsWith('kube-system')) return false;
+        const name = ((pod && (pod.name || pod.id || pod)) || '').trim().toLowerCase();
+        if (name.startsWith('kube-system/')) return false;
+        const status = ((pod && pod.status) || '').trim().toLowerCase();
+        if (status && status !== 'running' && status !== 'active') return false;
+        return true;
+      });
+      if (userPods && userPods.length > 0) {
         k8sContainer.style.display = "block";
-        if (k8sCount) k8sCount.textContent = `${data.k8s_pods.length} pod${data.k8s_pods.length !== 1 ? 's' : ''}`;
-        k8sList.innerHTML = data.k8s_pods.map(pod => {
-          const isRunning = pod.status === "Running" || pod.status === "Active";
-          const isCompleted = pod.status === "Completed" || pod.status === "Succeeded";
-          const isPending = pod.status === "Pending" || pod.status === "ContainerCreating";
-          let bg = "#ffebee", fg = "#c62828";
-          if (isRunning) { bg = "#e8f5e9"; fg = "#2e7d32"; }
-          else if (isCompleted) { bg = "#f1f5f9"; fg = "#475569"; }
-          else if (isPending) { bg = "#fff8e1"; fg = "#f57f17"; }
+        if (k8sCount) k8sCount.textContent = `${userPods.length} pod${userPods.length !== 1 ? 's' : ''}`;
+        k8sList.innerHTML = userPods.map(pod => {
+          const isRunning = pod.status === "Running" || pod.status === "Active" || !pod.status;
+          let bg = "#e8f5e9", fg = "#2e7d32";
           const nsBadge = (pod.namespace && pod.namespace !== 'default')
-            ? `<span style="color:var(--muted); font-size:0.68rem; background:#f1f5f9; padding:0.05rem 0.3rem; border-radius:3px;">${escapeHtml(pod.namespace)}</span>`
+            ? `<span style="color:var(--muted); font-size:0.68rem; background:rgba(255,255,255,0.85); padding:0.05rem 0.3rem; border-radius:3px;">${escapeHtml(pod.namespace)}</span>`
             : '';
-          return `<div style="display:flex; align-items:center; justify-content:space-between; background:#ffffff; border:1px solid #e2e8f0; border-radius:4px; padding:0.22rem 0.45rem; font-size:0.72rem; gap:0.4rem;">
-            <div style="display:flex; align-items:center; gap:0.3rem; min-width:0; flex:1;">
+          const podId = escapeHtml(pod.id || pod.name || pod);
+          const podAge = (pod && pod.age) ? ` (${escapeHtml(pod.age)})` : '';
+          const statusHtml = (pod && pod.status)
+            ? `<span style="background:${bg}; color:${fg}; font-weight:600; padding:0.08rem 0.35rem; border-radius:3px; font-size:0.68rem;">${escapeHtml(pod.status)}</span>`
+            : '';
+          return `<div class="k8s-pod-line" style="display:flex; align-items:center; justify-content:space-between; padding:0.22rem 0.4rem; background:rgba(255, 255, 255, 0.65); border:1px solid rgba(16, 62, 48, 0.1); border-radius:4px; font-size:0.73rem; gap:0.4rem;">
+            <div style="display:flex; align-items:center; gap:0.35rem; min-width:0; flex:1;">
               ${nsBadge}
-              <span style="font-family:monospace; font-weight:600; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(pod.name)}">
-                ${escapeHtml(pod.name)}
+              <span class="k8s-pod-id" style="font-family:monospace; font-weight:600; color:var(--green-dark, #103e30); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${podId}${podAge}">
+                ${podId}${podAge}
               </span>
             </div>
-            <div style="display:flex; align-items:center; gap:0.35rem; flex-shrink:0;">
-              <span style="background:${bg}; color:${fg}; font-weight:600; padding:0.08rem 0.35rem; border-radius:3px; font-size:0.68rem;">
-                ${escapeHtml(pod.status)}
-              </span>
-              <span style="color:var(--muted); font-size:0.68rem; min-width:30px; text-align:right;">
-                ${escapeHtml(pod.age || '')}
-              </span>
-            </div>
+            ${statusHtml ? `<div style="display:flex; align-items:center; gap:0.35rem; flex-shrink:0;">${statusHtml}</div>` : ''}
           </div>`;
         }).join("");
       } else {
-        k8sContainer.style.display = "none";
+        const hasK8s = Boolean(data.has_k8s || (data.tag_lines && data.tag_lines.some(t => t.toLowerCase().includes('kubernetes') || t.toLowerCase().includes('kubectl'))));
+        if (hasK8s) {
+          k8sContainer.style.display = "block";
+          if (k8sCount) k8sCount.textContent = "";
+          k8sList.innerHTML = `<span class="muted" style="font-size:0.72rem; color:var(--green-dark, #103e30);">No pods running</span>`;
+        } else {
+          k8sContainer.style.display = "none";
+        }
       }
     }
+
+    const composeAccordion = document.getElementById("docker-compose-accordion-" + serverId);
+    const composePre = document.getElementById("docker-compose-content-" + serverId);
+    if (composeAccordion && composePre) {
+      if (data.docker_compose_content || data.has_docker_compose) {
+        composeAccordion.style.display = "block";
+        if (data.docker_compose_content) {
+          composePre.textContent = data.docker_compose_content;
+        }
+      } else {
+        composeAccordion.style.display = "none";
+      }
+    }
+    if (window.lucide) { lucide.createIcons(); }
   }
 }
 
@@ -843,21 +838,107 @@ function toggleFallbackForm(serverId) {
   }
 }
 
-async function testAndSaveFallback(serverId) {
-  const user = document.getElementById("fb-user-" + serverId).value;
-  const pass = document.getElementById("fb-pass-" + serverId).value;
-  const msg = document.getElementById("fb-msg-" + serverId);
+// ─── Server Card Testing State Lockout ───────────────────────────────────
+function setServerCardTestingState(serverId, isTesting) {
+  const card = document.getElementById("server-card-" + serverId);
+  if (!card) return;
+
+  const header = card.querySelector(".server-accordion-header");
   const btn = document.getElementById("fb-btn-" + serverId);
-  const badge = document.getElementById("badge-status-" + serverId);
+  const timeContainer = document.getElementById("last-connected-" + serverId);
+
+  if (isTesting) {
+    card.classList.add("server-card-testing");
+    card.setAttribute("aria-busy", "true");
+    if (header) {
+      header.style.pointerEvents = "none";
+      header.style.cursor = "wait";
+    }
+
+    // Disable all buttons in card
+    card.querySelectorAll("button").forEach(b => {
+      if (b.getAttribute("data-prior-disabled") === null) {
+        b.setAttribute("data-prior-disabled", b.disabled ? "true" : "false");
+      }
+      b.disabled = true;
+      b.style.pointerEvents = "none";
+    });
+
+    // Disable all inputs in card
+    card.querySelectorAll("input, select, textarea").forEach(inp => {
+      if (inp.getAttribute("data-prior-disabled") === null) {
+        inp.setAttribute("data-prior-disabled", inp.disabled ? "true" : "false");
+      }
+      inp.disabled = true;
+      inp.style.pointerEvents = "none";
+    });
+
+    // Disable details summaries
+    card.querySelectorAll("summary").forEach(s => {
+      s.style.pointerEvents = "none";
+    });
+
+    // Update button text to "Testing Connection..."
+    if (btn) {
+      btn.innerHTML = '<span class="spin" style="display:inline-block; width:12px; height:12px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; vertical-align:middle; margin-right:4px;"></span> Testing Connection...';
+    }
+
+    // Update card header status indicator to "Testing Connection..."
+    if (timeContainer) {
+      timeContainer.innerHTML = '<span style="display:inline-flex; align-items:center; gap:0.35rem; color:var(--green-dark, #103e30); font-weight:600;"><span class="spin" style="display:inline-block; width:10px; height:10px; border:2px solid var(--green-dark, #103e30); border-top-color:transparent; border-radius:50%;"></span> Testing Connection...</span>';
+    }
+  } else {
+    card.classList.remove("server-card-testing");
+    card.removeAttribute("aria-busy");
+    if (header) {
+      header.style.pointerEvents = "";
+      header.style.cursor = "";
+    }
+
+    // Restore buttons in card
+    card.querySelectorAll("button").forEach(b => {
+      const prior = b.getAttribute("data-prior-disabled");
+      b.removeAttribute("data-prior-disabled");
+      b.style.pointerEvents = "";
+      if (prior === "true" || b.hasAttribute("data-disabled-fallback")) {
+        b.disabled = true;
+      } else {
+        b.disabled = false;
+      }
+    });
+
+    // Restore inputs in card
+    card.querySelectorAll("input, select, textarea").forEach(inp => {
+      const prior = inp.getAttribute("data-prior-disabled");
+      inp.removeAttribute("data-prior-disabled");
+      inp.style.pointerEvents = "";
+      inp.disabled = (prior === "true");
+    });
+
+    // Restore summaries
+    card.querySelectorAll("summary").forEach(s => {
+      s.style.pointerEvents = "";
+    });
+
+    // Restore button text
+    if (btn) {
+      btn.innerHTML = 'Connect / Test <i data-lucide="plug" class="icon-white"></i>';
+    }
+  }
+}
+
+async function testAndSaveFallback(serverId) {
+  const user = (document.getElementById("fb-user-" + serverId) || {}).value;
+  const pass = (document.getElementById("fb-pass-" + serverId) || {}).value;
+  const msg = document.getElementById("fb-msg-" + serverId);
 
   if (!user) {
     alert("Please enter an SSH username.");
     return;
   }
 
-  btn.disabled = true;
-  btn.textContent = "Testing Connection...";
-  msg.style.display = "none";
+  setServerCardTestingState(serverId, true);
+  if (msg) msg.style.display = "none";
 
   const formData = new FormData();
   formData.append("csrf_token", csrfToken);
@@ -871,9 +952,11 @@ async function testAndSaveFallback(serverId) {
     });
     const data = await resp.json();
     if (data.success) {
-      msg.style.color = "#2e7d32";
-      msg.textContent = data.message;
-      msg.style.display = "block";
+      if (msg) {
+        msg.style.color = "#2e7d32";
+        msg.textContent = data.message;
+        msg.style.display = "block";
+      }
       const timeContainer = document.getElementById("last-connected-" + serverId);
       if (timeContainer) {
         timeContainer.innerHTML = '<i data-lucide="clock" style="width:12px; height:12px; vertical-align:middle;"></i> Connected: ' + escapeHtml(data.last_connected_at || 'Just now');
@@ -890,17 +973,28 @@ async function testAndSaveFallback(serverId) {
       if (window.lucide) lucide.createIcons();
       setTimeout(() => toggleFallbackForm(serverId), 2000);
     } else {
-      msg.style.color = "#c62828";
-      msg.textContent = data.error || "Connection failed.";
-      msg.style.display = "block";
+      if (msg) {
+        msg.style.color = "#c62828";
+        msg.textContent = data.error || "Connection failed.";
+        msg.style.display = "block";
+      }
+      const timeContainer = document.getElementById("last-connected-" + serverId);
+      if (timeContainer) {
+        timeContainer.innerHTML = '<span style="color:#c62828; font-weight:600;"><i data-lucide="alert-circle" style="width:12px; height:12px; vertical-align:middle;"></i> Connection Failed</span>';
+      }
     }
   } catch (err) {
-    msg.style.color = "#c62828";
-    msg.textContent = "Network error: " + err;
-    msg.style.display = "block";
+    if (msg) {
+      msg.style.color = "#c62828";
+      msg.textContent = "Network error: " + err;
+      msg.style.display = "block";
+    }
+    const timeContainer = document.getElementById("last-connected-" + serverId);
+    if (timeContainer) {
+      timeContainer.innerHTML = '<span style="color:#c62828; font-weight:600;"><i data-lucide="alert-circle" style="width:12px; height:12px; vertical-align:middle;"></i> Connection Error</span>';
+    }
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = 'Connect / Test <i data-lucide="plug" class="icon-white"></i>';
+    setServerCardTestingState(serverId, false);
     if (window.lucide) lucide.createIcons();
   }
 }
@@ -911,23 +1005,18 @@ async function toggleServerAccordion(serverId) {
   const chevron = document.getElementById("server-chevron-" + serverId);
   if (!body) return;
 
+  const card = document.getElementById("server-card-" + serverId);
+  if (card && card.classList.contains("server-card-testing")) {
+    return;
+  }
+
   const isHidden = (body.style.display === "none" || body.style.display === "");
   if (isHidden) {
     // Expand accordion
     body.style.display = "block";
     if (chevron) chevron.style.transform = "rotate(180deg)";
 
-    // Show spinner in place of LAST_CONNECT
-    const timeContainer = document.getElementById("last-connected-" + serverId);
-    if (timeContainer) {
-      timeContainer.innerHTML = '<span style="display:inline-flex; align-items:center; gap:0.35rem; color:var(--green-dark, #103e30); font-weight:600;"><span class="spin" style="display:inline-block; width:10px; height:10px; border:2px solid var(--green-dark, #103e30); border-top-color:transparent; border-radius:50%;"></span> Connecting...</span>';
-    }
-
-    // Lock controls inside this server card during verification
-    const credsBtn = document.getElementById("creds-btn-" + serverId);
-    const copyBtn = document.getElementById("copy-btn-" + serverId);
-    if (credsBtn) credsBtn.disabled = true;
-    if (copyBtn) copyBtn.disabled = true;
+    setServerCardTestingState(serverId, true);
 
     try {
       const resp = await fetch("/apps/remote-exec/servers/" + serverId + "/verify", {
@@ -938,19 +1027,19 @@ async function toggleServerAccordion(serverId) {
         }
       });
       const data = await resp.json();
+      const timeContainer = document.getElementById("last-connected-" + serverId);
       if (data.success) {
         if (timeContainer) {
           timeContainer.innerHTML = '<i data-lucide="clock" style="width:12px; height:12px; vertical-align:middle;"></i> Connected: ' + escapeHtml(data.last_connected_at || 'Just now');
         }
         updateServerCardTelemetry(serverId, data);
-        if (copyBtn) {
-          if (data.can_copy_password) {
-            copyBtn.disabled = false;
-            copyBtn.removeAttribute("data-disabled-fallback");
-            copyBtn.style.opacity = "1";
-            copyBtn.style.cursor = "pointer";
-            copyBtn.title = "";
-          }
+        const copyBtn = document.getElementById("copy-btn-" + serverId);
+        if (copyBtn && data.can_copy_password) {
+          copyBtn.disabled = false;
+          copyBtn.removeAttribute("data-disabled-fallback");
+          copyBtn.style.opacity = "1";
+          copyBtn.style.cursor = "pointer";
+          copyBtn.title = "";
         }
       } else {
         if (timeContainer) {
@@ -961,12 +1050,12 @@ async function toggleServerAccordion(serverId) {
         if (c) c.style.display = "block";
       }
     } catch (err) {
+      const timeContainer = document.getElementById("last-connected-" + serverId);
       if (timeContainer) {
         timeContainer.innerHTML = '<span style="color:#c62828; font-weight:600;"><i data-lucide="alert-circle" style="width:12px; height:12px; vertical-align:middle;"></i> Connection Error</span>';
       }
     } finally {
-      if (credsBtn) credsBtn.disabled = false;
-      if (copyBtn && !copyBtn.hasAttribute("data-disabled-fallback")) copyBtn.disabled = false;
+      setServerCardTestingState(serverId, false);
       if (window.lucide) lucide.createIcons();
     }
   } else {
@@ -1156,53 +1245,289 @@ async function submitRunModal(e) {
   }
 }
 
-// ─── Command Item Modal Helpers ───────────────────────────────────────────
+// ─── Command Item & Inferred Variables State ──────────────────────────────
+let currentVariablesMap = {}; // { [varName]: { var_type, default_value, description } }
+let currentExistingFiles = [];
+
+function extractVariablesFromScript(script) {
+  if (!script) return [];
+  const pattern = /\{\{\s*([a-zA-Z0-9_\-]+)\s*\}\}/g;
+  const names = [];
+  let m;
+  while ((m = pattern.exec(script)) !== null) {
+    const name = m[1].trim();
+    if (name && !names.includes(name)) {
+      names.push(name);
+    }
+  }
+  return names;
+}
+
+function updateInferredVarsBadge() {
+  const script = (document.getElementById("item-input-content") || {}).value || "";
+  const names = extractVariablesFromScript(script);
+  const badge = document.getElementById("var-count-text");
+  if (badge) {
+    badge.textContent = names.length + (names.length === 1 ? " inferred from script" : " inferred from script");
+  }
+}
+
+function openVariablesModal() {
+  const script = (document.getElementById("item-input-content") || {}).value || "";
+  const names = extractVariablesFromScript(script);
+  const container = document.getElementById("variables-modal-list");
+  if (!container) return;
+
+  if (names.length === 0) {
+    container.innerHTML = `
+      <div style="padding:1.5rem 1rem; text-align:center; background:#f9f9f9; border:1px dashed #ccc; border-radius:6px;">
+        <i data-lucide="info" class="icon-green" style="width:24px; height:24px; margin-bottom:0.4rem;"></i>
+        <p style="margin:0; font-size:0.85rem; color:var(--muted);">No placeholder variables found in the script.<br>Add <code>&#123;&#123; Variable-Name &#125;&#125;</code> to your command script to define dynamic values.</p>
+      </div>
+    `;
+  } else {
+    container.innerHTML = names.map(name => {
+      const v = currentVariablesMap[name] || { var_type: "text", default_value: "", description: "" };
+      return `
+        <div class="var-card" style="border:1px solid #e0e0e0; border-radius:6px; padding:0.85rem; background:#fafafa;">
+          <div style="margin-bottom:0.6rem; display:flex; align-items:center; gap:0.4rem;">
+            <span style="font-weight:700; font-size:0.8rem; color:#666;">Variable Name:</span>
+            <code style="font-weight:700; font-size:0.85rem; color:var(--green-dark, #103e30); background:#fff; padding:0.15rem 0.4rem; border:1px solid #ddd; border-radius:3px;">&#123;&#123; ${escapeHtml(name)} &#125;&#125;</code>
+          </div>
+          <div style="display:grid; grid-template-columns: 140px 1fr; gap:0.6rem;">
+            <div>
+              <label for="vmodal-type-${escapeHtml(name)}" style="display:block; font-size:0.75rem; font-weight:700; color:#444; margin-bottom:0.25rem;">Type</label>
+              <select id="vmodal-type-${escapeHtml(name)}" style="width:100%; padding:0.35rem; font-size:0.82rem; border:1px solid #ccc; border-radius:4px;">
+                <option value="text" ${v.var_type === 'text' ? 'selected' : ''}>Text</option>
+                <option value="number" ${v.var_type === 'number' ? 'selected' : ''}>Number</option>
+                <option value="boolean" ${v.var_type === 'boolean' ? 'selected' : ''}>Boolean</option>
+              </select>
+            </div>
+            <div>
+              <label for="vmodal-default-${escapeHtml(name)}" style="display:block; font-size:0.75rem; font-weight:700; color:#444; margin-bottom:0.25rem;">Default Value</label>
+              <input type="text" id="vmodal-default-${escapeHtml(name)}" value="${escapeHtml(v.default_value || '')}" placeholder="Fallback default value..." style="width:100%; padding:0.35rem; font-size:0.82rem; border:1px solid #ccc; border-radius:4px;">
+            </div>
+          </div>
+          <div style="margin-top:0.5rem;">
+            <label for="vmodal-desc-${escapeHtml(name)}" style="display:block; font-size:0.75rem; font-weight:700; color:#444; margin-bottom:0.25rem;">Description (Optional)</label>
+            <input type="text" id="vmodal-desc-${escapeHtml(name)}" value="${escapeHtml(v.description || '')}" placeholder="Describe how this variable is used..." style="width:100%; padding:0.35rem; font-size:0.82rem; border:1px solid #ccc; border-radius:4px;">
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  const modal = document.getElementById("variables-modal");
+  if (modal) modal.showModal();
+  if (window.lucide) lucide.createIcons();
+}
+
+function closeVariablesModal() {
+  const modal = document.getElementById("variables-modal");
+  if (modal) modal.close();
+}
+
+function saveVariablesModal() {
+  const script = (document.getElementById("item-input-content") || {}).value || "";
+  const names = extractVariablesFromScript(script);
+
+  names.forEach(name => {
+    const typeEl = document.getElementById(`vmodal-type-${name}`);
+    const defEl = document.getElementById(`vmodal-default-${name}`);
+    const descEl = document.getElementById(`vmodal-desc-${name}`);
+    if (typeEl && defEl) {
+      currentVariablesMap[name] = {
+        var_type: typeEl.value,
+        default_value: defEl.value,
+        description: descEl ? descEl.value : "",
+      };
+    }
+  });
+
+  syncVariablesToHiddenInputs();
+  closeVariablesModal();
+}
+
+function syncVariablesToHiddenInputs() {
+  const script = (document.getElementById("item-input-content") || {}).value || "";
+  const names = extractVariablesFromScript(script);
+  const hiddenContainer = document.getElementById("item-vars-hidden-container");
+  if (!hiddenContainer) return;
+
+  hiddenContainer.innerHTML = "";
+  names.forEach(name => {
+    const v = currentVariablesMap[name] || { var_type: "text", default_value: "", description: "" };
+    hiddenContainer.innerHTML += `
+      <input type="hidden" name="var_name[]" value="${escapeHtml(name)}">
+      <input type="hidden" name="var_type[]" value="${escapeHtml(v.var_type || 'text')}">
+      <input type="hidden" name="var_default[]" value="${escapeHtml(v.default_value || '')}">
+      <input type="hidden" name="var_desc[]" value="${escapeHtml(v.description || '')}">
+    `;
+  });
+  updateInferredVarsBadge();
+}
+
+function toggleItemTypeFields() {
+  const type = document.getElementById("item-input-type").value;
+  const cmdContainer = document.getElementById("item-command-container");
+  const uploadContainer = document.getElementById("item-upload-container");
+
+  if (type === "upload") {
+    if (cmdContainer) cmdContainer.style.display = "none";
+    if (uploadContainer) uploadContainer.style.display = "block";
+  } else {
+    if (cmdContainer) cmdContainer.style.display = "block";
+    if (uploadContainer) uploadContainer.style.display = "none";
+  }
+}
+
+function handleItemFilesSelected(event) {
+  const files = event.target.files;
+  const errEl = document.getElementById("item-upload-error");
+  if (errEl) {
+    errEl.style.display = "none";
+    errEl.textContent = "";
+  }
+
+  const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    if (f.size > MAX_SIZE) {
+      if (errEl) {
+        errEl.textContent = `File "${f.name}" exceeds the 5 MB limit (${(f.size / (1024 * 1024)).toFixed(2)} MB). Please select smaller files.`;
+        errEl.style.display = "block";
+      }
+      event.target.value = "";
+      renderUploadedFilesList();
+      return;
+    }
+  }
+
+  renderUploadedFilesList();
+}
+
+function renderUploadedFilesList() {
+  const container = document.getElementById("item-uploaded-list");
+  if (!container) return;
+
+  const input = document.getElementById("item-upload-files");
+  const newFiles = input && input.files ? Array.from(input.files) : [];
+  const itemId = document.getElementById("edit-item-id").value;
+
+  let html = "";
+  // 1. Existing saved files
+  currentExistingFiles.forEach(f => {
+    const sizeKB = (f.size / 1024).toFixed(1);
+    html += `
+      <div style="display:flex; justify-content:space-between; align-items:center; background:#f4fbf7; border:1px solid rgba(16, 62, 48, 0.15); border-radius:4px; padding:0.35rem 0.6rem; font-size:0.8rem;">
+        <span style="display:inline-flex; align-items:center; gap:0.35rem; color:var(--ink);">
+          <i data-lucide="file" class="icon-green" style="width:14px; height:14px;"></i>
+          <strong>${escapeHtml(f.name)}</strong>
+          <span class="muted" style="font-size:0.75rem;">(${sizeKB} KB - Saved)</span>
+        </span>
+        <button type="button" onclick="deleteExistingItemFile(${itemId}, '${escapeHtml(f.name)}')" style="background:none; border:none; color:#c62828; cursor:pointer; font-weight:600; font-size:0.75rem;">
+          <i data-lucide="trash-2" class="icon-green" style="width:13px; height:13px;"></i> Remove
+        </button>
+      </div>
+    `;
+  });
+
+  // 2. Newly staged files
+  newFiles.forEach((f) => {
+    const sizeKB = (f.size / 1024).toFixed(1);
+    html += `
+      <div style="display:flex; justify-content:space-between; align-items:center; background:#fff; border:1px solid #ddd; border-radius:4px; padding:0.35rem 0.6rem; font-size:0.8rem;">
+        <span style="display:inline-flex; align-items:center; gap:0.35rem; color:var(--ink);">
+          <i data-lucide="file-up" class="icon-green" style="width:14px; height:14px;"></i>
+          <strong>${escapeHtml(f.name)}</strong>
+          <span class="muted" style="font-size:0.75rem;">(${sizeKB} KB - Pending upload)</span>
+        </span>
+        <span class="muted" style="font-size:0.75rem; color:var(--green-dark, #103e30); font-weight:600;">Ready</span>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+  if (window.lucide) lucide.createIcons();
+}
+
+async function deleteExistingItemFile(itemId, filename) {
+  if (!confirm(`Delete attached file "${filename}"?`)) return;
+  const formData = new FormData();
+  formData.append("csrf_token", csrfToken);
+  formData.append("filename", filename);
+
+  try {
+    const resp = await fetch(`/apps/remote-exec/items/${itemId}/delete-file`, {
+      method: "POST",
+      body: formData,
+    });
+    const data = await resp.json();
+    if (data.success) {
+      currentExistingFiles = currentExistingFiles.filter(f => f.name !== filename);
+      renderUploadedFilesList();
+    } else {
+      alert(data.error || "Failed to delete file.");
+    }
+  } catch (e) {
+    alert("Network error: " + e);
+  }
+}
+
 function openNewItemModal() {
   document.getElementById("edit-item-id").value = "";
   document.getElementById("item-modal-heading").textContent = "New Command Item";
   document.getElementById("item-input-name").value = "";
   document.getElementById("item-input-content").value = "";
-  document.getElementById("item-vars-container").innerHTML = "";
+  document.getElementById("item-input-type").value = "remote";
+  currentVariablesMap = {};
+  currentExistingFiles = [];
+  const fileInput = document.getElementById("item-upload-files");
+  if (fileInput) fileInput.value = "";
+  const errEl = document.getElementById("item-upload-error");
+  if (errEl) errEl.style.display = "none";
+
+  syncVariablesToHiddenInputs();
   toggleItemTypeFields();
+  renderUploadedFilesList();
   document.getElementById("item-modal").showModal();
+  if (window.lucide) lucide.createIcons();
 }
 
-function openEditItemModal(itemId) {
+async function openEditItemModal(itemId) {
   openNewItemModal();
   document.getElementById("edit-item-id").value = itemId;
   document.getElementById("item-modal-heading").textContent = "Edit Command Item";
-  // Pre-fill item data if available
+
+  try {
+    const resp = await fetch(`/apps/remote-exec/items/${itemId}/data`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+
+    document.getElementById("item-input-name").value = data.name || "";
+    document.getElementById("item-input-type").value = data.command_type || "remote";
+    document.getElementById("item-input-content").value = data.command_content || "";
+
+    currentVariablesMap = {};
+    (data.variables || []).forEach(v => {
+      currentVariablesMap[v.name] = {
+        var_type: v.var_type || "text",
+        default_value: v.default_value || "",
+        description: v.description || "",
+      };
+    });
+
+    currentExistingFiles = data.files || [];
+    toggleItemTypeFields();
+    syncVariablesToHiddenInputs();
+    renderUploadedFilesList();
+  } catch (e) {
+    console.error("Failed to load Command Item data:", e);
+  }
 }
 
 function closeItemModal() {
   document.getElementById("item-modal").close();
-}
-
-function toggleItemTypeFields() {
-  const type = document.getElementById("item-input-type").value;
-  const c = document.getElementById("item-command-container");
-  if (c) c.style.display = (type === "upload") ? "none" : "block";
-}
-
-function addVariableRow(name="", desc="", type="text", def="") {
-  const c = document.getElementById("item-vars-container");
-  const row = document.createElement("div");
-  row.style.display = "flex";
-  row.style.gap = "0.4rem";
-  row.style.alignItems = "center";
-  row.innerHTML = `
-    <input type="text" name="var_name[]" value="${name}" placeholder="Name (e.g. Hostname)" required style="flex:1; padding:0.3rem; font-size:0.8rem; border:1px solid #ccc; border-radius:3px;">
-    <input type="text" name="var_desc[]" value="${desc}" placeholder="Description" style="flex:1; padding:0.3rem; font-size:0.8rem; border:1px solid #ccc; border-radius:3px;">
-    <select name="var_type[]" style="font-size:0.8rem; padding:0.3rem; border:1px solid #ccc; border-radius:3px;">
-      <option value="text" ${type==='text'?'selected':''}>Text</option>
-      <option value="number" ${type==='number'?'selected':''}>Number</option>
-      <option value="boolean" ${type==='boolean'?'selected':''}>Boolean</option>
-    </select>
-    <input type="text" name="var_default[]" value="${def}" placeholder="Default" style="flex:1; padding:0.3rem; font-size:0.8rem; border:1px solid #ccc; border-radius:3px;">
-    <button type="button" onclick="this.parentElement.remove()" style="background:none; border:none; color:#c62828; cursor:pointer; font-weight:bold;"><i data-lucide="x" class="icon-green"></i></button>
-  `;
-  c.appendChild(row);
-  if (window.lucide) lucide.createIcons();
 }
 
 // ─── Live Polling: Spinner with RUNNING and Disabled Buttons ──────────────

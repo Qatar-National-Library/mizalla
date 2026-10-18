@@ -120,12 +120,12 @@ def user_can_view_item(user: Member, item: CommandItem) -> bool:
     if getattr(user, "is_admin", False) or item.created_by_id == user.id:
         return True
     perm = CommandItemPermission.query.filter_by(command_item_id=item.id, user_id=user.id).first()
-    return bool(perm and (perm.can_view or perm.can_run or perm.can_edit))
+    return bool(perm and (perm.can_view or perm.can_edit))
 
 
 def user_can_run_item(user: Member, item: CommandItem) -> bool:
-    # Having VIEW access means you can also RUN it.
-    return user_can_view_item(user, item)
+    # Command Items are building blocks and are executed exclusively via Command Groups.
+    return False
 
 
 def user_can_view_item_logs(user: Member, item: CommandItem) -> bool:
@@ -375,13 +375,26 @@ def dispatch_command_group(
         if not c_item:
             continue
         item_sub_cmd = substitute_variables(c_item.command_content, vars_dict)
-        executed_cmds.append(f"# {c_item.name}\n{item_sub_cmd}")
+        files_for_step = list(uploaded_files or [])
+        if c_item.command_type == "upload":
+            try:
+                import os
+                upload_dir = os.path.join(app.instance_path, "command_uploads", str(c_item.id))
+                if os.path.isdir(upload_dir):
+                    for fname in os.listdir(upload_dir):
+                        fpath = os.path.join(upload_dir, fname)
+                        if os.path.isfile(fpath):
+                            with open(fpath, "rb") as fp:
+                                files_for_step.append((fname, fp.read()))
+            except Exception as e:
+                logger.warning(f"Failed to read pre-uploaded files for item {c_item.id}: {e}")
+
         items_config.append({
             "item_id": c_item.id,
             "name": c_item.name,
             "command_type": c_item.command_type,
             "command": item_sub_cmd,
-            "files": uploaded_files or [],
+            "files": files_for_step,
         })
         initial_steps.append({
             "item_id": c_item.id,
@@ -588,6 +601,8 @@ def probe_server_health_sync(server_id: int, app=None) -> Tuple[bool, str]:
                 server.core_tags = telemetry.get("core_tags") or ""
             if "k8s_pods" in telemetry:
                 server.k8s_pods = telemetry.get("k8s_pods") or ""
+            if "docker_compose_content" in telemetry:
+                server.docker_compose_content = telemetry.get("docker_compose_content") or ""
 
         db.session.commit()
         return ok, msg

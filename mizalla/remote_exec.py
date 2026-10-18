@@ -321,6 +321,8 @@ def verify_server_connection(server_id: int):
                 server.k8s_pods = json.dumps(pods)
             else:
                 server.k8s_pods = pods or ""
+        if "docker_compose_content" in telemetry:
+            server.docker_compose_content = telemetry.get("docker_compose_content") or ""
 
         db.session.commit()
 
@@ -345,6 +347,8 @@ def verify_server_connection(server_id: int):
             core_tags=server.core_tags,
             tag_lines=server.get_tag_lines(),
             k8s_pods=server.get_k8s_pods(),
+            docker_compose_content=server.docker_compose_content or "",
+            has_docker_compose=server.has_docker_compose,
         )
     else:
         grant.connection_status = "failed"
@@ -451,6 +455,8 @@ def save_fallback_credential(server_id: int):
             server.k8s_pods = json.dumps(pods)
         else:
             server.k8s_pods = pods or ""
+    if "docker_compose_content" in telemetry:
+        server.docker_compose_content = telemetry.get("docker_compose_content") or ""
 
     db.session.commit()
     formatted_time = now_utc.strftime("%b %d, %Y %H:%M")
@@ -472,6 +478,8 @@ def save_fallback_credential(server_id: int):
         core_tags=server.core_tags,
         tag_lines=server.get_tag_lines(),
         k8s_pods=server.get_k8s_pods(),
+        docker_compose_content=server.docker_compose_content or "",
+        has_docker_compose=server.has_docker_compose,
     )
 
 
@@ -589,36 +597,30 @@ def execute_target(entry_type: str, target_id: int):
                 uploaded_files.append((f.filename, f.read()))
 
     if entry_type == "item":
-        item = CommandItem.query.get_or_404(target_id)
-        if not user_can_run_item(current_user, item):
-            return jsonify(error="Permission denied to run this item."), 403
-        if item.server and not user_can_view_server(current_user, item.server):
-            return jsonify(error="Access to target server is denied."), 403
+        msg = "Command Items cannot be run directly. Add them to a Command Group to run on a target server."
+        return jsonify(
+            success=False,
+            error=msg,
+            message=msg,
+        ), 400
 
-        audit = dispatch_command_item(
-            user_id=current_user.id,
-            item_id=item.id,
-            variables=variables,
-            client_ip=client_ip,
-        )
-    else:
-        group = CommandGroup.query.get_or_404(target_id)
-        if not user_can_run_group(current_user, group):
-            return jsonify(error="Permission denied to run this group."), 403
-        if group.server and not user_can_view_server(current_user, group.server):
-            return jsonify(error="Access to target server is denied."), 403
+    group = CommandGroup.query.get_or_404(target_id)
+    if not user_can_run_group(current_user, group):
+        return jsonify(error="Permission denied to run this group."), 403
+    if group.server and not user_can_view_server(current_user, group.server):
+        return jsonify(error="Access to target server is denied."), 403
 
-        audit = dispatch_command_group(
-            user_id=current_user.id,
-            group_id=group.id,
-            variables=variables,
-            uploaded_files=uploaded_files,
-            client_ip=client_ip,
-        )
+    audit = dispatch_command_group(
+        user_id=current_user.id,
+        group_id=group.id,
+        variables=variables,
+        uploaded_files=uploaded_files,
+        client_ip=client_ip,
+    )
 
     return jsonify(
         success=True,
-        message=f"{'Command Group' if entry_type == 'group' else 'Command Item'} dispatched.",
+        message="Command Group dispatched.",
         task_id=audit.task_id,
         audit_id=audit.id,
     )
@@ -704,13 +706,17 @@ def terminate_command(audit_id: int):
 @remote_exec_required
 def duplicate_item(item_id: int):
     """Duplicating a Command Item clones it with Created_By=current_user."""
+    import os
+    import shutil
+    from flask import current_app
+
     item = CommandItem.query.get_or_404(item_id)
     if not user_can_duplicate_item(current_user, item):
         flash("You do not have permission to duplicate this Command Item.", "error")
         return redirect(url_for("remote_exec.dashboard"))
 
     new_item = CommandItem(
-        server_id=item.server_id,
+        server_id=None,
         name=f"{item.name} (Copy)",
         command_type=item.command_type,
         command_content=item.command_content,
@@ -730,6 +736,16 @@ def duplicate_item(item_id: int):
         )
         db.session.add(new_v)
 
+    if item.command_type == COMMAND_TYPE_UPLOAD:
+        src_dir = os.path.join(current_app.instance_path, "command_uploads", str(item.id))
+        dst_dir = os.path.join(current_app.instance_path, "command_uploads", str(new_item.id))
+        if os.path.isdir(src_dir):
+            os.makedirs(dst_dir, exist_ok=True)
+            for fname in os.listdir(src_dir):
+                sfile = os.path.join(src_dir, fname)
+                if os.path.isfile(sfile):
+                    shutil.copy2(sfile, os.path.join(dst_dir, fname))
+
     db.session.commit()
     flash(f"Command Item '{item.name}' duplicated successfully.", "success")
     return redirect(url_for("remote_exec.dashboard"))
@@ -738,7 +754,7 @@ def duplicate_item(item_id: int):
 @bp.post("/groups/<int:group_id>/duplicate")
 @remote_exec_required
 def duplicate_group(group_id: int):
-    """Duplicating a Command Group clones the group and all items under it."""
+    """Duplicating a Command Group clones the group definition and links the same Command Items."""
     group = CommandGroup.query.get_or_404(group_id)
     if not user_can_duplicate_group(current_user, group):
         flash("You do not have permission to duplicate this Command Group.", "error")
@@ -756,122 +772,232 @@ def duplicate_group(group_id: int):
     db.session.add(new_group)
     db.session.flush()
 
-    # Clone each Command Item under the group
+    # Link the same Command Items in sequence (updating an item updates it across all groups)
     for g_item in group.items:
-        old_c_item = g_item.command_item
-        if not old_c_item:
+        if not g_item.command_item_id:
             continue
-        new_c_item = CommandItem(
-            server_id=old_c_item.server_id,
-            name=f"{old_c_item.name} (Copy)",
-            command_type=old_c_item.command_type,
-            command_content=old_c_item.command_content,
-            created_by_id=current_user.id,
-            created_on=datetime.now(timezone.utc),
-        )
-        db.session.add(new_c_item)
-        db.session.flush()
-
-        for v in old_c_item.variables:
-            new_v = CommandVariable(
-                command_item_id=new_c_item.id,
-                name=v.name,
-                description=v.description,
-                var_type=v.var_type,
-                default_value=v.default_value,
-            )
-            db.session.add(new_v)
-
         link = CommandGroupItem(
             group_id=new_group.id,
-            command_item_id=new_c_item.id,
+            command_item_id=g_item.command_item_id,
             sequence_order=g_item.sequence_order,
         )
         db.session.add(link)
 
     db.session.commit()
-    flash(f"Command Group '{group.name}' and all sub-items duplicated.", "success")
+    flash(f"Command Group '{group.name}' duplicated.", "success")
     return redirect(url_for("remote_exec.group_edit", group_id=new_group.id))
 
 
 # ─── Command Item CRUD & Modal Save ───────────────────────────────────────────
 
+@bp.get("/items/<int:item_id>/data")
+@remote_exec_required
+def get_item_data(item_id: int):
+    """Returns JSON details of a Command Item for edit modals."""
+    import os
+    from flask import current_app
+
+    item = CommandItem.query.get_or_404(item_id)
+    if not user_can_view_item(current_user, item):
+        return jsonify(error="Unauthorized"), 403
+
+    files = []
+    if item.command_type == COMMAND_TYPE_UPLOAD:
+        upload_dir = os.path.join(current_app.instance_path, "command_uploads", str(item.id))
+        if os.path.isdir(upload_dir):
+            for fname in os.listdir(upload_dir):
+                fpath = os.path.join(upload_dir, fname)
+                if os.path.isfile(fpath):
+                    files.append({
+                        "name": fname,
+                        "size": os.path.getsize(fpath),
+                    })
+
+    variables = [{
+        "name": v.name,
+        "description": v.description or "",
+        "var_type": v.var_type,
+        "default_value": v.default_value or "",
+    } for v in item.variables]
+
+    return jsonify(
+        id=item.id,
+        name=item.name,
+        command_type=item.command_type,
+        command_content=item.command_content,
+        variables=variables,
+        files=files,
+    )
+
+
+@bp.post("/items/<int:item_id>/delete-file")
+@remote_exec_required
+def delete_item_file(item_id: int):
+    """Deletes an attached file from an upload Command Item."""
+    import os
+    from flask import current_app
+
+    item = CommandItem.query.get_or_404(item_id)
+    if not user_can_edit_item(current_user, item):
+        return jsonify(error="Unauthorized"), 403
+
+    filename = request.form.get("filename", "").strip()
+    if filename:
+        upload_dir = os.path.join(current_app.instance_path, "command_uploads", str(item.id))
+        fpath = os.path.join(upload_dir, os.path.basename(filename))
+        if os.path.isfile(fpath):
+            os.remove(fpath)
+        existing_files = [f for f in os.listdir(upload_dir) if os.path.isfile(os.path.join(upload_dir, f))] if os.path.isdir(upload_dir) else []
+        item.command_content = f"Uploaded Files: {', '.join(existing_files)}" if existing_files else "(No files uploaded)"
+        db.session.commit()
+        return jsonify(success=True, remaining_files=existing_files)
+    return jsonify(error="Filename required"), 400
+
+
 @bp.post("/items/save")
 @remote_exec_required
 def save_item():
-    """Create or update a Command Item and its variables."""
+    """Create or update a server-independent Command Item with inferred variables."""
+    import os
+    import secrets
+    from flask import current_app
+    from werkzeug.utils import secure_filename
+
+    is_ajax = request.form.get("ajax") == "1" or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
     item_id = request.form.get("item_id", type=int)
-    server_id = request.form.get("server_id", type=int)
     name = request.form.get("name", "").strip()
     command_type = request.form.get("command_type", COMMAND_TYPE_REMOTE)
     command_content = request.form.get("command_content", "")
 
-    if not name or not server_id:
-        flash("Name and target server are required.", "error")
-        return redirect(url_for("remote_exec.dashboard"))
+    if not name:
+        if is_ajax:
+            return jsonify(success=False, error="Command Item name is required."), 400
+        flash("Command Item name is required.", "error")
+        return redirect(request.form.get("next") or url_for("remote_exec.dashboard"))
 
-    target_server = Server.query.get(server_id)
-    if not target_server or not user_can_view_server(current_user, target_server):
-        flash("Selected target server is not accessible.", "error")
-        return redirect(url_for("remote_exec.dashboard"))
-
-    server_auth = get_server_user_auth_status(target_server, current_user)
-    if not server_auth["is_connectable"]:
-        flash("You must connect to this server at least once before using it in a Command Item.", "error")
-        return redirect(url_for("remote_exec.dashboard"))
+    if command_type not in (COMMAND_TYPE_REMOTE, COMMAND_TYPE_LOCAL, COMMAND_TYPE_UPLOAD):
+        command_type = COMMAND_TYPE_REMOTE
 
     if item_id:
         item = CommandItem.query.get_or_404(item_id)
         if not user_can_edit_item(current_user, item):
+            if is_ajax:
+                return jsonify(success=False, error="You do not have permission to edit this Command Item."), 403
             flash("You do not have permission to edit this Command Item.", "error")
-            return redirect(url_for("remote_exec.dashboard"))
+            return redirect(request.form.get("next") or url_for("remote_exec.dashboard"))
         item.name = name
-        item.server_id = server_id
         item.command_type = command_type
-        item.command_content = command_content
+        if command_type != COMMAND_TYPE_UPLOAD:
+            item.command_content = command_content
     else:
         if not user_can_add_item(current_user):
+            if is_ajax:
+                return jsonify(success=False, error="You do not have permission to create Command Items. Contact an Admin."), 403
             flash("You do not have permission to create Command Items. Contact an Admin.", "error")
-            return redirect(url_for("remote_exec.dashboard"))
+            return redirect(request.form.get("next") or url_for("remote_exec.dashboard"))
 
         item = CommandItem(
-            server_id=server_id,
+            server_id=None,
             name=name,
             command_type=command_type,
-            command_content=command_content,
+            command_content=command_content if command_type != COMMAND_TYPE_UPLOAD else "",
             created_by_id=current_user.id,
             created_on=datetime.now(timezone.utc),
         )
         db.session.add(item)
         db.session.flush()
 
-    # Synchronize variables
-    var_names = request.form.getlist("var_name[]")
-    var_descs = request.form.getlist("var_desc[]")
-    var_types = request.form.getlist("var_type[]")
-    var_defaults = request.form.getlist("var_default[]")
+    # Handle Upload File(s)
+    if command_type == COMMAND_TYPE_UPLOAD:
+        upload_dir = os.path.join(current_app.instance_path, "command_uploads", str(item.id))
+        os.makedirs(upload_dir, exist_ok=True)
+        uploaded_files = request.files.getlist("upload_files") + request.files.getlist("files")
+        max_size = 5 * 1024 * 1024  # 5 MB per file
+        for f in uploaded_files:
+            if f and f.filename:
+                # Validate size <= 5 MB
+                f.seek(0, os.SEEK_END)
+                f_size = f.tell()
+                f.seek(0)
+                if f_size > max_size:
+                    if is_ajax:
+                        return jsonify(success=False, error=f"File '{f.filename}' exceeds maximum allowed size (5 MB limit)."), 400
+                    flash(f"File '{f.filename}' exceeds maximum allowed size (5 MB limit).", "error")
+                    return redirect(request.form.get("next") or url_for("remote_exec.dashboard"))
+                fname = secure_filename(f.filename) or f"file_{secrets.token_hex(4)}"
+                f.save(os.path.join(upload_dir, fname))
 
-    # Clear existing and re-create
-    CommandVariable.query.filter_by(command_item_id=item.id).delete()
-    for i, vname in enumerate(var_names):
-        vname = vname.strip()
-        if not vname:
-            continue
-        vdesc = var_descs[i].strip() if i < len(var_descs) else ""
-        vtype = var_types[i].strip() if i < len(var_types) else VAR_TYPE_TEXT
-        vdef = var_defaults[i].strip() if i < len(var_defaults) else ""
+        existing_files = [f for f in os.listdir(upload_dir) if os.path.isfile(os.path.join(upload_dir, f))] if os.path.isdir(upload_dir) else []
+        item.command_content = f"Uploaded Files: {', '.join(existing_files)}" if existing_files else "(No files uploaded)"
+        item.variables.clear()
+    else:
+        # Inferred Variables for remote / local scripts
+        var_overrides = {}
 
-        db.session.add(CommandVariable(
-            command_item_id=item.id,
-            name=vname,
-            description=vdesc,
-            var_type=vtype,
-            default_value=vdef,
-        ))
+        # 1. Parse JSON variables if provided (modal / programmatic API)
+        v_json_raw = request.form.get("variables_json", "").strip()
+        if v_json_raw:
+            try:
+                loaded = json.loads(v_json_raw)
+                if isinstance(loaded, dict):
+                    var_overrides.update(loaded)
+            except Exception:
+                pass
+
+        # 2. Parse parallel list inputs (from hidden form inputs)
+        var_names = request.form.getlist("var_name[]")
+        var_types = request.form.getlist("var_type[]")
+        var_defaults = request.form.getlist("var_default[]")
+        var_descs = request.form.getlist("var_desc[]")
+        for i, vname in enumerate(var_names):
+            vname = vname.strip()
+            if vname:
+                var_overrides[vname] = {
+                    "var_type": var_types[i].strip() if i < len(var_types) else VAR_TYPE_TEXT,
+                    "default_value": var_defaults[i].strip() if i < len(var_defaults) else "",
+                    "description": var_descs[i].strip() if i < len(var_descs) else "",
+                }
+
+        # 3. Parse individual prefixed inputs
+        for key, val in request.form.items():
+            if key.startswith("var_type_"):
+                vname = key[len("var_type_"):].strip()
+                var_overrides.setdefault(vname, {})["var_type"] = val.strip()
+            elif key.startswith("var_default_"):
+                vname = key[len("var_default_"):].strip()
+                var_overrides.setdefault(vname, {})["default_value"] = val.strip()
+            elif key.startswith("var_desc_"):
+                vname = key[len("var_desc_"):].strip()
+                var_overrides.setdefault(vname, {})["description"] = val.strip()
+
+        item.sync_inferred_variables(var_overrides)
 
     db.session.commit()
     flash(f"Command Item '{item.name}' saved successfully.", "success")
-    return redirect(url_for("remote_exec.dashboard"))
+
+    if is_ajax:
+        type_label = (
+            "On Remote Server" if item.command_type == COMMAND_TYPE_REMOTE
+            else ("On Local Server" if item.command_type == COMMAND_TYPE_LOCAL
+            else ("Upload File(s)" if item.command_type == COMMAND_TYPE_UPLOAD else item.command_type))
+        )
+        return jsonify(
+            success=True,
+            item={
+                "id": item.id,
+                "name": item.name,
+                "command_type": item.command_type,
+                "type_label": type_label,
+                "command_content": item.command_content,
+                "creator_name": item.creator.name if item.creator else "Unknown",
+                "can_edit": user_can_edit_item(current_user, item),
+                "variables": [v.name for v in item.variables],
+            }
+        )
+
+    next_url = request.form.get("next") or request.referrer or url_for("remote_exec.dashboard")
+    return redirect(next_url)
 
 
 @bp.post("/items/<int:item_id>/delete")
@@ -900,26 +1026,35 @@ def group_create():
         return redirect(url_for("remote_exec.dashboard"))
 
     connectable_servers = get_connectable_servers_for_user(current_user)
+    available_items = [
+        i for i in CommandItem.query.order_by(CommandItem.name).all()
+        if user_can_view_item(current_user, i)
+    ]
+
+    can_add_item = user_can_add_item(current_user)
+    can_edit_item = lambda i: user_can_edit_item(current_user, i)
+
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         server_id = request.form.get("server_id", type=int)
         description = request.form.get("description", "").strip()
         run_in_parallel = bool(request.form.get("run_in_parallel"))
         stop_on_error = bool(request.form.get("stop_on_error", True))
+        item_ids = request.form.getlist("item_ids[]") or request.form.getlist("item_ids")
 
         if not name or not server_id:
             flash("Group name and target server are required.", "error")
-            return render_template("command_group_form.html", group=None, servers=connectable_servers)
+            return render_template("command_group_form.html", group=None, servers=connectable_servers, available_items=available_items, can_add_item=can_add_item, can_edit_item=can_edit_item)
 
         target_server = Server.query.get(server_id)
         if not target_server or not user_can_view_server(current_user, target_server):
             flash("Selected target server is not accessible.", "error")
-            return render_template("command_group_form.html", group=None, servers=connectable_servers)
+            return render_template("command_group_form.html", group=None, servers=connectable_servers, available_items=available_items, can_add_item=can_add_item, can_edit_item=can_edit_item)
 
         auth = get_server_user_auth_status(target_server, current_user)
         if not auth["is_connectable"]:
             flash("You must connect to this server at least once before creating a Command Group on it.", "error")
-            return render_template("command_group_form.html", group=None, servers=connectable_servers)
+            return render_template("command_group_form.html", group=None, servers=connectable_servers, available_items=available_items, can_add_item=can_add_item, can_edit_item=can_edit_item)
 
         group = CommandGroup(
             server_id=server_id,
@@ -931,11 +1066,28 @@ def group_create():
             created_on=datetime.now(timezone.utc),
         )
         db.session.add(group)
+        db.session.flush()
+
+        # Link submitted item_ids in order
+        for idx, item_id_str in enumerate(item_ids, start=1):
+            try:
+                c_item_id = int(item_id_str)
+                c_item = CommandItem.query.get(c_item_id)
+                if c_item and user_can_view_item(current_user, c_item):
+                    link = CommandGroupItem(
+                        group_id=group.id,
+                        command_item_id=c_item.id,
+                        sequence_order=idx,
+                    )
+                    db.session.add(link)
+            except (ValueError, TypeError):
+                continue
+
         db.session.commit()
         flash(f"Command Group '{group.name}' created.", "success")
-        return redirect(url_for("remote_exec.group_edit", group_id=group.id))
+        return redirect(url_for("remote_exec.dashboard"))
 
-    return render_template("command_group_form.html", group=None, servers=connectable_servers)
+    return render_template("command_group_form.html", group=None, servers=connectable_servers, available_items=available_items, can_add_item=can_add_item, can_edit_item=can_edit_item)
 
 
 @bp.route("/groups/<int:group_id>/edit", methods=["GET", "POST"])
@@ -948,26 +1100,49 @@ def group_edit(group_id: int):
         return redirect(url_for("remote_exec.dashboard"))
 
     connectable_servers = get_connectable_servers_for_user(current_user)
-    # Available Command Items for ADD: matching target server AND viewable by user
+    # Available Command Items for ADD: server-independent, all viewable by user
     available_items = [
-        i for i in CommandItem.query.filter_by(server_id=group.server_id).order_by(CommandItem.name).all()
+        i for i in CommandItem.query.order_by(CommandItem.name).all()
         if user_can_view_item(current_user, i)
     ]
+    can_add_item = user_can_add_item(current_user)
+    can_edit_item = lambda i: user_can_edit_item(current_user, i)
 
     if request.method == "POST":
         group.name = request.form.get("name", group.name).strip()
         group.description = request.form.get("description", "").strip()
         group.run_in_parallel = bool(request.form.get("run_in_parallel"))
         group.stop_on_error = bool(request.form.get("stop_on_error"))
+
+        # Reorder / sync group items if item_ids submitted
+        item_ids = request.form.getlist("item_ids[]") or request.form.getlist("item_ids")
+        if "item_ids[]" in request.form or "item_ids" in request.form:
+            CommandGroupItem.query.filter_by(group_id=group.id).delete()
+            for idx, item_id_str in enumerate(item_ids, start=1):
+                try:
+                    c_item_id = int(item_id_str)
+                    c_item = CommandItem.query.get(c_item_id)
+                    if c_item and user_can_view_item(current_user, c_item):
+                        link = CommandGroupItem(
+                            group_id=group.id,
+                            command_item_id=c_item.id,
+                            sequence_order=idx,
+                        )
+                        db.session.add(link)
+                except (ValueError, TypeError):
+                    continue
+
         db.session.commit()
         flash("Command Group updated.", "success")
-        return redirect(url_for("remote_exec.group_edit", group_id=group.id))
+        return redirect(url_for("remote_exec.dashboard"))
 
     return render_template(
         "command_group_form.html",
         group=group,
         servers=connectable_servers,
         available_items=available_items,
+        can_add_item=can_add_item,
+        can_edit_item=can_edit_item,
     )
 
 

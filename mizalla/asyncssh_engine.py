@@ -80,12 +80,12 @@ def normalize_line_endings(command_text: str, os_type: str = "linux") -> str:
 
 # ─── AsyncSSH Connection Helpers ─────────────────────────────────────────────
 
-def _build_client_options(username: str, password: str = "", private_key: str = "") -> dict:
+def _build_client_options(username: str, password: str = "", private_key: str = "", timeout: Optional[float] = None) -> dict:
     """Builds kwargs for asyncssh.connect()."""
     opts: dict = {
         "username": username or "root",
         "known_hosts": None,  # Accept server host key
-        "connect_timeout": 7.0,
+        "connect_timeout": float(timeout) if timeout is not None else 7.0,
     }
     if password:
         opts["password"] = password
@@ -541,8 +541,45 @@ async def _probe_docker(conn, os_type: str = "linux", cmds: Optional[List[str]] 
         result += f" [Compose: {', '.join(unique_paths[:3])}]"
     return result
 
-def _parse_kubectl_pods(output: str) -> list[dict]:
-    """Parses kubectl get pods output into structured dictionaries."""
+
+async def _locate_docker_compose_file(conn, os_type: str = "linux") -> Optional[str]:
+    """Locates the primary docker-compose.yml file on the remote server."""
+    try:
+        if os_type.lower() == "windows":
+            cmd = 'powershell -Command "Get-ChildItem -Path C:\\ -Include \'docker-compose.yml\',\'docker-compose.yaml\',\'compose.yaml\',\'compose.yml\' -Recurse -Depth 4 -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName"'
+        else:
+            cmd = 'find /opt /etc /home /var/www /root /srv /var/lib -maxdepth 4 \\( -name "docker-compose.yml" -o -name "docker-compose.yaml" -o -name "compose.yaml" -o -name "compose.yml" \\) 2>/dev/null | head -n 1'
+        res = await conn.run(cmd, check=False, timeout=6.0)
+        if res.exit_status == 0 and res.stdout.strip():
+            return res.stdout.strip().splitlines()[0].strip()
+    except Exception as e:
+        logger.warning(f"Failed to locate docker-compose file: {e}")
+    return None
+
+
+async def _read_docker_compose_file(conn, file_path: str, os_type: str = "linux") -> str:
+    """Reads the full formatted content of a docker-compose.yml file on the remote server."""
+    if not file_path:
+        return ""
+    try:
+        if os_type.lower() == "windows":
+            clean_p = file_path.replace("/", "\\")
+            cmd = f'powershell -Command "Get-Content -Path \'{clean_p}\' -Raw"'
+        else:
+            clean_p = file_path.replace("\\", "/")
+            cmd = f'cat "{clean_p}" 2>/dev/null'
+        res = await conn.run(cmd, check=False, timeout=8.0)
+        if res.exit_status == 0 and res.stdout:
+            return res.stdout.strip()
+    except Exception as e:
+        logger.warning(f"Failed to read docker-compose file {file_path}: {e}")
+    return ""
+
+
+def _parse_kubectl_pods(output: str, only_user_running: bool = False) -> list[dict]:
+    """Parses kubectl get pods output into structured dictionaries.
+    If only_user_running is True, filters out kube-system pods and keeps only running pods.
+    """
     if not output or "No resources found" in output:
         return []
 
@@ -577,6 +614,41 @@ def _parse_kubectl_pods(output: str) -> list[dict]:
                 "status": tokens[2],
                 "age": tokens[-1],
             })
+        # Format for pod ID and age: [NAME, AGE]
+        elif len(tokens) == 2 and not tokens[0].startswith("Error:"):
+            pod_name = tokens[0]
+            ns = "default"
+            if pod_name.startswith("pod/"):
+                pod_name = pod_name[4:]
+            if "/" in pod_name:
+                ns, pod_name = pod_name.split("/", 1)
+            age_val = tokens[1].strip("()")
+            raw_pods.append({
+                "namespace": ns,
+                "name": pod_name,
+                "ready": "1/1",
+                "status": "Running",
+                "age": age_val,
+            })
+        # Format for single token/pod ID per line (e.g. from kubectl get pods -o name)
+        elif len(tokens) == 1 and not tokens[0].startswith("Error:"):
+            pod_name = tokens[0]
+            ns = "default"
+            if pod_name.startswith("pod/"):
+                pod_name = pod_name[4:]
+            if "/" in pod_name:
+                ns, pod_name = pod_name.split("/", 1)
+            m_age = re.search(r"\(([^)]+)\)$", pod_name)
+            age_val = m_age.group(1) if m_age else ""
+            if m_age:
+                pod_name = pod_name[:m_age.start()].strip()
+            raw_pods.append({
+                "namespace": ns,
+                "name": pod_name,
+                "ready": "1/1",
+                "status": "Running",
+                "age": age_val,
+            })
 
     # Deduplicate by (namespace, name) preserving order
     seen = set()
@@ -586,6 +658,21 @@ def _parse_kubectl_pods(output: str) -> list[dict]:
         if key not in seen:
             seen.add(key)
             pods.append(p)
+
+    if only_user_running:
+        filtered = []
+        for pod in pods:
+            ns = (pod.get("namespace") or "").strip().lower()
+            if ns == "kube-system" or ns.startswith("kube-system"):
+                continue
+            name = (pod.get("name") or "").strip().lower()
+            if name.startswith("kube-system/"):
+                continue
+            status = (pod.get("status") or "").strip().lower()
+            if status and status not in ("running", "active"):
+                continue
+            filtered.append(pod)
+        return filtered
 
     return pods
 
@@ -963,9 +1050,11 @@ async def test_ssh_connection(
     username: str,
     password: str = "",
     private_key: str = "",
+    timeout: Optional[float] = None,
+    **kwargs,
 ) -> Tuple[bool, str, dict]:
     """Tests SSH connectivity and gathers comprehensive OS, hardware, and extensible core_tags in parallel."""
-    opts = _build_client_options(username, password, private_key)
+    opts = _build_client_options(username, password, private_key, timeout=timeout)
 
     # 1. Open initial SSH connection to validate user credentials and server existence
     try:
@@ -1061,7 +1150,66 @@ async def test_ssh_connection(
         elif isinstance(tag_val, str) and tag_val.strip():
             core_tag_lines.append(f"{tag_name}: {tag_val.strip()}")
 
+    # Check if kubectl was detected on this server
+    k8s_detected = any(line.lower().startswith("kubernetes:") or "kubernetes" in line.lower() or "kubectl" in line.lower() for line in core_tag_lines)
+
+    # If Kubectl is detected for a server, run it and list the IDs of the pods
+    if k8s_detected and not k8s_pods_list:
+        try:
+            pod_cmds = sec.get("kubernetes_pods")
+            async with asyncssh.connect(ip, port=port or 22, **opts) as conn:
+                _, fetched_pods = await _probe_kubernetes_pods(conn, detected_os, cmds=pod_cmds)
+                if fetched_pods:
+                    k8s_pods_list.extend(fetched_pods)
+        except Exception as err:
+            logger.warning(f"Error fetching k8s pods for detected kubectl: {err}")
+    elif not k8s_detected:
+        k8s_pods_list = []
+
     core_tags = "\r\n".join(core_tag_lines)
+
+    # Check if docker compose is detected on this server
+    docker_compose_content = ""
+    compose_file_path = ""
+
+    # 1. Check if compose file path was found in docker tag
+    for line in core_tag_lines:
+        if "compose:" in line.lower():
+            m_comp = re.search(r"\[Compose:\s*([^,\]]+)", line, re.IGNORECASE)
+            if m_comp:
+                compose_file_path = m_comp.group(1).strip()
+                break
+
+    # 2. If docker or compose is detected but path was not yet located, locate it
+    is_docker_detected = any("docker" in line.lower() or "compose" in line.lower() for line in core_tag_lines)
+    if not is_docker_detected:
+        try:
+            async with asyncssh.connect(ip, port=port or 22, **opts) as conn:
+                cli_check = "powershell -Command \"docker compose version; docker-compose --version\"" if detected_os == "windows" else "docker compose version 2>/dev/null || docker-compose --version 2>/dev/null"
+                res_c = await conn.run(cli_check, check=False, timeout=4.0)
+                if res_c.exit_status == 0 and res_c.stdout.strip():
+                    is_docker_detected = True
+        except Exception:
+            pass
+
+    if is_docker_detected and not compose_file_path:
+        try:
+            async with asyncssh.connect(ip, port=port or 22, **opts) as conn:
+                located = await _locate_docker_compose_file(conn, detected_os)
+                if located:
+                    compose_file_path = located
+        except Exception as err:
+            logger.warning(f"Error locating docker-compose file: {err}")
+
+    # 3. If docker compose is detected, read its contents
+    if compose_file_path:
+        try:
+            async with asyncssh.connect(ip, port=port or 22, **opts) as conn:
+                content = await _read_docker_compose_file(conn, compose_file_path, detected_os)
+                if content:
+                    docker_compose_content = content
+        except Exception as err:
+            logger.warning(f"Error reading docker-compose.yml file at {compose_file_path}: {err}")
 
     telemetry: Dict[str, Any] = {
         "os_type": os_res.get("os_type") or detected_os,
@@ -1076,6 +1224,7 @@ async def test_ssh_connection(
         "disk_percent": disk_res.get("disk_percent", 0.0),
         "core_tags": core_tags,
         "k8s_pods": json.dumps(k8s_pods_list) if k8s_pods_list else "",
+        "docker_compose_content": docker_compose_content,
     }
 
     msg = f"SSH connection successful ({telemetry.get('operating_system', detected_os.title())})."

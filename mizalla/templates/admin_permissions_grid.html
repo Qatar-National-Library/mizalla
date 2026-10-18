@@ -242,8 +242,8 @@
                 </div>
               </td>
               <td style="padding: 0.75rem 1rem;">
-                <span class="tag" style="font-size:0.7rem; text-transform:uppercase; background:rgba(16,62,48,0.06); padding:0.12rem 0.4rem; border-radius:3px;">
-                  {{ item.command_type }}
+                <span class="tag" style="font-size:0.7rem; background:rgba(16,62,48,0.06); padding:0.12rem 0.4rem; border-radius:3px;">
+                  {% if item.command_type == 'remote' %}On Remote Server{% elif item.command_type == 'local' %}On Local Server{% elif item.command_type == 'upload' %}Upload File(s){% else %}{{ item.command_type }}{% endif %}
                 </span>
               </td>
               <td style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--muted);">
@@ -252,7 +252,7 @@
               {% for m in non_admin_members %}
               <td style="padding: 0.65rem 0.85rem; text-align: center; border-left: 1px solid #e8e8e8; vertical-align: middle;">
                 {% if item.created_by_id == m.id %}
-                <span class="badge" style="background:#e8f5e9; color:#2e7d32; font-size:0.7rem; font-weight:700; padding:0.15rem 0.45rem; border-radius:4px; display:inline-flex; align-items:center; gap:0.25rem;" title="Creator automatically has full View, Edit, Run, and Delete permissions">
+                <span class="badge" style="background:#e8f5e9; color:#2e7d32; font-size:0.7rem; font-weight:700; padding:0.15rem 0.45rem; border-radius:4px; display:inline-flex; align-items:center; gap:0.25rem;" title="Creator automatically has full View and Edit permissions">
                   <i data-lucide="crown" style="width:11px; height:11px;"></i> Owner
                 </span>
                 {% else %}
@@ -260,11 +260,11 @@
                 {% set can_view = perm.can_view if perm else False %}
                 {% set can_edit = perm.can_edit if perm else False %}
                 <div style="display: inline-flex; flex-direction: column; gap: 0.35rem; align-items: flex-start; text-align: left;">
-                  <label style="display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; font-size: 0.78rem;" title="View access includes authorization to RUN this item">
+                  <label style="display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; font-size: 0.78rem;" title="View access allows viewing and adding this item to Command Groups">
                     <input type="checkbox" name="item_view_{{ item.id }}_{{ m.id }}" value="1" data-type="view" {% if can_view %}checked{% endif %}>
-                    <span>View (Run)</span>
+                    <span>View</span>
                   </label>
-                  <label style="display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; font-size: 0.78rem;" title="Edit access includes authorization to RUN and DELETE this item">
+                  <label style="display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; font-size: 0.78rem;" title="Edit access allows editing, duplicating, and deleting this item">
                     <input type="checkbox" name="item_edit_{{ item.id }}_{{ m.id }}" value="1" data-type="edit" {% if can_edit %}checked{% endif %}>
                     <span>Edit (Delete)</span>
                   </label>

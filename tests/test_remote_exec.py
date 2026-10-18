@@ -244,7 +244,7 @@ def test_command_item_creation_and_duplication(app, client):
     with app.app_context():
         item = CommandItem.query.filter_by(name="Restart Nginx").first()
         assert item is not None
-        assert item.server_id == s_id
+        assert item.server_id is None
         assert len(item.variables) == 1
         assert item.variables[0].name == "ServiceName"
         item_id = item.id
@@ -258,7 +258,7 @@ def test_command_item_creation_and_duplication(app, client):
         assert len(copies) == 1
         copy_item = copies[0]
         assert copy_item.created_by_id == u_id
-        assert copy_item.server_id == s_id
+        assert copy_item.server_id is None
         assert len(copy_item.variables) == 1
         assert copy_item.variables[0].default_value == "nginx"
 
@@ -316,9 +316,9 @@ def test_command_group_creation_and_duplication_with_subitems(app, client):
         assert dup_grp is not None
         assert dup_grp.created_by_id == u_id
         assert len(dup_grp.items) == 2
-        # Verify sub-items were duplicated under the current user
-        assert dup_grp.items[0].command_item.name == "Step 1 - Pull (Copy)"
-        assert dup_grp.items[0].command_item.created_by_id == u_id
+        # Verify sub-items link the same modular Command Items
+        assert dup_grp.items[0].command_item.name == "Step 1 - Pull"
+        assert dup_grp.items[1].command_item.name == "Step 2 - Build"
 
 
 # ─── 6. Pre-flight Variable Modal (Set-based deduplication) ──────────────────
@@ -572,9 +572,8 @@ def test_spinner_and_running_visible_to_can_run_users(app, client):
     assert dash_resp.status_code == 200
     html = dash_resp.get_data(as_text=True)
 
-    # Spinner and RUNNING badge rendered as inline-flex (visible)
+    # Spinner and RUNNING badge rendered as inline-flex (visible) for running group
     assert f'id="group-running-{grp_id}" style="display:inline-flex;' in html
-    assert f'id="item-running-{item_id}" style="display:inline-flex;' in html
     assert "RUNNING" in html
     assert "status-spinner" in html
 
@@ -917,11 +916,11 @@ def test_connectable_servers_user_filtering(client, app):
         assert s2.id in connectable_ids
 
     login(client, "filter_user@example.com")
-    resp = client.get("/apps/remote-exec/")
+    resp = client.get("/apps/remote-exec/groups/new")
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
 
-    # In modal dropdown, Connected Server should be present as an option, Unconnected should not
+    # In group form dropdown, Connected Server should be present as an option, Unconnected should not
     assert f'<option value="{s2.id}">' in html
     assert f'<option value="{s1.id}">' not in html
 
@@ -996,7 +995,7 @@ def test_admin_permissions_matrix_access_and_updates(client, app):
         m = Member.query.get(member_id)
         ci = CommandItem.query.get(item_id)
         assert user_can_view_item(m, ci) is True
-        assert user_can_run_item(m, ci) is True
+        assert user_can_run_item(m, ci) is False
         assert user_can_edit_item(m, ci) is True
         assert user_can_delete_item(m, ci) is True
 
@@ -1016,5 +1015,455 @@ def test_admin_permissions_matrix_access_and_updates(client, app):
         assert user_can_edit_group(m, cg) is True
         assert user_can_delete_group(m, cg) is True
 
+def test_test_ssh_connection_accepts_timeout():
+    """Verify test_ssh_connection and _build_client_options accept timeout argument without TypeError."""
+    from mizalla.asyncssh_engine import _build_client_options, test_ssh_connection
+    import inspect
+
+    sig = inspect.signature(test_ssh_connection)
+    assert "timeout" in sig.parameters
+
+    opts = _build_client_options("admin", "secret", timeout=5)
+    assert opts["connect_timeout"] == 5.0
+
+    opts_default = _build_client_options("admin", "secret")
+    assert opts_default["connect_timeout"] == 7.0
 
 
+def test_save_fallback_credential_with_timeout(client, app):
+    """Verify POST /apps/remote-exec/servers/<id>/fallback-credential works without TypeError on timeout."""
+    with app.app_context():
+        user = make_member(name="Fallback User", email="fallback_user@example.com")
+        server = Server(
+            name="Fallback Server",
+            ip="192.168.1.199",
+            operating_system="Ubuntu 22.04",
+            agent_status="online",
+        )
+        db.session.add(server)
+        db.session.commit()
+        server_id = server.id
+
+        grant = ServerAccess(server_id=server.id, member_id=user.id, can_view=True)
+        db.session.add(grant)
+        sync_member_features(user, [FEATURE_REMOTE_EXEC])
+        db.session.commit()
+
+    login(client, "fallback_user@example.com")
+
+    # Call fallback-credential with mock test_ssh_connection
+    mock_telemetry = {
+        "operating_system": "Ubuntu 22.04 LTS",
+        "ram_total": "8.0 GB",
+        "disk_total": "100.0 GB",
+        "core_tags": "",
+    }
+    with patch("mizalla.remote_exec.test_ssh_connection", new_callable=AsyncMock) as mock_ssh:
+        mock_ssh.return_value = (True, "Connected", mock_telemetry)
+        resp = client.post(
+            f"/apps/remote-exec/servers/{server_id}/fallback-credential",
+            data={
+                "username": "ubuntu",
+                "password": "mypassword123",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+        # Verify test_ssh_connection was called with timeout=5
+        assert mock_ssh.called
+        _, kwargs = mock_ssh.call_args
+        assert kwargs.get("timeout") == 5
+
+
+# ─── 13. Command Item / Command Group Revamp Tests ──────────────────────────
+
+def test_command_item_server_independent_and_inferred_variables(client, app):
+    """Verify Command Items are saved server-independent (server_id=None) and
+    inferred variables are auto-extracted from script with user type/default overrides."""
+    import json
+
+    with app.app_context():
+        admin = make_member("Admin Revamp", "admin_revamp@example.com", is_admin=True)
+        sync_member_features(admin, [FEATURE_REMOTE_EXEC])
+
+    login(client, "admin_revamp@example.com")
+
+    # 1. Create remote item without server_id with inferred variables
+    script = 'echo "Deploying {{ app_name }} version {{ version_tag }} with debug={{ is_debug }}"'
+    var_overrides = {
+        "app_name": {"var_type": VAR_TYPE_TEXT, "default_value": "Mizalla", "description": "Application name"},
+        "version_tag": {"var_type": VAR_TYPE_TEXT, "default_value": "v1.0.0", "description": "Release tag"},
+        "is_debug": {"var_type": VAR_TYPE_BOOLEAN, "default_value": "false", "description": "Debug flag"},
+    }
+
+    resp = client.post(
+        "/apps/remote-exec/items/save",
+        data={
+            "name": "Deploy Script",
+            "command_type": COMMAND_TYPE_REMOTE,
+            "command_content": script,
+            "variables_json": json.dumps(var_overrides),
+        },
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+
+    with app.app_context():
+        item = CommandItem.query.filter_by(name="Deploy Script").first()
+        assert item is not None
+        assert item.server_id is None
+        assert len(item.variables) == 3
+        var_dict = {v.name: v for v in item.variables}
+        assert "app_name" in var_dict
+        assert var_dict["app_name"].var_type == VAR_TYPE_TEXT
+        assert var_dict["app_name"].default_value == "Mizalla"
+        assert var_dict["is_debug"].var_type == VAR_TYPE_BOOLEAN
+        assert var_dict["is_debug"].default_value == "false"
+        item_id = item.id
+
+    # 2. GET /apps/remote-exec/items/<id>/data returns item details and inferred variables
+    resp_data = client.get(f"/apps/remote-exec/items/{item_id}/data")
+    assert resp_data.status_code == 200
+    item_json = resp_data.get_json()
+    assert item_json["id"] == item_id
+    assert item_json["name"] == "Deploy Script"
+    assert len(item_json["variables"]) == 3
+
+    # 3. Update script to remove {{ is_debug }} and add {{ port }}
+    new_script = 'echo "Deploying {{ app_name }} version {{ version_tag }} on port {{ port }}"'
+    resp_update = client.post(
+        "/apps/remote-exec/items/save",
+        data={
+            "item_id": item_id,
+            "name": "Deploy Script Updated",
+            "command_type": COMMAND_TYPE_REMOTE,
+            "command_content": new_script,
+            "variables_json": json.dumps({"port": {"var_type": VAR_TYPE_NUMBER, "default_value": "8080"}}),
+        },
+        follow_redirects=True,
+    )
+    assert resp_update.status_code == 200
+
+    with app.app_context():
+        updated_item = CommandItem.query.get(item_id)
+        assert updated_item.name == "Deploy Script Updated"
+        vars_after = {v.name: v for v in updated_item.variables}
+        # is_debug should be pruned, port added, app_name and version_tag preserved
+        assert "is_debug" not in vars_after
+        assert "port" in vars_after
+        assert vars_after["port"].var_type == VAR_TYPE_NUMBER
+        assert vars_after["port"].default_value == "8080"
+        assert vars_after["app_name"].default_value == "Mizalla"
+
+
+def test_command_item_direct_execution_blocked(client, app):
+    """Verify Command Items cannot be executed directly; only Command Groups can be executed."""
+    with app.app_context():
+        admin = make_member("Admin DirectExec", "admin_directexec@example.com", is_admin=True)
+        sync_member_features(admin, [FEATURE_REMOTE_EXEC])
+        item = CommandItem(name="Direct Item", command_type=COMMAND_TYPE_REMOTE, command_content="uptime", created_by_id=admin.id)
+        db.session.add(item)
+        db.session.commit()
+        item_id = item.id
+
+    login(client, "admin_directexec@example.com")
+    resp = client.post(
+        f"/apps/remote-exec/run/item/{item_id}",
+    )
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert data["success"] is False
+    assert "Command Items cannot be run directly" in data["message"]
+
+
+def test_command_item_file_upload_and_size_limit(client, app):
+    """Verify Upload File(s) command type accepts any file type up to 5 MB and rejects files > 5 MB."""
+    import io
+
+    with app.app_context():
+        admin = make_member("Admin Upload", "admin_upload@example.com", is_admin=True)
+        sync_member_features(admin, [FEATURE_REMOTE_EXEC])
+
+    login(client, "admin_upload@example.com")
+
+    # 1. Attempt uploading a file > 5 MB (e.g. 5.1 MB = 5.1 * 1024 * 1024 bytes)
+    big_file_data = b"x" * (5 * 1024 * 1024 + 1024)
+    resp_big = client.post(
+        "/apps/remote-exec/items/save",
+        data={
+            "name": "Big File Item",
+            "command_type": COMMAND_TYPE_UPLOAD,
+            "destination_path": "/var/tmp/big.bin",
+            "files": (io.BytesIO(big_file_data), "big.bin"),
+        },
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    # Flash error message for file exceeding 5 MB limit
+    html_big = resp_big.get_data(as_text=True)
+    assert "exceeds maximum allowed size" in html_big
+
+    # 2. Upload valid file under 5 MB
+    valid_file_data = b"Hello, this is a config payload for remote server deployment."
+    resp_valid = client.post(
+        "/apps/remote-exec/items/save",
+        data={
+            "name": "Valid Config Item",
+            "command_type": COMMAND_TYPE_UPLOAD,
+            "destination_path": "/etc/mizalla/app.conf",
+            "files": (io.BytesIO(valid_file_data), "app.conf"),
+        },
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert resp_valid.status_code == 200
+
+    with app.app_context():
+        item = CommandItem.query.filter_by(name="Valid Config Item").first()
+        assert item is not None
+        assert item.command_type == COMMAND_TYPE_UPLOAD
+        assert "app.conf" in item.command_content
+        item_id = item.id
+
+    # 3. Verify file appears in /apps/remote-exec/items/<id>/data
+    resp_data = client.get(f"/apps/remote-exec/items/{item_id}/data")
+    assert resp_data.status_code == 200
+    attached_files = resp_data.get_json()["files"]
+    assert any(f["name"] == "app.conf" for f in attached_files)
+
+    # 4. Delete file via /apps/remote-exec/items/<id>/delete-file
+    resp_del = client.post(
+        f"/apps/remote-exec/items/{item_id}/delete-file",
+        data={"filename": "app.conf"},
+    )
+    assert resp_del.status_code == 200
+    assert resp_del.get_json()["success"] is True
+
+    # Confirm it's deleted
+    resp_data2 = client.get(f"/apps/remote-exec/items/{item_id}/data")
+    assert len(resp_data2.get_json()["files"]) == 0
+
+
+def test_command_group_ui_revamp_dashboard_and_builder(client, app):
+    """Verify Command Group UI revamp:
+    1. Dashboard has no top action buttons and Command Groups panel is full width.
+    2. Group builder has 70/30 split layout with available items in right column.
+    3. Group creation directly persists initial ordered item_ids[].
+    4. Group edit persists reordered item_ids[]."""
+    with app.app_context():
+        admin = make_member("Admin CGUI", "admin_cgui@example.com", is_admin=True)
+        sync_member_features(admin, [FEATURE_REMOTE_EXEC])
+        server = make_server("Target Node", "10.0.0.100", with_cred=True)
+
+        item1 = CommandItem(name="First Item", command_type=COMMAND_TYPE_REMOTE, command_content="echo 1", created_by_id=admin.id)
+        item2 = CommandItem(name="Second Item", command_type=COMMAND_TYPE_LOCAL, command_content="echo 2", created_by_id=admin.id)
+        grp = CommandGroup(name="Initial Group", server_id=server.id, created_by_id=admin.id)
+        db.session.add_all([item1, item2, grp])
+        db.session.commit()
+
+        server_id = server.id
+        item1_id = item1.id
+        item2_id = item2.id
+        grp_id = grp.id
+
+    login(client, "admin_cgui@example.com")
+
+    # 1. Verify Dashboard has no top buttons and has full-width Command Groups
+    dash_resp = client.get("/apps/remote-exec/")
+    assert dash_resp.status_code == 200
+    dash_html = dash_resp.get_data(as_text=True)
+    assert "+ New Command Item" not in dash_html
+    # In top header row, action buttons were removed
+    assert f'/apps/remote-exec/groups/{grp_id}/edit' in dash_html
+    assert "Command Groups" in dash_html
+
+    # 2. Verify /apps/remote-exec/groups/new has 70/30 split layout and items browser
+    new_resp = client.get("/apps/remote-exec/groups/new")
+    assert new_resp.status_code == 200
+    new_html = new_resp.get_data(as_text=True)
+    assert "group-builder-grid" in new_html
+    assert "builder-left-col" in new_html
+    assert "builder-right-col" in new_html
+    assert "Command Items in this Group" in new_html
+    assert "First Item" in new_html
+    assert "Second Item" in new_html
+    assert "Created by: Admin CGUI" in new_html
+    assert "appendItemToGroup" in new_html
+
+    # 3. Create group with initial ordered items [item2, item1]
+    create_resp = client.post(
+        "/apps/remote-exec/groups/new",
+        data={
+            "name": "Ordered Pipeline",
+            "server_id": server_id,
+            "description": "Multi-item pipeline",
+            "item_ids[]": [item2_id, item1_id],
+        },
+        follow_redirects=True,
+    )
+    assert create_resp.status_code == 200
+
+    with app.app_context():
+        created_grp = CommandGroup.query.filter_by(name="Ordered Pipeline").first()
+        assert created_grp is not None
+        assert len(created_grp.items) == 2
+        # Check order: item2 first (#1), item1 second (#2)
+        assert created_grp.items[0].command_item_id == item2_id
+        assert created_grp.items[0].sequence_order == 1
+        assert created_grp.items[1].command_item_id == item1_id
+        assert created_grp.items[1].sequence_order == 2
+        new_grp_id = created_grp.id
+
+    # 4. Edit group to reorder / repeat: [item1, item2, item1]
+    edit_resp = client.post(
+        f"/apps/remote-exec/groups/{new_grp_id}/edit",
+        data={
+            "name": "Reordered Pipeline",
+            "description": "Updated sequence",
+            "item_ids[]": [item1_id, item2_id, item1_id],
+        },
+        follow_redirects=True,
+    )
+    assert edit_resp.status_code == 200
+
+    with app.app_context():
+        updated_grp = CommandGroup.query.get(new_grp_id)
+        assert updated_grp.name == "Reordered Pipeline"
+        assert len(updated_grp.items) == 3
+        assert updated_grp.items[0].command_item_id == item1_id
+        assert updated_grp.items[0].sequence_order == 1
+        assert updated_grp.items[1].command_item_id == item2_id
+        assert updated_grp.items[1].sequence_order == 2
+        assert updated_grp.items[2].command_item_id == item1_id
+        assert updated_grp.items[2].sequence_order == 3
+
+
+def test_command_group_item_modal_and_edit_permissions(client, app):
+    """Test Command Group New/Edit page item creation modal, edit button visibility, and AJAX save."""
+    with app.app_context():
+        user1 = make_member(name="User Alpha", email="alpha@mizalla.test", is_admin=False, can_add_command_items=True)
+        user2 = make_member(name="User Beta", email="beta@mizalla.test", is_admin=False, can_add_command_items=False)
+        sync_member_features(user1, [FEATURE_REMOTE_EXEC])
+        sync_member_features(user2, [FEATURE_REMOTE_EXEC])
+        server = make_server(name="AlphaServer", ip="10.0.0.99", connected_user=user1, with_cred=True)
+
+        # Item 1 created by user1
+        item1 = CommandItem(
+            name="Alpha Own Script",
+            command_type=COMMAND_TYPE_REMOTE,
+            command_content="echo 'hello {{ user_name }}'",
+            created_by_id=user1.id,
+        )
+        # Item 2 created by user2
+        item2 = CommandItem(
+            name="Beta Own Script",
+            command_type=COMMAND_TYPE_REMOTE,
+            command_content="echo 'beta secret'",
+            created_by_id=user2.id,
+        )
+        db.session.add_all([item1, item2])
+        db.session.commit()
+
+        # Grant user1 read-only (view) access to item2
+        perm = CommandItemPermission(
+            command_item_id=item2.id,
+            user_id=user1.id,
+            can_view_logs=True,
+            can_edit=False,
+        )
+        db.session.add(perm)
+        db.session.commit()
+
+        user1_id = user1.id
+        item1_id = item1.id
+        item2_id = item2.id
+
+    # 1. Login as user1
+    login(client, "alpha@mizalla.test")
+
+    # 2. View New Command Group page
+    new_grp_resp = client.get("/apps/remote-exec/groups/new")
+    assert new_grp_resp.status_code == 200
+    html = new_grp_resp.get_data(as_text=True)
+
+    # Check New Command Item button and modals exist
+    assert "btn-new-command-item" in html
+    assert "New Command Item" in html
+    assert 'id="item-modal"' in html
+    assert 'id="variables-modal"' in html
+
+    # Check Edit button is present for item1 (user1 is creator)
+    assert f"openEditItemModal({item1_id})" in html
+    # Check Edit button is NOT present for item2 (user1 has can_edit=False)
+    assert f"openEditItemModal({item2_id})" not in html
+
+    # 3. Test item data endpoint
+    data_resp = client.get(f"/apps/remote-exec/items/{item1_id}/data")
+    assert data_resp.status_code == 200
+    item_json = data_resp.get_json()
+    assert item_json["name"] == "Alpha Own Script"
+    assert item_json["command_type"] == "remote"
+    assert "user_name" in item_json["command_content"]
+
+    # 4. Test AJAX save for updating item1
+    update_resp = client.post(
+        "/apps/remote-exec/items/save",
+        data={
+            "ajax": "1",
+            "item_id": item1_id,
+            "name": "Alpha Own Script Updated",
+            "command_type": "remote",
+            "command_content": "echo 'greetings {{ user_name }} and {{ role }}'",
+            "var_name[]": ["user_name", "role"],
+            "var_type[]": ["text", "text"],
+            "var_default[]": ["Guest", "Viewer"],
+            "var_desc[]": ["User name", "User role"],
+        },
+    )
+    assert update_resp.status_code == 200
+    update_data = update_resp.get_json()
+    assert update_data["success"] is True
+    assert update_data["item"]["name"] == "Alpha Own Script Updated"
+    assert update_data["item"]["can_edit"] is True
+    assert "user_name" in update_data["item"]["variables"]
+    assert "role" in update_data["item"]["variables"]
+
+    # Verify update in DB
+    with app.app_context():
+        refreshed_item1 = CommandItem.query.get(item1_id)
+        assert refreshed_item1.name == "Alpha Own Script Updated"
+        assert len(refreshed_item1.variables) == 2
+
+    # 5. Test AJAX save for creating a new item
+    create_resp = client.post(
+        "/apps/remote-exec/items/save",
+        data={
+            "ajax": "1",
+            "name": "Brand New Modal Item",
+            "command_type": "remote",
+            "command_content": "uptime",
+        },
+    )
+    assert create_resp.status_code == 200
+    create_data = create_resp.get_json()
+    assert create_data["success"] is True
+    assert create_data["item"]["name"] == "Brand New Modal Item"
+    assert create_data["item"]["creator_name"] == "User Alpha"
+    assert create_data["item"]["can_edit"] is True
+
+    # 6. Test unauthorized edit on item2
+    unauth_resp = client.post(
+        "/apps/remote-exec/items/save",
+        data={
+            "ajax": "1",
+            "item_id": item2_id,
+            "name": "Hacked Beta Script",
+            "command_type": "remote",
+            "command_content": "rm -rf /",
+        },
+    )
+    assert unauth_resp.status_code == 403
+    unauth_data = unauth_resp.get_json()
+    assert unauth_data["success"] is False
+    assert "permission" in unauth_data["error"]
