@@ -54,7 +54,7 @@
         <span class="file-picker-copy"><strong id="list-label">Choose CSV or drop here</strong><small>CSV file with a PHONE column</small></span>
         <input id="phone-list" name="phone_list" type="file" accept=".csv,text/csv" required>
       </label>
-      <p class="field-helper">Use <code>{% raw %}{{ COLUMN_NAME }}{% endraw %}</code> or symmetric <code>{% raw %}@@ COLUMN_NAME @@{% endraw %}</code> in the message or attachments to insert row data. Column names are case-insensitive. Missing values become empty.</p>
+      <p class="field-helper">Use <code>{% raw %}@@ COLUMN_NAME @@{% endraw %}</code> in the message or attachments to insert row data. Column names are case-insensitive. Missing values become empty.</p>
     </div>
   </div>
 
@@ -207,7 +207,7 @@ function renderAttachments() {
     if (substitutable) {
       const subTag = document.createElement("span");
       subTag.className = "substitution-tag";
-      subTag.textContent = "{% raw %}{{ }}{% endraw %} supported";
+      subTag.textContent = "@@ @@ supported";
       row.appendChild(subTag);
     }
 

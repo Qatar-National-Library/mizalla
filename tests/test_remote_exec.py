@@ -138,8 +138,8 @@ def test_server_credential_model_property_encryption(app):
 # ─── 2. Engine Helpers: Variables & Line Endings ─────────────────────────────
 
 def test_variable_extraction_and_set_deduplication():
-    """Verify {{ Variable }} placeholders are extracted into a deduplicated Set."""
-    cmd = "cd {{ Working-Dir }}; ./run.sh --port={{ Port }} --dir={{ Working-Dir }}"
+    """Verify @@ Variable @@ placeholders are extracted into a deduplicated Set."""
+    cmd = "cd @@ Working-Dir @@; ./run.sh --port=@@ Port @@ --dir=@@ Working-Dir @@"
     tokens = extract_variable_names(cmd)
     assert isinstance(tokens, set)
     assert tokens == {"Working-Dir", "Port"}
@@ -147,7 +147,7 @@ def test_variable_extraction_and_set_deduplication():
 
 def test_variable_substitution():
     """Verify variables are injected cleanly into the command text."""
-    cmd = "echo 'Host: {{ Host }} on port {{ Port }} with flag {{ Debug }}'"
+    cmd = "echo 'Host: @@ Host @@ on port @@ Port @@ with flag @@ Debug @@'"
     result = substitute_variables(cmd, {
         "Host": "api.qnl.qa",
         "Port": 443,
@@ -233,7 +233,7 @@ def test_command_item_creation_and_duplication(app, client):
         "name": "Restart Nginx",
         "server_id": str(s_id),
         "command_type": "remote",
-        "command_content": "systemctl restart {{ ServiceName }}",
+        "command_content": "systemctl restart @@ ServiceName @@",
         "var_name[]": ["ServiceName"],
         "var_desc[]": ["Service systemd unit"],
         "var_type[]": ["text"],
@@ -330,9 +330,9 @@ def test_run_modal_set_deduplication(app, client):
         sync_member_features(u, [FEATURE_REMOTE_EXEC])
         s = make_server()
 
-        # Two items using the SAME variable token: {{ Target-Path }}
-        i1 = CommandItem(server_id=s.id, name="Check Dir", command_type="remote", command_content="ls -la {{ Target-Path }}", created_by_id=u.id)
-        i2 = CommandItem(server_id=s.id, name="Clean Dir", command_type="remote", command_content="rm -rf {{ Target-Path }}/*.tmp", created_by_id=u.id)
+        # Two items using the SAME variable token: @@ Target-Path @@
+        i1 = CommandItem(server_id=s.id, name="Check Dir", command_type="remote", command_content="ls -la @@ Target-Path @@", created_by_id=u.id)
+        i2 = CommandItem(server_id=s.id, name="Clean Dir", command_type="remote", command_content="rm -rf @@ Target-Path @@/*.tmp", created_by_id=u.id)
         grp = CommandGroup(server_id=s.id, name="Clean Workflow", created_by_id=u.id)
         db.session.add_all([i1, i2, grp])
         db.session.flush()
@@ -347,7 +347,7 @@ def test_run_modal_set_deduplication(app, client):
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["success"] is True
-    # The variable {{ Target-Path }} must appear only ONCE in the returned list
+    # The variable @@ Target-Path @@ must appear only ONCE in the returned list
     var_names = [v["name"] for v in data["variables"]]
     assert len(var_names) == 1
     assert var_names[0] == "Target-Path"
@@ -921,8 +921,8 @@ def test_connectable_servers_user_filtering(client, app):
     html = resp.get_data(as_text=True)
 
     # In group form dropdown, Connected Server should be present as an option, Unconnected should not
-    assert f'<option value="{s2.id}">' in html
-    assert f'<option value="{s1.id}">' not in html
+    assert f'<option value="{s2.id}"' in html
+    assert f'<option value="{s1.id}"' not in html
 
 
 def test_admin_permissions_matrix_access_and_updates(client, app):
@@ -1090,7 +1090,7 @@ def test_command_item_server_independent_and_inferred_variables(client, app):
     login(client, "admin_revamp@example.com")
 
     # 1. Create remote item without server_id with inferred variables
-    script = 'echo "Deploying {{ app_name }} version {{ version_tag }} with debug={{ is_debug }}"'
+    script = 'echo "Deploying @@ app_name @@ version @@ version_tag @@ with debug=@@ is_debug @@"'
     var_overrides = {
         "app_name": {"var_type": VAR_TYPE_TEXT, "default_value": "Mizalla", "description": "Application name"},
         "version_tag": {"var_type": VAR_TYPE_TEXT, "default_value": "v1.0.0", "description": "Release tag"},
@@ -1130,8 +1130,8 @@ def test_command_item_server_independent_and_inferred_variables(client, app):
     assert item_json["name"] == "Deploy Script"
     assert len(item_json["variables"]) == 3
 
-    # 3. Update script to remove {{ is_debug }} and add {{ port }}
-    new_script = 'echo "Deploying {{ app_name }} version {{ version_tag }} on port {{ port }}"'
+    # 3. Update script to remove @@ is_debug @@ and add @@ port @@
+    new_script = 'echo "Deploying @@ app_name @@ version @@ version_tag @@ on port @@ port @@"'
     resp_update = client.post(
         "/apps/remote-exec/items/save",
         data={
@@ -1352,7 +1352,7 @@ def test_command_group_item_modal_and_edit_permissions(client, app):
         item1 = CommandItem(
             name="Alpha Own Script",
             command_type=COMMAND_TYPE_REMOTE,
-            command_content="echo 'hello {{ user_name }}'",
+            command_content="echo 'hello @@ user_name @@'",
             created_by_id=user1.id,
         )
         # Item 2 created by user2
@@ -1414,7 +1414,7 @@ def test_command_group_item_modal_and_edit_permissions(client, app):
             "item_id": item1_id,
             "name": "Alpha Own Script Updated",
             "command_type": "remote",
-            "command_content": "echo 'greetings {{ user_name }} and {{ role }}'",
+            "command_content": "echo 'greetings @@ user_name @@ and @@ role @@'",
             "var_name[]": ["user_name", "role"],
             "var_type[]": ["text", "text"],
             "var_default[]": ["Guest", "Viewer"],

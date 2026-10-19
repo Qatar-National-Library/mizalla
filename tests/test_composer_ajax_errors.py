@@ -141,7 +141,7 @@ def test_bulk_email_send_returns_an_integer_job_id(logged_in):
         "/apps/emailer/send",
         data={
             "subject": "Hello",
-            "body": "Hi {{ NAME }}",
+            "body": "Hi @@ NAME @@",
             "sender": "noreply@example.com",
             "email_list": (io.BytesIO(_csv_bytes([["EMAIL", "NAME"], ["a@b.com", "Amina"]])), "list.csv"),
         },
@@ -170,7 +170,7 @@ def test_bulk_messenger_send_returns_an_integer_job_id(logged_in, app):
         "/apps/whatsapp/send",
         data={
             "device_id": str(device_id),
-            "message": "Hi {{ NAME }}",
+            "message": "Hi @@ NAME @@",
             "phone_list": (io.BytesIO(_csv_bytes([["PHONE", "NAME"], ["97411111111", "Amina"]])), "list.csv"),
         },
         content_type="multipart/form-data",

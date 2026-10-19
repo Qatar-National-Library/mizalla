@@ -1,7 +1,7 @@
 """Smoke tests that render the campaign composer templates.
 
 These catch Jinja syntax errors at import/render time. The literal
-`{{ COLUMN_NAME }}` and `{{ }}` strings in the composer copy are the
+`@@ COLUMN_NAME @@` and `@@ @@` strings in the composer copy are the
 documented placeholder syntax, so the templates must escape them with
 {% raw %} — otherwise Jinja evaluates them as expressions and the page
 fails to render.
@@ -46,33 +46,33 @@ def test_whatsapp_composer_page_renders(app, client):
 
 
 def test_emailer_renders_placeholder_syntax_verbatim(app, client):
-    """`{{ COLUMN_NAME }}` reaches the browser as literal text, not an empty string."""
+    """`@@ COLUMN_NAME @@` reaches the browser as literal text, not an empty string."""
     with app.app_context():
         make_admin()
 
     login(client)
     body = client.get("/apps/emailer").data.decode()
-    assert "{{ COLUMN_NAME }}" in body
+    assert "@@ COLUMN_NAME @@" in body
 
 
 def test_emailer_renders_empty_brace_syntax_in_script(app, client):
-    """The JS substitution tag keeps its literal `{{ }}` braces."""
+    """The JS substitution tag keeps its literal `@@ @@` delimiters."""
     with app.app_context():
         make_admin()
 
     login(client)
     body = client.get("/apps/emailer").data.decode()
-    assert '"{{ }} supported"' in body
+    assert '"@@ @@ supported"' in body
 
 
 def test_whatsapp_renders_placeholder_syntax_verbatim(app, client):
-    """`{{ COLUMN_NAME }}` reaches the browser as literal text on WhatsApp too."""
+    """`@@ COLUMN_NAME @@` reaches the browser as literal text on WhatsApp too."""
     with app.app_context():
         make_admin()
 
     login(client)
     body = client.get("/apps/whatsapp").data.decode()
-    assert "{{ COLUMN_NAME }}" in body
+    assert "@@ COLUMN_NAME @@" in body
 
 
 def test_every_composer_page_renders(app, client):

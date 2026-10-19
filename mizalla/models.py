@@ -783,7 +783,7 @@ class CommandItem(db.Model):
     permissions = db.relationship("CommandItemPermission", back_populates="command_item", cascade="all, delete-orphan")
 
     def sync_inferred_variables(self, var_overrides=None):
-        """Infer {{ Variable-Name }} placeholders from self.command_content.
+        """Infer @@ Variable-Name @@ placeholders from self.command_content.
 
         Keep existing user overrides (var_type, default_value, description).
         Prune variables no longer present in script.

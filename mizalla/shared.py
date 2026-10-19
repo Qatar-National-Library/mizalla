@@ -5,20 +5,20 @@ import io
 import re
 import zipfile
 
-# Support both legacy {{ var }} and symmetric @@ var @@ delimiters (non-greedy, immune to BiDi/RTL reversals)
+# Strictly support symmetric @@ var @@ delimiters (non-greedy, immune to BiDi/RTL reversals)
 TEMPLATE_PATTERN = re.compile(
-    r"(?:\{\{\s*([^}]+?)\s*\}\}|@@\s*([^@]+?)\s*@@)",
+    r"@@\s*([^@]+?)\s*@@",
     re.IGNORECASE | re.DOTALL,
 )
 
 
 def extract_template_variables(text: str) -> list[str]:
-    """Extract unique variable names from text matching either {{ VAR }} or @@ VAR @@."""
+    """Extract unique variable names from text matching @@ VAR @@."""
     if not text:
         return []
     vars_list = []
     for match in TEMPLATE_PATTERN.finditer(text):
-        raw_name = match.group(1) if match.group(1) is not None else match.group(2)
+        raw_name = match.group(1)
         if raw_name:
             clean_name = raw_name.replace("\xa0", " ").strip().strip(BIDI_BOM_CHARS).strip()
             if clean_name and clean_name not in vars_list:
@@ -114,7 +114,7 @@ def substitute_template(text, row_data, for_pdf=False):
     row_data_lower = _normalize_row_data(row_data)
 
     def replacer(match):
-        raw_name = match.group(1) if match.group(1) is not None else match.group(2)
+        raw_name = match.group(1)
         col_name = (raw_name or "").strip().strip(BIDI_BOM_CHARS).strip().lower()
         val = str(row_data_lower.get(col_name, ""))
         if for_pdf and is_rtl(val):
@@ -212,7 +212,7 @@ def _find_placeholder_font_info(page, full_match, var_name):
             for line in block.get("lines", []):
                 for span in line.get("spans", []):
                     span_text = span.get("text", "").lower()
-                    if full_clean in span_text or var_clean in span_text or "{{" in span_text or "}}" in span_text or "@@" in span_text:
+                    if full_clean in span_text or var_clean in span_text or "@@" in span_text:
                         best_span = span
                         if full_clean in span_text or var_clean in span_text:
                             break
@@ -268,7 +268,7 @@ def _find_placeholder_rects(page, full_match, var_name):
     
     Handles:
     - Direct exact string search (page.search_for(full_match))
-    - Spacing variants ({{ NAME }}, @@ NAME @@, {{NAME}}, @@NAME@@, etc.)
+    - Spacing variants (@@ NAME @@, @@NAME@@, etc.)
     - Sub-slice span combinations in PyMuPDF text dict
     - Sub-slice word combinations in PyMuPDF text words
     - Fallback expansion around var_name keyword
@@ -282,18 +282,13 @@ def _find_placeholder_rects(page, full_match, var_name):
         return []
     var_lower = var_clean.lower()
 
-    # Search common spacing variants for both {{ }} and @@ @@
+    # Search common spacing variants for @@ @@
     candidates = [
         f"@@ {var_clean} @@",
         f"@@{var_clean}@@",
         f"@@ {var_clean}@@",
         f"@@{var_clean} @@",
         f"@@  {var_clean}  @@",
-        f"{{{{ {var_clean} }}}}",
-        f"{{{{{var_clean}}}}}",
-        f"{{{{ {var_clean}}}}}",
-        f"{{{{{var_clean} }}}}",
-        f"{{{{  {var_clean}  }}}}",
     ]
     for cand in candidates:
         r = page.search_for(cand)
@@ -316,8 +311,7 @@ def _find_placeholder_rects(page, full_match, var_name):
                     for end in range(start, n_spans):
                         sub_spans = spans[start : end + 1]
                         sub_text = "".join(s.get("text", "") for s in sub_spans)
-                        has_delims = ("{{" in sub_text and "}}" in sub_text) or ("@@" in sub_text)
-                        if has_delims and var_lower in sub_text.lower():
+                        if "@@" in sub_text and var_lower in sub_text.lower():
                             x0 = min(s["bbox"][0] for s in sub_spans)
                             y0 = min(s["bbox"][1] for s in sub_spans)
                             x1 = max(s["bbox"][2] for s in sub_spans)
@@ -350,9 +344,7 @@ def _find_placeholder_rects(page, full_match, var_name):
                     sub_w = l_words[start : end + 1]
                     sub_text = "".join(w[4] for w in sub_w)
                     sub_text_spaced = " ".join(w[4] for w in sub_w)
-                    has_delims = (
-                        ("{{" in sub_text or "{{" in sub_text_spaced) and ("}}" in sub_text or "}}" in sub_text_spaced)
-                    ) or ("@@" in sub_text or "@@" in sub_text_spaced)
+                    has_delims = "@@" in sub_text or "@@" in sub_text_spaced
                     if has_delims and var_lower in sub_text.lower():
                         x0 = min(sw[0] for sw in sub_w)
                         y0 = min(sw[1] for sw in sub_w)
@@ -402,7 +394,7 @@ def substitute_pdf(pdf_bytes, row_data):
                 page_replacements = []
                 for match in matches:
                     full_match = match.group(0)
-                    raw_name = match.group(1) if match.group(1) is not None else match.group(2)
+                    raw_name = match.group(1)
                     var_name = (raw_name or "").replace("\xa0", " ").strip().strip(BIDI_BOM_CHARS).strip()
                     col_name = var_name.lower()
                     val = str(row_data_lower.get(col_name, ""))
@@ -514,7 +506,7 @@ def substitute_pdf(pdf_bytes, row_data):
 
             def visitor(text, cm, tm, font_dict, font_size):
                 for match in TEMPLATE_PATTERN.finditer(text):
-                    raw_name = match.group(1) if match.group(1) is not None else match.group(2)
+                    raw_name = match.group(1)
                     col_name = (raw_name or "").strip().strip(BIDI_BOM_CHARS).strip().lower()
                     if col_name in row_data_lower:
                         val = str(row_data_lower[col_name])
@@ -551,7 +543,7 @@ def substitute_pdf(pdf_bytes, row_data):
                                 encoding = "latin-1"
 
                             def blank_replacer(m):
-                                raw_cname = m.group(1) if m.group(1) is not None else m.group(2)
+                                raw_cname = m.group(1)
                                 cname = (raw_cname or "").strip().strip(BIDI_BOM_CHARS).strip().lower()
                                 if cname in row_data_lower:
                                     return " " * len(m.group(0))

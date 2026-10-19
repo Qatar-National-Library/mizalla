@@ -29,21 +29,21 @@ import asyncssh
 
 logger = logging.getLogger("mizalla.asyncssh")
 
-# Regex to find {{ Variable-Name }} tokens
-VARIABLE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_\-]+)\s*\}\}")
+# Regex to find @@ Variable-Name @@ tokens
+VARIABLE_PATTERN = re.compile(r"@@\s*([a-zA-Z0-9_\-]+)\s*@@")
 
 
 # ─── Variable Extraction & Line Ending Helpers ───────────────────────────────
 
 def extract_variable_names(command_text: str) -> Set[str]:
-    """Finds all unique {{ Variable-Name }} placeholders in a command string."""
+    """Finds all unique @@ Variable-Name @@ placeholders in a command string."""
     if not command_text:
         return set()
     return set(VARIABLE_PATTERN.findall(command_text))
 
 
 def substitute_variables(command_text: str, variables: Dict[str, Any]) -> str:
-    """Substitutes {{ Variable-Name }} with user-supplied values.
+    """Substitutes @@ Variable-Name @@ with user-supplied values.
     
     If a variable is not provided, leaves it unchanged or replaces with empty string.
     """

@@ -206,7 +206,7 @@ def test_2_bulk_messaging_services(app, logged_in_client, monkeypatch):
         resp_email = logged_in_client.post(
             "/apps/emailer/send",
             data={
-                "subject": "Important Notification for {{ NAME }}",
+                "subject": "Important Notification for @@ NAME @@",
                 "body": body_template,
                 "sender": "sender@qnl.qa",
                 "email_list": (f_csv, "bulkEmails.csv"),
@@ -243,8 +243,8 @@ def test_2_bulk_messaging_services(app, logged_in_client, monkeypatch):
             data={
                 "csrf_token": csrf_tok,
                 "test_recipient": "test_user@example.com",
-                "subject": "Test Email Subject for {{ name }}",
-                "body": "Hello {{ name }}, this is a test.",
+                "subject": "Test Email Subject for @@ name @@",
+                "body": "Hello @@ name @@, this is a test.",
                 "sender": "sender@qnl.qa",
                 "attachments": [(f_pdf, "Message PDF.pdf")],
             },

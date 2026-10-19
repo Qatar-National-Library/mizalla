@@ -16,19 +16,19 @@ from mizalla.shared import (
 
 def test_substitute_html_attachment():
     row = {"name": "Alice Smith", "city": "Doha"}
-    content = b"<h1>Hello {{ NAME }}</h1><p>Welcome to {{ CITY }}</p>"
+    content = b"<h1>Hello @@ NAME @@</h1><p>Welcome to @@ CITY @@</p>"
     res = substitute_attachment("document.html", content, row)
     assert b"Alice Smith" in res
     assert b"Doha" in res
-    assert b"{{ NAME }}" not in res
+    assert b"@@ NAME @@" not in res
 
 
 def test_substitute_docx_attachment():
     row = {"name": "Bob Jones", "code": "ABC-123"}
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("word/document.xml", "<w:t>Hello {{ NAME }}, code: {{ CODE }}</w:t>".encode("utf-8"))
-        zf.writestr("word/header1.xml", "<w:t>Header for {{ NAME }}</w:t>".encode("utf-8"))
+        zf.writestr("word/document.xml", "<w:t>Hello @@ NAME @@, code: @@ CODE @@</w:t>".encode("utf-8"))
+        zf.writestr("word/header1.xml", "<w:t>Header for @@ NAME @@</w:t>".encode("utf-8"))
     
     docx_bytes = buf.getvalue()
     res = substitute_attachment("contract.docx", docx_bytes, row)
@@ -46,8 +46,8 @@ def test_substitute_xlsx_attachment():
     row = {"company": "Acme Corp", "total": "5000"}
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("xl/sharedStrings.xml", "<t>Invoice for {{ COMPANY }}</t>".encode("utf-8"))
-        zf.writestr("xl/worksheets/sheet1.xml", "<v>{{ TOTAL }}</v>".encode("utf-8"))
+        zf.writestr("xl/sharedStrings.xml", "<t>Invoice for @@ COMPANY @@</t>".encode("utf-8"))
+        zf.writestr("xl/worksheets/sheet1.xml", "<v>@@ TOTAL @@</v>".encode("utf-8"))
     
     xlsx_bytes = buf.getvalue()
     res = substitute_attachment("report.xlsx", xlsx_bytes, row)
@@ -64,8 +64,8 @@ def test_substitute_pptx_attachment():
     row = {"presenter": "Dr. Clara", "topic": "AI Future"}
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("ppt/slides/slide1.xml", "<a:t>Presented by {{ PRESENTER }}</a:t>".encode("utf-8"))
-        zf.writestr("ppt/notesSlides/notesSlide1.xml", "<a:t>Topic: {{ TOPIC }}</a:t>".encode("utf-8"))
+        zf.writestr("ppt/slides/slide1.xml", "<a:t>Presented by @@ PRESENTER @@</a:t>".encode("utf-8"))
+        zf.writestr("ppt/notesSlides/notesSlide1.xml", "<a:t>Topic: @@ TOPIC @@</a:t>".encode("utf-8"))
     
     pptx_bytes = buf.getvalue()
     res = substitute_attachment("presentation.pptx", pptx_bytes, row)
@@ -86,7 +86,7 @@ def test_substitute_pdf_attachment():
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("helvetica", size=12)
-    pdf.cell(text="Hello {{ NAME }}, your phone is {{ PHONE }}.")
+    pdf.cell(text="Hello @@ NAME @@, your phone is @@ PHONE @@.")
     pdf_bytes = bytes(pdf.output())
 
     res = substitute_attachment("document.pdf", pdf_bytes, row)
@@ -101,7 +101,7 @@ def test_substitute_arabic_variables():
     row = {"الاسم": "عثمان أحمد", "المدينة": "الدوحة", "name": "عثمان أحمد"}
 
     # HTML
-    html_content = "<h1>مرحبا {{ الاسم }}</h1><p>المدينة: {{ المدينة }}</p>".encode("utf-8")
+    html_content = "<h1>مرحبا @@ الاسم @@</h1><p>المدينة: @@ المدينة @@</p>".encode("utf-8")
     res_html = substitute_attachment("doc.html", html_content, row)
     assert "عثمان أحمد".encode("utf-8") in res_html
     assert "الدوحة".encode("utf-8") in res_html
@@ -109,7 +109,7 @@ def test_substitute_arabic_variables():
     # DOCX
     docx_buf = io.BytesIO()
     with zipfile.ZipFile(docx_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("word/document.xml", "<w:t>مرحبا {{ الاسم }}</w:t>".encode("utf-8"))
+        zf.writestr("word/document.xml", "<w:t>مرحبا @@ الاسم @@</w:t>".encode("utf-8"))
     res_docx = substitute_attachment("doc.docx", docx_buf.getvalue(), row)
     out_docx = zipfile.ZipFile(io.BytesIO(res_docx), "r").read("word/document.xml").decode("utf-8")
     assert "عثمان أحمد" in out_docx
@@ -126,7 +126,7 @@ def test_substitute_arabic_variables():
         pdf.set_font("MizallaFont", size=12)
     else:
         pdf.set_font("helvetica", size=12)
-    pdf.cell(text="Hello {{ NAME }}")
+    pdf.cell(text="Hello @@ NAME @@")
     res_pdf = substitute_attachment("doc.pdf", bytes(pdf.output()), row)
     try:
         import pymupdf as fitz
@@ -144,7 +144,7 @@ def test_substitute_pdf_font_preservation():
     import pymupdf as fitz
     doc = fitz.open()
     page = doc.new_page()
-    page.insert_text((100, 100), "Code: {{ code }}", fontname="cobo", fontsize=18, color=(0, 1, 0))
+    page.insert_text((100, 100), "Code: @@ code @@", fontname="cobo", fontsize=18, color=(0, 1, 0))
     pdf_bytes = doc.tobytes()
 
     row = {"code": "X9900"}
@@ -169,7 +169,7 @@ def test_pdf_attachment_substitution_per_row_e2e():
     import pymupdf as fitz
     doc = fitz.open()
     page = doc.new_page()
-    page.insert_text((150, 200), "{{ NAME }}", fontname="hebo", fontsize=24, color=(0, 0, 0))
+    page.insert_text((150, 200), "@@ NAME @@", fontname="hebo", fontsize=24, color=(0, 0, 0))
     template_pdf = doc.tobytes()
 
     rows = [
@@ -181,13 +181,13 @@ def test_pdf_attachment_substitution_per_row_e2e():
     doc1 = fitz.open(stream=pdf_row1, filetype="pdf")
     text1 = doc1[0].get_text()
     assert "Fatima Al-Kuwari" in text1
-    assert "{{ NAME }}" not in text1
+    assert "@@ NAME @@" not in text1
 
     pdf_row2 = substitute_attachment("certificate.pdf", template_pdf, rows[1])
     doc2 = fitz.open(stream=pdf_row2, filetype="pdf")
     text2 = doc2[0].get_text()
     assert "Usman Ahmad" in text2
-    assert "{{ NAME }}" not in text2
+    assert "@@ NAME @@" not in text2
 
 
 def test_symmetric_at_at_delimiters_and_edge_case():

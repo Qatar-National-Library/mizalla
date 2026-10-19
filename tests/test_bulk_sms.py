@@ -195,7 +195,7 @@ def test_send_rejects_a_spreadsheet_list(app, logged_in):
 def test_substitution_replaces_known_columns_and_blanks_the_rest():
     from mizalla.bulk_sms import _substitute_template
 
-    text = _substitute_template("Hi {{ name }}, your code is {{ code }} {{ missing }}.",
+    text = _substitute_template("Hi @@ name @@, your code is @@ code @@ @@ missing @@.",
                                 {"name": "Amina", "code": "4821"})
     assert text == "Hi Amina, your code is 4821 ."
 
@@ -383,7 +383,7 @@ def test_send_rejects_an_invalid_phone_without_contacting_pingram(app, logged_in
     response = logged_in.post(
         "/apps/sms/send",
         data={
-            "message": "Hello {{ name }}",
+            "message": "Hello @@ name @@",
             "phone_list": (_phone_list([("not-a-number", "X")]), "list.csv"),
         },
         content_type="multipart/form-data",
@@ -416,7 +416,7 @@ def test_a_substituted_message_that_overflows_one_sms_is_reported_not_sent(app, 
     monkeypatch.setattr(sms_module, "send_sms", record)
 
     # A short template whose one placeholder expands past 160 characters.
-    template = "Code: {{ long }}"
+    template = "Code: @@ long @@"
     assert fits_one_sms(template) is True
 
     response = logged_in.post(
@@ -445,7 +445,7 @@ def test_a_successful_campaign_records_one_result_per_recipient(app, logged_in, 
     import mizalla.bulk_sms as sms_module
 
     def record(phone, message, sender=None, **kwargs):
-        assert "{{" not in message, "the template must be substituted before sending"
+        assert "@@" not in message, "the template must be substituted before sending"
         return {"tracking_id": f"track-{phone[-4:]}"}
 
     monkeypatch.setattr(sms_module, "send_sms", record)
@@ -453,7 +453,7 @@ def test_a_successful_campaign_records_one_result_per_recipient(app, logged_in, 
     response = logged_in.post(
         "/apps/sms/send",
         data={
-            "message": "Hello {{ name }}",
+            "message": "Hello @@ name @@",
             "sender": "+97430000000",
             "phone_list": (_phone_list([("+97411111111", "Amina"), ("+97422222222", "Bilal")]), "list.csv"),
         },
@@ -488,7 +488,7 @@ def test_one_failed_recipient_does_not_stop_the_campaign(app, logged_in, monkeyp
     response = logged_in.post(
         "/apps/sms/send",
         data={
-            "message": "Hello {{ name }}",
+            "message": "Hello @@ name @@",
             "phone_list": (_phone_list([("+97411111111", "Amina"), ("+97422222222", "Bilal")]), "list.csv"),
         },
         content_type="multipart/form-data",

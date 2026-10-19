@@ -47,7 +47,11 @@
               <select name="server_id" required {% if group %}disabled{% endif %} style="width:100%; padding:0.5rem; border:1px solid #ccc; border-radius:4px;">
                 <option value="">-- Choose Target Server --</option>
                 {% for s in servers %}
-                <option value="{{ s.id }}"{% if group and group.server_id == s.id %} selected{% endif %}>
+                <option value="{{ s.id }}"{% if group and group.server_id == s.id %} selected{% endif %}
+                  data-os="{{ (s.operating_system or '')|lower }}"
+                  data-tags="{{ (s.core_tags or '')|lower }}"
+                  data-has-docker="{{ 'true' if s.has_docker_compose else 'false' }}"
+                  data-has-k8s="{{ 'true' if s.has_k8s else 'false' }}">
                   {{ s.name }} ({{ s.ip }})
                 </option>
                 {% endfor %}
@@ -269,7 +273,7 @@
       <div id="item-command-container">
         <label>
           Command(s) Script
-          <textarea name="command_content" id="item-input-content" rows="4" oninput="updateInferredVarsBadge()" placeholder="Enter shell commands. Use &#123;&#123; Variable-Name &#125;&#125; or @@ Variable-Name @@ for dynamic values..." style="width:100%; padding:0.45rem; font-family:monospace; border:1px solid #ccc; border-radius:4px;"></textarea>
+          <textarea name="command_content" id="item-input-content" rows="4" oninput="updateInferredVarsBadge()" placeholder="Enter shell commands. Use @@ Variable-Name @@ for dynamic values..." style="width:100%; padding:0.45rem; font-family:monospace; border:1px solid #ccc; border-radius:4px;"></textarea>
         </label>
 
         <!-- Inferred Variables Trigger Card -->
@@ -326,7 +330,7 @@
     </div>
 
     <p style="font-size:0.82rem; color:var(--muted); margin:0 0 1rem 0;">
-      Variables are inferred directly from your script (<code>&#123;&#123; Variable-Name &#125;&#125;</code> or <code>@@ Variable-Name @@</code>). Set the data type and default value for each variable.
+      Variables are inferred directly from your script (<code>@@ Variable-Name @@</code>). Set the data type and default value for each variable.
     </p>
 
     <div id="variables-modal-list" style="display:flex; flex-direction:column; gap:0.85rem; max-height:360px; overflow-y:auto; padding-right:0.25rem;">
@@ -336,6 +340,38 @@
     <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.25rem; border-top:1px solid #eee; padding-top:0.75rem;">
       <button type="button" class="button button-quiet" onclick="closeVariablesModal()">Cancel</button>
       <button type="button" class="button button-primary" onclick="saveVariablesModal()">Save Variables</button>
+    </div>
+<!-- ─── Script Compatibility Warnings Modal ────────────────────────────── -->
+<dialog id="script-warnings-modal" class="modal-dialog" style="border:none; border-radius:8px; padding:0; max-width:580px; width:92%; box-shadow:0 15px 40px rgba(0,0,0,0.3); z-index:1100;">
+  <div style="padding: 1.5rem; background:#fff; border-radius:8px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 0.85rem; border-bottom:1px solid #fee; padding-bottom:0.75rem;">
+      <div style="display:flex; align-items:center; gap:0.5rem;">
+        <span style="display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:50%; background:#fff3e0; color:#e65100;">
+          <i data-lucide="alert-triangle" class="icon-green" style="color:#e65100; width:18px; height:18px;"></i>
+        </span>
+        <div>
+          <p class="eyebrow" style="margin:0; font-size:0.75rem; color:#e65100; font-weight:700;">POTENTIAL COMPATIBILITY WARNINGS</p>
+          <h3 style="margin:0.2rem 0 0; font-size:1.15rem; color:#b71c1c;">Target Server Script Mismatch</h3>
+        </div>
+      </div>
+      <button type="button" onclick="closeWarningsModal()" style="background:none; border:none; cursor:pointer; color:var(--muted); padding:0;"><i data-lucide="x" class="icon-green"></i></button>
+    </div>
+
+    <p style="font-size:0.85rem; color:var(--ink); margin:0 0 0.85rem 0; line-height:1.45;">
+      The following potential compatibility issues were detected between the Command Item scripts and the target server's installed packages/operating system:
+    </p>
+
+    <div id="script-warnings-list" style="display:flex; flex-direction:column; gap:0.6rem; max-height:280px; overflow-y:auto; padding-right:0.25rem; margin-bottom:1.25rem;">
+      <!-- Populated dynamically via validateGroupScripts() -->
+    </div>
+
+    <p class="muted" style="font-size:0.8rem; margin:0 0 1rem 0; background:#f9f9f9; padding:0.6rem 0.85rem; border-radius:4px; border-left:3px solid #ffa000;">
+      Do you want to review the scripts or proceed and save this Command Group anyway?
+    </p>
+
+    <div style="display:flex; justify-content:flex-end; gap:0.6rem; border-top:1px solid #eee; padding-top:0.75rem;">
+      <button type="button" class="button button-quiet" onclick="closeWarningsModal()">Review Scripts</button>
+      <button type="button" class="button button-primary" onclick="proceedSaveGroupAnyway()" style="background:#b71c1c; border-color:#b71c1c;">Save Group Anyway</button>
     </div>
   </div>
 </dialog>
@@ -474,11 +510,11 @@ let currentExistingFiles = [];
 
 function extractVariablesFromScript(script) {
   if (!script) return [];
-  const pattern = /(?:\{\{\s*([a-zA-Z0-9_\-]+)\s*\}\}|@@\s*([a-zA-Z0-9_\-]+)\s*@@)/g;
+  const pattern = /@@\s*([a-zA-Z0-9_\-]+)\s*@@/g;
   const names = [];
   let m;
   while ((m = pattern.exec(script)) !== null) {
-    const name = (m[1] || m[2] || "").trim();
+    const name = (m[1] || "").trim();
     if (name && !names.includes(name)) {
       names.push(name);
     }
@@ -505,7 +541,7 @@ function openVariablesModal() {
     container.innerHTML = `
       <div style="padding:1.5rem 1rem; text-align:center; background:#f9f9f9; border:1px dashed #ccc; border-radius:6px;">
         <i data-lucide="info" class="icon-green" style="width:24px; height:24px; margin-bottom:0.4rem;"></i>
-        <p style="margin:0; font-size:0.85rem; color:var(--muted);">No placeholder variables found in the script.<br>Add <code>&#123;&#123; Variable-Name &#125;&#125;</code> to your command script to define dynamic values.</p>
+        <p style="margin:0; font-size:0.85rem; color:var(--muted);">No placeholder variables found in the script.<br>Add <code>@@ Variable-Name @@</code> to your command script to define dynamic values.</p>
       </div>
     `;
   } else {
@@ -515,7 +551,7 @@ function openVariablesModal() {
         <div class="var-card" style="border:1px solid #e0e0e0; border-radius:6px; padding:0.85rem; background:#fafafa;">
           <div style="margin-bottom:0.6rem; display:flex; align-items:center; gap:0.4rem;">
             <span style="font-weight:700; font-size:0.8rem; color:#666;">Variable Name:</span>
-            <code style="font-weight:700; font-size:0.85rem; color:var(--green-dark, #103e30); background:#fff; padding:0.15rem 0.4rem; border:1px solid #ddd; border-radius:3px;">&#123;&#123; ${escapeHtml(name)} &#125;&#125;</code>
+            <code style="font-weight:700; font-size:0.85rem; color:var(--green-dark, #103e30); background:#fff; padding:0.15rem 0.4rem; border:1px solid #ddd; border-radius:3px;">@@ ${escapeHtml(name)} @@</code>
           </div>
           <div style="display:grid; grid-template-columns: 140px 1fr; gap:0.6rem;">
             <div>
@@ -944,9 +980,184 @@ function escapeJs(str) {
   return String(str).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
+// ─── Group Script Validation Against Target Server ──────────────────────────
+let allowBypassValidation = false;
+
+function closeWarningsModal() {
+  const modal = document.getElementById("script-warnings-modal");
+  if (modal) modal.close();
+}
+
+function proceedSaveGroupAnyway() {
+  allowBypassValidation = true;
+  closeWarningsModal();
+  const form = document.getElementById("group-builder-form");
+  if (form) form.submit();
+}
+
+function validateGroupScripts(event) {
+  if (allowBypassValidation) return true;
+
+  const serverSelect = document.querySelector('select[name="server_id"]');
+  const selectedOption = serverSelect ? serverSelect.options[serverSelect.selectedIndex] : null;
+  if (!selectedOption || !selectedOption.value) {
+    // Let HTML5 required validation trigger or proceed if no server selected
+    return true;
+  }
+
+  const os = (selectedOption.getAttribute("data-os") || "").toLowerCase();
+  const tags = (selectedOption.getAttribute("data-tags") || "").toLowerCase();
+  const hasDocker = selectedOption.getAttribute("data-has-docker") === "true" || tags.includes("docker");
+  const hasK8s = selectedOption.getAttribute("data-has-k8s") === "true" || tags.includes("kubernetes") || tags.includes("kubectl");
+  const hasPython = tags.includes("python") || tags.includes("pip");
+  const hasNode = tags.includes("node") || tags.includes("npm") || tags.includes("pnpm");
+  const hasApache = tags.includes("apache") || tags.includes("httpd");
+
+  const warnings = [];
+  const addedCards = document.querySelectorAll("#group-items-container .added-item-card");
+
+  addedCards.forEach((card, idx) => {
+    const itemId = card.getAttribute("data-item-id");
+    const itemTitle = (card.querySelector(".group-item-title") || {}).textContent || `Item #${idx + 1}`;
+    const seq = `#${idx + 1}`;
+
+    // Get script from available items accordion in right column
+    const availCard = document.getElementById(`avail-item-${itemId}`);
+    const scriptEl = availCard ? availCard.querySelector(".avail-item-script-pre") : null;
+    const script = scriptEl ? scriptEl.textContent : "";
+    if (!script || script === "(Upload Step)" || script === "(Empty Script)") {
+      return;
+    }
+
+    // 1. Ubuntu detected, scripts must not use yum, dnf, rpm
+    if (os.includes("ubuntu") || os.includes("debian")) {
+      if (/\b(yum|dnf)\b/i.test(script)) {
+        warnings.push({
+          step: seq,
+          name: itemTitle,
+          rule: `Ubuntu was detected on target server, but script uses <code>yum</code> / <code>dnf</code>. Use <code>apt</code> / <code>apt-get</code> instead.`
+        });
+      }
+    }
+
+    // 2. RHEL detected, script should not be using apt, apt-get, dpkg
+    if (os.includes("rhel") || os.includes("redhat") || os.includes("centos") || os.includes("rocky") || os.includes("fedora") || os.includes("alma")) {
+      if (/\b(apt|apt-get|dpkg)\b/i.test(script)) {
+        warnings.push({
+          step: seq,
+          name: itemTitle,
+          rule: `Red Hat / RHEL was detected on target server, but script uses <code>apt</code> / <code>apt-get</code>. Use <code>yum</code> / <code>dnf</code> instead.`
+        });
+      }
+    }
+
+    // 3. Windows detected, scripts should neither apt nor yum
+    if (os.includes("windows") || os.includes("win")) {
+      if (/\b(apt|apt-get|yum|dnf)\b/i.test(script)) {
+        warnings.push({
+          step: seq,
+          name: itemTitle,
+          rule: `Windows was detected on target server, but script contains Linux package manager command (<code>apt</code> / <code>yum</code>).`
+        });
+      }
+    }
+
+    // 4. Python not detected, scripts should not use python, pip, py
+    if (!hasPython) {
+      if (/\b(python|python3|pip|pip3|py)\b/i.test(script)) {
+        warnings.push({
+          step: seq,
+          name: itemTitle,
+          rule: `Python was not detected on target server, but script references Python runtime/package tools (<code>python</code> / <code>pip</code>).`
+        });
+      }
+    }
+
+    // 5. Node.js not detected, scripts should not use node, npm, pnpm, npx
+    if (!hasNode) {
+      if (/\b(node|npm|pnpm|npx|yarn)\b/i.test(script)) {
+        warnings.push({
+          step: seq,
+          name: itemTitle,
+          rule: `Node.js was not detected on target server, but script references Node package tools (<code>node</code> / <code>npm</code> / <code>pnpm</code> / <code>npx</code>).`
+        });
+      }
+    }
+
+    // 6. Docker not detected, scripts should not use docker, docker-compose
+    if (!hasDocker) {
+      if (/\b(docker|docker-compose)\b/i.test(script)) {
+        warnings.push({
+          step: seq,
+          name: itemTitle,
+          rule: `Docker was not detected on target server, but script uses <code>docker</code> or <code>docker-compose</code>.`
+        });
+      }
+    }
+
+    // 7. Kubernetes was not detected, script should not use kubectl
+    if (!hasK8s) {
+      if (/\bkubectl\b/i.test(script)) {
+        warnings.push({
+          step: seq,
+          name: itemTitle,
+          rule: `Kubernetes was not detected on target server, but script uses <code>kubectl</code>.`
+        });
+      }
+    }
+
+    // 8. Apache was not detected, script should not use apache2, httpd
+    if (!hasApache) {
+      if (/\b(apache2|httpd|a2ensite|apache2ctl)\b/i.test(script)) {
+        warnings.push({
+          step: seq,
+          name: itemTitle,
+          rule: `Apache was not detected on target server, but script references Apache service (<code>apache2</code> / <code>httpd</code>).`
+        });
+      }
+    }
+  });
+
+  if (warnings.length > 0) {
+    event.preventDefault();
+    displayGroupWarnings(warnings);
+    return false;
+  }
+
+  return true;
+}
+
+function displayGroupWarnings(warnings) {
+  const container = document.getElementById("script-warnings-list");
+  if (!container) return;
+
+  container.innerHTML = warnings.map(w => `
+    <div style="background:#fff8e1; border:1px solid #ffe082; border-left:4px solid #f57c00; border-radius:4px; padding:0.6rem 0.85rem; font-size:0.83rem;">
+      <div style="font-weight:700; color:#e65100; margin-bottom:0.2rem; display:flex; align-items:center; gap:0.35rem;">
+        <span>${escapeHtml(w.step)}</span>
+        <span>—</span>
+        <span>${escapeHtml(w.name)}</span>
+      </div>
+      <div style="color:#424242; line-height:1.4;">${w.rule}</div>
+    </div>
+  `).join("");
+
+  const modal = document.getElementById("script-warnings-modal");
+  if (modal) {
+    modal.showModal();
+    if (window.lucide) lucide.createIcons();
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   initDragAndDrop();
   updateSequenceBadges();
+
+  const groupForm = document.getElementById("group-builder-form");
+  if (groupForm) {
+    groupForm.addEventListener("submit", validateGroupScripts);
+  }
+
   if (window.lucide) {
     lucide.createIcons();
   }
