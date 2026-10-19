@@ -793,11 +793,8 @@ class CommandItem(db.Model):
             self.variables.clear()
             return
 
-        found_names = []
-        for m in re.finditer(r"\{\{\s*([a-zA-Z0-9_\-]+)\s*\}\}", self.command_content):
-            name = m.group(1).strip()
-            if name and name not in found_names:
-                found_names.append(name)
+        from .shared import extract_template_variables
+        found_names = extract_template_variables(self.command_content)
 
         existing_by_name = {v.name: v for v in self.variables}
         new_vars = []

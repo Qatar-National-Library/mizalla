@@ -190,4 +190,30 @@ def test_pdf_attachment_substitution_per_row_e2e():
     assert "{{ NAME }}" not in text2
 
 
+def test_symmetric_at_at_delimiters_and_edge_case():
+    """Verify that @@ delimiters work symmetrically and non-greedily handle @@ NAME @@ NAME @@ NAME @@."""
+    from mizalla.shared import extract_template_variables, substitute_template
 
+    edge_text = "Hello @@ NAME @@ NAME @@ NAME @@! Email: @@ EMAIL @@."
+    extracted = extract_template_variables(edge_text)
+    assert extracted == ["NAME", "EMAIL"]
+
+    row = {"name": "Fatima", "email": "fatima@qnl.qa"}
+    res = substitute_template(edge_text, row)
+    assert res == "Hello Fatima NAME Fatima! Email: fatima@qnl.qa."
+
+
+def test_symmetric_at_at_pdf_substitution():
+    """Verify that @@ NAME @@ is properly found and substituted in PDF documents."""
+    import pymupdf as fitz
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((150, 200), "Certificate for @@ NAME @@", fontname="hebo", fontsize=20, color=(0, 0, 0))
+    template_pdf = doc.tobytes()
+
+    row = {"name": "Abid Ahmed"}
+    res_pdf = substitute_attachment("certificate.pdf", template_pdf, row)
+    doc_out = fitz.open(stream=res_pdf, filetype="pdf")
+    text = doc_out[0].get_text()
+    assert "Abid Ahmed" in text
+    assert "@@ NAME @@" not in text

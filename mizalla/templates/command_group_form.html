@@ -269,7 +269,7 @@
       <div id="item-command-container">
         <label>
           Command(s) Script
-          <textarea name="command_content" id="item-input-content" rows="4" oninput="updateInferredVarsBadge()" placeholder="Enter shell commands. Use &#123;&#123; Variable-Name &#125;&#125; for dynamic values..." style="width:100%; padding:0.45rem; font-family:monospace; border:1px solid #ccc; border-radius:4px;"></textarea>
+          <textarea name="command_content" id="item-input-content" rows="4" oninput="updateInferredVarsBadge()" placeholder="Enter shell commands. Use &#123;&#123; Variable-Name &#125;&#125; or @@ Variable-Name @@ for dynamic values..." style="width:100%; padding:0.45rem; font-family:monospace; border:1px solid #ccc; border-radius:4px;"></textarea>
         </label>
 
         <!-- Inferred Variables Trigger Card -->
@@ -326,7 +326,7 @@
     </div>
 
     <p style="font-size:0.82rem; color:var(--muted); margin:0 0 1rem 0;">
-      Variables are inferred directly from your script (<code>&#123;&#123; Variable-Name &#125;&#125;</code>). Set the data type and default value for each variable.
+      Variables are inferred directly from your script (<code>&#123;&#123; Variable-Name &#125;&#125;</code> or <code>@@ Variable-Name @@</code>). Set the data type and default value for each variable.
     </p>
 
     <div id="variables-modal-list" style="display:flex; flex-direction:column; gap:0.85rem; max-height:360px; overflow-y:auto; padding-right:0.25rem;">
@@ -474,11 +474,11 @@ let currentExistingFiles = [];
 
 function extractVariablesFromScript(script) {
   if (!script) return [];
-  const pattern = /\{\{\s*([a-zA-Z0-9_\-]+)\s*\}\}/g;
+  const pattern = /(?:\{\{\s*([a-zA-Z0-9_\-]+)\s*\}\}|@@\s*([a-zA-Z0-9_\-]+)\s*@@)/g;
   const names = [];
   let m;
   while ((m = pattern.exec(script)) !== null) {
-    const name = m[1].trim();
+    const name = (m[1] || m[2] || "").trim();
     if (name && !names.includes(name)) {
       names.push(name);
     }

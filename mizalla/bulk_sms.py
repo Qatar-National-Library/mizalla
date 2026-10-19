@@ -40,7 +40,7 @@ bp = Blueprint("bulk_sms", __name__, url_prefix="/apps/sms")
 #: is shown to the member, so this only catches values that cannot be a number
 #: at all — which would otherwise be billed as a failed send.
 PHONE_PATTERN = re.compile(r"^\+?[0-9\s\-()]{7,20}$")
-TEMPLATE_PATTERN = re.compile(r"\{\{\s*([^}]+?)\s*\}\}", re.IGNORECASE)
+from .shared import TEMPLATE_PATTERN
 
 # ─── One-SMS limit ────────────────────────────────────────────────────────────
 
@@ -141,7 +141,8 @@ def _substitute_template(text: str, row_data: dict) -> str:
     """
 
     def replace(match):
-        key = match.group(1).strip().lower()
+        raw_key = match.group(1) if match.group(1) is not None else match.group(2)
+        key = (raw_key or "").strip().lower()
         value = row_data.get(key, "")
         return "" if value is None else str(value)
 
