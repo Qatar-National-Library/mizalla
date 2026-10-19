@@ -79,6 +79,18 @@ DEFAULT_APP_SETTINGS = {
         "Maximum video length, in seconds, that Cloudflare Stream will accept from the Video "
         "Upload service. This much storage is reserved per upload while it runs. 3600 is one hour.",
     ),
+    "font_paths": (
+        "C:/Windows/Fonts/arial.ttf\n"
+        "C:/Windows/Fonts/tahoma.ttf\n"
+        "C:/Windows/Fonts/seguiemj.ttf\n"
+        "C:/Windows/Fonts/calibri.ttf\n"
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf\n"
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf\n"
+        "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf\n"
+        "/Library/Fonts/Arial.ttf\n"
+        "/Library/Fonts/Helvetica.ttf",
+        "Configured font file paths for PDF rendering and substitution (one path per line, in order of preference). The system checks paths sequentially and selects the first one that supports the text language.",
+    ),
 }
 
 #: Keys that used to be editable here and are now environment-only. Any row
@@ -239,6 +251,9 @@ def validate_label_list(raw: str, setting_key: str) -> list[str]:
 # Settings whose value is a hand-maintained comma-separated list. These are validated
 # on save so a blank entry or a stray comma cannot leave the UI with nothing to pick.
 LABEL_LIST_SETTING_KEYS = ("project_team_roles", "task_highlight_types")
+
+#: Settings whose value is a multiline textarea (one entry per line, preserving order).
+MULTILINE_SETTING_KEYS = ("font_paths",)
 
 #: Settings stored as the strings "true"/"false" and edited as a checkbox. Anything
 #: not "true" counts as off, so a hand-edited row cannot enable one by accident.

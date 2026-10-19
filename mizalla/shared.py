@@ -1,6 +1,7 @@
 """Shared utilities for template substitution and attachment processing."""
 
 import base64
+import functools
 import io
 import re
 import zipfile
@@ -64,27 +65,93 @@ def prepare_rtl_text(text: str) -> str:
         return text
 
 
-def get_arabic_font_path():
-    """Return file path to a TrueType font supporting Arabic/Unicode for PDF rendering."""
+DEFAULT_FONT_PATHS = [
+    "C:/Windows/Fonts/arial.ttf",
+    "C:/Windows/Fonts/tahoma.ttf",
+    "C:/Windows/Fonts/seguiemj.ttf",
+    "C:/Windows/Fonts/calibri.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
+    "/Library/Fonts/Arial.ttf",
+    "/Library/Fonts/Helvetica.ttf",
+]
+
+
+@functools.lru_cache(maxsize=128)
+def _check_font_language_support(font_path: str, is_arabic: bool) -> bool:
+    """Inspect TTF/OTF font file cmap table to verify support for Arabic or English."""
+    try:
+        from fontTools.ttLib import TTFont
+        with TTFont(font_path, fontNumber=0) as font:
+            cmap = font.getBestCmap()
+            if not cmap:
+                return True
+            if is_arabic:
+                # Arabic: check for 0x0627 (Alef) or common Arabic range characters
+                return any(cp in cmap for cp in (0x0627, 0x0628, 0x0645, 0x0644))
+            else:
+                # English: check for 0x0041 ('A') or basic Latin letters
+                return 0x0041 in cmap or 0x0061 in cmap
+    except Exception:
+        # Fallback heuristic based on font name/path
+        p = font_path.lower()
+        if is_arabic:
+            return any(name in p for name in ["arial", "tahoma", "segoe", "segui", "notosansarabic", "freesans", "dejavusans"])
+        return True
+
+
+def get_font_paths_list() -> list[str]:
+    """Retrieve the configured font paths list from settings, falling back to defaults."""
+    try:
+        from mizalla.settings import get_setting
+        raw = get_setting("font_paths")
+        if raw:
+            paths = [line.strip() for line in raw.splitlines() if line.strip()]
+            if paths:
+                return paths
+    except Exception:
+        pass
+    return list(DEFAULT_FONT_PATHS)
+
+
+def get_font_path(text: str = None, language: str = None) -> str | None:
+    """Return the file path to the first TrueType/OpenType font supporting the target language.
+
+    Parameters:
+        text: Optional sample text to detect language from via RTL check.
+        language: Optional language code ('ar'/'arabic' or 'en'/'english'). If not provided,
+                  inferred from text; if neither provided, defaults to Arabic support.
+    """
     from pathlib import Path
 
-    font_paths = [
-        "C:/Windows/Fonts/arial.ttf",
-        "C:/Windows/Fonts/tahoma.ttf",
-        "C:/Windows/Fonts/seguiemj.ttf",
-        "C:/Windows/Fonts/calibri.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
-        "/Library/Fonts/Arial.ttf",
-        "/Library/Fonts/Helvetica.ttf",
-    ]
+    if language:
+        is_arabic = language.lower() in ("ar", "arabic")
+    elif text:
+        is_arabic = is_rtl(text)
+    else:
+        is_arabic = True
 
-    for path in font_paths:
-        if Path(path).exists():
-            return path
+    configured_paths = get_font_paths_list()
+
+    # Pass 1: Look for fonts in the order they appear and load the first appropriate one
+    for path_str in configured_paths:
+        p = Path(path_str)
+        if p.is_file() and _check_font_language_support(str(p), is_arabic=is_arabic):
+            return str(p)
+
+    # Pass 2: Fallback to the first existing font file regardless of language check
+    for path_str in configured_paths:
+        p = Path(path_str)
+        if p.is_file():
+            return str(p)
 
     return None
+
+
+def get_arabic_font_path() -> str | None:
+    """Backwards-compatible alias for get_font_path(language='ar')."""
+    return get_font_path(language="ar")
 
 
 def _normalize_row_data(row_data: dict) -> dict:
@@ -373,9 +440,9 @@ def _find_placeholder_rects(page, full_match, var_name):
 
 
 def substitute_pdf(pdf_bytes, row_data):
-    """Replace {{ COLUMN NAME }} placeholders in PDF streams using PyMuPDF/FPDF2 for complex scripts (Arabic/RTL)."""
+    """Replace @@ COLUMN NAME @@ placeholders in PDF streams using PyMuPDF/FPDF2 for complex scripts."""
     try:
-        font_path = get_arabic_font_path()
+        font_path = get_font_path()
         row_data_lower = _normalize_row_data(row_data) if row_data else {}
 
         # Try PyMuPDF (fitz) first for searching, transparent redaction, and direct text insertion
@@ -728,7 +795,7 @@ def html_to_pdf(html_content):
         clean_text = re.sub(r"<[^>]+>", " ", html_content)
         lines = [line.strip() for line in clean_text.splitlines() if line.strip()]
 
-        font_path = get_arabic_font_path()
+        font_path = get_font_path(clean_text)
         pdf = FPDF(unit="pt", format="letter")
         pdf.add_page()
         if font_path:
@@ -756,7 +823,8 @@ def docx_to_pdf(docx_content):
         return None
 
     doc = Document(io.BytesIO(docx_content))
-    font_path = get_arabic_font_path()
+    doc_text = " ".join(p.text for p in doc.paragraphs if p.text)
+    font_path = get_font_path(doc_text)
     pdf = FPDF(unit="pt", format="letter")
     pdf.add_page()
     if font_path:
@@ -792,7 +860,7 @@ def doc_to_pdf(doc_content):
     text = doc_content.decode("utf-8", errors="replace")
     text = "".join(c for c in text if c.isprintable() or c in "\n\r\t")
 
-    font_path = get_arabic_font_path()
+    font_path = get_font_path(text)
     pdf = FPDF(unit="pt", format="letter")
     pdf.add_page()
     if font_path:

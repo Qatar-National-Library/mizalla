@@ -116,9 +116,9 @@ def test_substitute_arabic_variables():
 
     # PDF
     from fpdf import FPDF
-    from mizalla.shared import prepare_rtl_text, get_arabic_font_path
+    from mizalla.shared import prepare_rtl_text, get_font_path, get_arabic_font_path
 
-    font_path = get_arabic_font_path()
+    font_path = get_font_path()
     pdf = FPDF()
     pdf.add_page()
     if font_path:
@@ -217,3 +217,52 @@ def test_symmetric_at_at_pdf_substitution():
     text = doc_out[0].get_text()
     assert "Abid Ahmed" in text
     assert "@@ NAME @@" not in text
+
+
+def test_get_font_path_english_and_arabic():
+    """Verify get_font_path returns an appropriate font for English and Arabic text."""
+    from pathlib import Path
+    from mizalla.shared import get_font_path, get_arabic_font_path
+
+    # English font
+    en_path = get_font_path(text="Hello World", language="en")
+    assert en_path is not None
+    assert Path(en_path).exists()
+
+    # Arabic font
+    ar_path = get_font_path(text="مرحبا بك", language="ar")
+    assert ar_path is not None
+    assert Path(ar_path).exists()
+
+    # Backwards compatibility check
+    legacy_ar = get_arabic_font_path()
+    assert legacy_ar is not None
+    assert Path(legacy_ar).exists()
+
+
+def test_get_font_path_order_and_setting_override(app):
+    """Verify font_paths configuration is respected in order of appearance."""
+    from pathlib import Path
+    from mizalla.shared import get_font_path
+    from mizalla.settings import set_setting
+
+    with app.app_context():
+        # Find two existing fonts
+        existing = [p for p in [
+            "C:/Windows/Fonts/tahoma.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+            "C:/Windows/Fonts/calibri.ttf",
+        ] if Path(p).exists()]
+
+        if len(existing) >= 2:
+            first, second = existing[0], existing[1]
+
+            # Set first font as primary
+            set_setting("font_paths", f"{first}\n{second}")
+            resolved = get_font_path(language="en")
+            assert Path(resolved).resolve() == Path(first).resolve()
+
+            # Swap order and verify priority changes
+            set_setting("font_paths", f"{second}\n{first}")
+            resolved_swapped = get_font_path(language="en")
+            assert Path(resolved_swapped).resolve() == Path(second).resolve()

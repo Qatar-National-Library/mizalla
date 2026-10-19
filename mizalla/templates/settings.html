@@ -51,6 +51,9 @@
           {% if setting.key in label_list_keys %}
             <textarea id="setting-{{ setting.key }}" name="{{ setting.key }}" rows="3" class="form-control" style="width: 100%; font-family: monospace;">{{ setting.value }}</textarea>
             <p class="setting-hint">Comma-separated. Each entry becomes one option, so avoid commas inside a label. Defaults to <code>{{ default_value }}</code>.</p>
+          {% elif setting.key in multiline_keys %}
+            <textarea id="setting-{{ setting.key }}" name="{{ setting.key }}" rows="8" class="form-control" style="width: 100%; font-family: monospace; white-space: pre;">{{ setting.value }}</textarea>
+            <p class="setting-hint">One path per line in order of preference. The system searches for and loads the first valid font path matching the language (English or Arabic).</p>
           {% elif setting.key in boolean_keys %}
             <input type="hidden" name="{{ setting.key }}" value="false">
             <label class="setting-check" style="display: flex; align-items: center; justify-content: flex-start; gap: 0.5rem; font-weight: normal; cursor: pointer; margin-bottom: 0.3rem;">
@@ -109,9 +112,10 @@
         {{ render_setting('project_team_roles') }}
         {{ render_setting('task_highlight_types') }}
         {{ render_setting('task_edit_permission') }}
+        {{ render_setting('font_paths') }}
 
         {% for s in settings %}
-          {% if s.key not in ['app_base_url', 'jira_base_url', 'project_team_roles', 'task_highlight_types', 'task_edit_permission', 'sendgrid_from_email', 'email_status_report_days', 'email_due_reminder_days', 'email_stale_task_nudge_days', 'email_overdue_alert_days', 'email_upcoming_meeting_hours', 'test_email_account', 'gowa_mcp_base_url', 'test_whatsapp_number', 'test_sms_number', 'azure_skip_tls_verify', 'vision_id_mapping', 'chat_chunk_chars', 'chat_max_chunks', 'upload_file_folder', 'upload_file_base_url', 'video_upload_max_duration_seconds', 'whatsapp_throttle_base_delay', 'whatsapp_throttle_jitter', 'whatsapp_batch_size', 'whatsapp_batch_delay'] %}
+          {% if s.key not in ['app_base_url', 'jira_base_url', 'project_team_roles', 'task_highlight_types', 'task_edit_permission', 'font_paths', 'sendgrid_from_email', 'email_status_report_days', 'email_due_reminder_days', 'email_stale_task_nudge_days', 'email_overdue_alert_days', 'email_upcoming_meeting_hours', 'test_email_account', 'gowa_mcp_base_url', 'test_whatsapp_number', 'test_sms_number', 'azure_skip_tls_verify', 'vision_id_mapping', 'chat_chunk_chars', 'chat_max_chunks', 'upload_file_folder', 'upload_file_base_url', 'video_upload_max_duration_seconds', 'whatsapp_throttle_base_delay', 'whatsapp_throttle_jitter', 'whatsapp_batch_size', 'whatsapp_batch_delay'] %}
             {{ render_setting(s.key) }}
           {% endif %}
         {% endfor %}
