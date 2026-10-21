@@ -181,19 +181,21 @@
         {% for item in available_items %}
         {% set type_label = 'On Remote Server' if item.command_type == 'remote' else ('On Local Server' if item.command_type == 'local' else ('Upload File(s)' if item.command_type == 'upload' else item.command_type)) %}
         {% set can_edit_this = can_edit_item(item) if can_edit_item is defined else false %}
-        <div class="avail-item-accordion" id="avail-item-{{ item.id }}" data-item-id="{{ item.id }}" style="border: 1px solid #e0e0e0; border-radius: 6px; overflow:hidden; background:#fafafa; transition: border-color 0.15s ease;">
+        <div class="avail-item-accordion" id="avail-item-{{ item.id }}" data-item-id="{{ item.id }}" data-item-name="{{ item.name }}" data-item-type="{{ type_label }}" data-item-creator="{{ item.creator.name if item.creator else (item.creator.email if item.creator else 'Unknown') }}" data-can-edit="{{ 'true' if can_edit_this else 'false' }}" draggable="true" style="border: 1px solid #e0e0e0; border-radius: 6px; overflow:hidden; background:#fafafa; transition: border-color 0.15s ease; cursor:grab;" title="Drag into Command Group or click + to add">
           
           <!-- Accordion Header -->
           <div class="avail-item-header" style="padding: 0.65rem 0.8rem; display:flex; justify-content:space-between; align-items:flex-start; gap:0.4rem; background:#fff;">
-            <div style="min-width:0; flex:1;">
-              <strong class="avail-item-name" style="font-size:0.88rem; display:block; color:var(--ink); word-break:break-word;">{{ item.name }}</strong>
-              <div class="muted avail-item-creator" style="font-size:0.74rem; margin-top:0.15rem;">
-                Created by: {{ item.creator.name if item.creator else (item.creator.email if item.creator else 'Unknown') }}
-              </div>
-              <div style="margin-top:0.25rem;">
-                <span class="tag avail-item-type-tag" style="font-size:0.68rem; background:rgba(0,0,0,0.06); padding:0.05rem 0.35rem; border-radius:3px;">
-                  {{ type_label }}
-                </span>
+            <div style="min-width:0; flex:1; display:flex; align-items:flex-start; gap:0.4rem;">
+              <span class="avail-drag-handle" style="color:var(--muted); display:inline-flex; align-items:center; cursor:grab; margin-top:0.15rem;" title="Drag to add to group"><i data-lucide="grip-vertical" class="icon-green"></i></span>
+              <div style="min-width:0; flex:1;">
+                <strong class="avail-item-name" style="font-size:0.88rem; display:block; color:var(--ink); word-break:break-word;">{{ item.name }}</strong>
+                <div class="muted avail-item-creator" style="font-size:0.74rem; margin-top:0.15rem;">
+                  Created by: {{ item.creator.name if item.creator else (item.creator.email if item.creator else 'Unknown') }}
+                </div>
+                <div style="margin-top:0.25rem;">
+                  <span class="tag avail-item-type-tag" style="font-size:0.68rem; background:rgba(0,0,0,0.06); padding:0.05rem 0.35rem; border-radius:3px;">
+                    {{ type_label }}
+                  </span>
                 <span class="muted avail-item-vars-tag" style="font-size:0.72rem; margin-left:0.3rem; {% if item.command_type == 'upload' or not item.variables %}display:none;{% endif %}">
                   ({{ item.variables|length }} var{{ 's' if item.variables|length != 1 else '' }})
                 </span>
@@ -381,37 +383,128 @@ const csrfToken = "{{ csrf_token() }}";
 
 // ─── Drag and Drop & Group Sequence Management ──────────────────────────────
 let draggedElement = null;
+let draggedAvailData = null;
 
 function initDragAndDrop() {
   const container = document.getElementById("group-items-container");
-  if (!container) return;
+  const emptyState = document.getElementById("group-empty-state");
+  const availList = document.querySelector(".available-items-list");
 
-  container.addEventListener("dragstart", (e) => {
-    const card = e.target.closest(".added-item-card");
-    if (!card) return;
-    draggedElement = card;
-    card.style.opacity = "0.4";
-    e.dataTransfer.effectAllowed = "move";
-  });
+  // Dragging from Available Items list
+  if (availList) {
+    availList.addEventListener("dragstart", (e) => {
+      const card = e.target.closest(".avail-item-accordion");
+      if (!card) return;
+      draggedAvailData = {
+        itemId: card.getAttribute("data-item-id"),
+        itemName: card.getAttribute("data-item-name"),
+        itemType: card.getAttribute("data-item-type"),
+        creatorName: card.getAttribute("data-item-creator"),
+        canEdit: card.getAttribute("data-can-edit") === "true",
+      };
+      card.style.opacity = "0.5";
+      e.dataTransfer.effectAllowed = "copy";
+      e.dataTransfer.setData("text/plain", card.getAttribute("data-item-id"));
+    });
 
-  container.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    const target = e.target.closest(".added-item-card");
-    if (target && target !== draggedElement) {
-      const rect = target.getBoundingClientRect();
-      const next = (e.clientY - rect.top) / (rect.bottom - rect.top) > 0.5;
-      container.insertBefore(draggedElement, next && target.nextSibling || target);
-    }
-  });
+    availList.addEventListener("dragend", (e) => {
+      const card = e.target.closest(".avail-item-accordion");
+      if (card) card.style.opacity = "1";
+      draggedAvailData = null;
+    });
+  }
 
-  container.addEventListener("dragend", () => {
-    if (draggedElement) {
-      draggedElement.style.opacity = "1";
-      draggedElement = null;
-      updateSequenceBadges();
-    }
-  });
+  // Dropping into and reordering within group-items-container
+  if (container) {
+    container.addEventListener("dragstart", (e) => {
+      const card = e.target.closest(".added-item-card");
+      if (!card) return;
+      draggedElement = card;
+      card.style.opacity = "0.4";
+      e.dataTransfer.effectAllowed = "move";
+    });
+
+    container.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      if (draggedAvailData) {
+        e.dataTransfer.dropEffect = "copy";
+      } else if (draggedElement) {
+        e.dataTransfer.dropEffect = "move";
+        const target = e.target.closest(".added-item-card");
+        if (target && target !== draggedElement) {
+          const rect = target.getBoundingClientRect();
+          const next = (e.clientY - rect.top) / (rect.bottom - rect.top) > 0.5;
+          container.insertBefore(draggedElement, next && target.nextSibling || target);
+        }
+      }
+    });
+
+    container.addEventListener("drop", (e) => {
+      e.preventDefault();
+      if (draggedAvailData) {
+        const target = e.target.closest(".added-item-card");
+        const newCard = createAddedItemCard(
+          draggedAvailData.itemId,
+          draggedAvailData.itemName,
+          draggedAvailData.itemType,
+          draggedAvailData.creatorName,
+          draggedAvailData.canEdit
+        );
+        if (target) {
+          const rect = target.getBoundingClientRect();
+          const next = (e.clientY - rect.top) / (rect.bottom - rect.top) > 0.5;
+          container.insertBefore(newCard, next && target.nextSibling || target);
+        } else {
+          container.appendChild(newCard);
+        }
+        updateSequenceBadges();
+        if (window.lucide) lucide.createIcons();
+        draggedAvailData = null;
+      }
+    });
+
+    container.addEventListener("dragend", () => {
+      if (draggedElement) {
+        draggedElement.style.opacity = "1";
+        draggedElement = null;
+        updateSequenceBadges();
+      }
+    });
+  }
+
+  // Dropping directly onto empty state placeholder
+  if (emptyState) {
+    emptyState.addEventListener("dragover", (e) => {
+      if (draggedAvailData) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        emptyState.style.borderColor = "#1a73e8";
+        emptyState.style.background = "#e8f0fe";
+      }
+    });
+    emptyState.addEventListener("dragleave", () => {
+      emptyState.style.borderColor = "#ccc";
+      emptyState.style.background = "#fbfcfb";
+    });
+    emptyState.addEventListener("drop", (e) => {
+      e.preventDefault();
+      emptyState.style.borderColor = "#ccc";
+      emptyState.style.background = "#fbfcfb";
+      if (draggedAvailData && container) {
+        const newCard = createAddedItemCard(
+          draggedAvailData.itemId,
+          draggedAvailData.itemName,
+          draggedAvailData.itemType,
+          draggedAvailData.creatorName,
+          draggedAvailData.canEdit
+        );
+        container.appendChild(newCard);
+        updateSequenceBadges();
+        if (window.lucide) lucide.createIcons();
+        draggedAvailData = null;
+      }
+    });
+  }
 }
 
 function updateSequenceBadges() {
@@ -434,10 +527,7 @@ function updateSequenceBadges() {
   }
 }
 
-function appendItemToGroup(itemId, itemName, itemType, creatorName, canEdit = false) {
-  const container = document.getElementById("group-items-container");
-  if (!container) return;
-
+function createAddedItemCard(itemId, itemName, itemType, creatorName, canEdit = false) {
   const card = document.createElement("div");
   card.className = "added-item-card";
   card.setAttribute("data-item-id", itemId);
@@ -467,10 +557,15 @@ function appendItemToGroup(itemId, itemName, itemType, creatorName, canEdit = fa
       </button>
     </div>
   `;
+  return card;
+}
 
+function appendItemToGroup(itemId, itemName, itemType, creatorName, canEdit = false) {
+  const container = document.getElementById("group-items-container");
+  if (!container) return;
+  const card = createAddedItemCard(itemId, itemName, itemType, creatorName, canEdit);
   container.appendChild(card);
   updateSequenceBadges();
-
   if (window.lucide) {
     lucide.createIcons();
   }

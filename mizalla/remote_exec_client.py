@@ -267,6 +267,10 @@ def dispatch_command_item(
     # Substitute variables
     vars_dict = variables or {}
     executed_cmd = substitute_variables(item.command_content, vars_dict)
+    item_command_type = item.command_type
+    server_ip = server.ip if server else "127.0.0.1"
+    server_port = (server.ssh_port or 22) if server else 22
+    os_type = (server.os_type or "linux") if server else "linux"
 
     audit = CommandAudit(
         task_id=task_id,
@@ -295,9 +299,8 @@ def dispatch_command_item(
             db.session.commit()
 
             cred = get_effective_credential(server_id, user_id)
-            os_type = server.os_type if server else "linux"
 
-            if item.command_type == "local":
+            if item_command_type == "local":
                 # PyWA server local command
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -321,8 +324,8 @@ def dispatch_command_item(
                 try:
                     exit_code, output, pid = loop.run_until_complete(
                         run_single_remote_command(
-                            ip=server.ip,
-                            port=server.ssh_port or 22,
+                            ip=server_ip,
+                            port=server_port,
                             username=cred.username,
                             password=cred.password,
                             private_key=cred.private_key,
@@ -396,6 +399,7 @@ def dispatch_command_group(
             "command": item_sub_cmd,
             "files": files_for_step,
         })
+        executed_cmds.append(f"# {c_item.name}\n{item_sub_cmd}")
         initial_steps.append({
             "item_id": c_item.id,
             "name": c_item.name,
@@ -404,6 +408,13 @@ def dispatch_command_group(
             "exit_code": None,
             "output": "",
         })
+
+    server_ip = server.ip if server else "127.0.0.1"
+    server_port = (server.ssh_port or 22) if server else 22
+    os_type = (server.os_type or "linux") if server else "linux"
+    group_name = group.name
+    run_in_parallel = group.run_in_parallel
+    stop_on_error = group.stop_on_error
 
     audit = CommandAudit(
         task_id=task_id,
@@ -437,11 +448,9 @@ def dispatch_command_group(
                 a.status = COMMAND_STATUS_FAILED
                 a.end_time = datetime.now(timezone.utc)
                 a.exit_code = 1
-                a.full_output = f"[{group.name}] Error: No valid SSH credentials found for this server."
+                a.full_output = f"[{group_name}] Error: No valid SSH credentials found for this server."
                 db.session.commit()
                 return
-
-            os_type = server.os_type if server else "linux"
 
             async def _on_step_change(idx: int, item: dict, status: str, exit_code: Optional[int], output: str):
                 with app.app_context():
@@ -461,29 +470,29 @@ def dispatch_command_group(
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                if group.run_in_parallel:
+                if run_in_parallel:
                     runner_coro = execute_parallel_command_group(
-                        ip=server.ip,
-                        port=server.ssh_port or 22,
+                        ip=server_ip,
+                        port=server_port,
                         username=cred.username,
                         password=cred.password,
                         private_key=cred.private_key,
-                        group_name=group.name,
+                        group_name=group_name,
                         items=items_config,
-                        stop_on_error=group.stop_on_error,
+                        stop_on_error=stop_on_error,
                         os_type=os_type,
                         on_step_change=_on_step_change,
                     )
                 else:
                     runner_coro = execute_sequential_command_group(
-                        ip=server.ip,
-                        port=server.ssh_port or 22,
+                        ip=server_ip,
+                        port=server_port,
                         username=cred.username,
                         password=cred.password,
                         private_key=cred.private_key,
-                        group_name=group.name,
+                        group_name=group_name,
                         items=items_config,
-                        stop_on_error=group.stop_on_error,
+                        stop_on_error=stop_on_error,
                         os_type=os_type,
                         on_step_change=_on_step_change,
                     )

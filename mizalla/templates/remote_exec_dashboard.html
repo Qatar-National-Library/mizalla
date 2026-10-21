@@ -333,7 +333,7 @@
                     <!-- Completed success tick -->
                     <span class="step-success-badge" id="group-{{ grp.id }}-item-success-{{ c.id }}" style="display:none; color:#2e7d32;" title="Completed Successfully"><i data-lucide="check" class="icon-green"></i></span>
                     <!-- Completed failure cross -->
-                    <span class="step-failure-badge" id="group-{{ grp.id }}-item-failure-{{ c.id }}" style="display:none; color:#c62828;" title="Failed"><i data-lucide="x" class="icon-green"></i></span>
+                    <span class="step-failure-badge" id="group-{{ grp.id }}-item-failure-{{ c.id }}" style="display:none; color:#c62828;" title="Failed"><i data-lucide="x" style="stroke:#c62828; color:#c62828;"></i></span>
                     <!-- Not yet started / pending (disabled) -->
                     <span class="step-pending-badge" id="group-{{ grp.id }}-item-pending-{{ c.id }}" style="color:#aaa; font-size:0.75rem;">Ready</span>
                   </div>
@@ -535,7 +535,7 @@
 </div>
 
 <!-- ─── Dynamic Variable Run Modal ──────────────────────────────────────── -->
-<dialog id="run-modal" class="modal-dialog" style="border:none; border-radius:8px; padding:0; max-width:540px; width:90%; box-shadow:0 10px 30px rgba(0,0,0,0.25);">
+<dialog id="run-modal" class="modal-dialog" style="border:none; border-radius:8px; padding:0; max-width:620px; width:90%; box-shadow:0 10px 30px rgba(0,0,0,0.25);">
   <div style="padding: 1.5rem; background:#fff; border-radius:8px;">
     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 1.25rem;">
       <div>
@@ -1134,25 +1134,203 @@ async function openRunModal(entryType, targetId) {
   container.innerHTML = "Loading variables...";
   err.style.display = "none";
 
-  modal.showModal();
-
   try {
     const resp = await fetch("/apps/remote-exec/run-modal/" + entryType + "/" + targetId);
     const data = await resp.json();
     if (!data.success) {
-      container.innerHTML = `<span style="color:#c62828;">${data.error || "Could not load item."}</span>`;
+      alert(data.error || "Could not load item details.");
       return;
     }
 
+    const totalVars = (typeof data.total_variables === "number") ? data.total_variables : (data.variables ? data.variables.length : 0);
+
+    // If no variables and no file upload needed, run immediately without opening modal
+    if (totalVars === 0 && !data.has_upload) {
+      const formData = new FormData();
+      formData.append("csrf_token", csrfToken);
+      try {
+        const runResp = await fetch("/apps/remote-exec/run/" + entryType + "/" + targetId, {
+          method: "POST",
+          body: formData,
+        });
+        const runData = await runResp.json();
+        if (runData.success) {
+          pollActiveStatus();
+          setTimeout(() => { window.location.reload(); }, 1200);
+        } else {
+          alert(runData.error || "Failed to dispatch command.");
+        }
+      } catch (err) {
+        alert("Execution error: " + err);
+      }
+      return;
+    }
+
+    // Otherwise, show the modal
+    modal.showModal();
     typeEyebrow.textContent = (entryType === "group") ? "RUN COMMAND GROUP" : "RUN COMMAND ITEM";
     title.textContent = data.title;
     server.textContent = "Target Server: " + data.server_name;
     uploadContainer.style.display = data.has_upload ? "block" : "none";
 
     container.innerHTML = "";
-    if (data.variables.length === 0) {
-      container.innerHTML = "<p style='font-size:0.85rem; color:#666; margin:0;'>No variable inputs needed for this execution.</p>";
+
+    // Track declared variables across fieldsets: varName -> { firstItemName, inputEl, mirrorEls: [] }
+    const seenVariables = new Map();
+
+    if (entryType === "group" && Array.isArray(data.items) && data.items.length > 0) {
+      data.items.forEach((item, itemIdx) => {
+        const fieldset = document.createElement("fieldset");
+        fieldset.style.border = "1px solid #d0d7de";
+        fieldset.style.borderRadius = "6px";
+        fieldset.style.padding = "0.75rem 1rem";
+        fieldset.style.margin = "0 0 0.85rem 0";
+        fieldset.style.background = "#fafafa";
+
+        const legend = document.createElement("legend");
+        legend.style.fontWeight = "600";
+        legend.style.fontSize = "0.85rem";
+        legend.style.color = "var(--green-dark, #103e30)";
+        legend.style.padding = "0 0.4rem";
+        legend.innerHTML = `<span style="color:#555; font-weight:normal;">Step ${itemIdx + 1}:</span> ${item.name} <span class="tag" style="font-size:0.65rem; text-transform:uppercase; margin-left:0.35rem;">${item.command_type}</span>`;
+        fieldset.appendChild(legend);
+
+        const fieldsetContent = document.createElement("div");
+        fieldsetContent.style.display = "flex";
+        fieldsetContent.style.flexDirection = "column";
+        fieldsetContent.style.gap = "0.75rem";
+
+        if (!item.variables || item.variables.length === 0) {
+          const noVars = document.createElement("p");
+          noVars.style.margin = "0";
+          noVars.style.fontSize = "0.8rem";
+          noVars.style.color = "#888";
+          noVars.textContent = "No runtime variables required for this step.";
+          fieldsetContent.appendChild(noVars);
+        } else {
+          item.variables.forEach(v => {
+            const row = document.createElement("div");
+            row.style.display = "flex";
+            row.style.flexDirection = "column";
+            row.style.gap = "0.25rem";
+
+            const label = document.createElement("label");
+            label.style.fontSize = "0.82rem";
+            label.style.fontWeight = "600";
+            const descSpan = v.description ? (` <span style="font-size:0.75rem; color:#888; font-weight:normal;">(${v.description})</span>`) : "";
+            label.innerHTML = `<code>&#123;&#123; ${v.name} &#125;&#125;</code> <span class="tag" style="font-size:0.65rem; margin-left:0.25rem;">${v.var_type || "text"}</span>${descSpan}`;
+            row.appendChild(label);
+
+            if (!seenVariables.has(v.name)) {
+              // FIRST OCCURRENCE: Render the interactive, typed input element
+              let inputEl;
+              if (v.var_type === "boolean") {
+                const chkLabel = document.createElement("label");
+                chkLabel.style.display = "flex";
+                chkLabel.style.alignItems = "center";
+                chkLabel.style.gap = "0.45rem";
+                chkLabel.style.fontSize = "0.85rem";
+                chkLabel.style.cursor = "pointer";
+
+                const chk = document.createElement("input");
+                chk.type = "checkbox";
+                chk.name = "var_" + v.name;
+                chk.checked = (v.default_value === "true" || v.default_value === "1");
+                inputEl = chk;
+
+                const textSpan = document.createElement("span");
+                textSpan.textContent = chk.checked ? "Enabled (true)" : "Disabled (false)";
+
+                chk.addEventListener("change", () => {
+                  textSpan.textContent = chk.checked ? "Enabled (true)" : "Disabled (false)";
+                  const record = seenVariables.get(v.name);
+                  if (record && record.mirrorEls) {
+                    record.mirrorEls.forEach(m => {
+                      m.textContent = chk.checked ? "true" : "false";
+                    });
+                  }
+                });
+
+                chkLabel.appendChild(chk);
+                chkLabel.appendChild(textSpan);
+                row.appendChild(chkLabel);
+              } else {
+                const input = document.createElement("input");
+                input.type = (v.var_type === "number") ? "number" : "text";
+                if (v.var_type === "number") input.step = "any";
+                input.name = "var_" + v.name;
+                input.value = v.default_value || "";
+                input.style.padding = "0.4rem 0.5rem";
+                input.style.border = "1px solid #ccc";
+                input.style.borderRadius = "4px";
+                input.style.fontSize = "0.85rem";
+                input.style.background = "#fff";
+                inputEl = input;
+
+                input.addEventListener("input", () => {
+                  const record = seenVariables.get(v.name);
+                  if (record && record.mirrorEls) {
+                    record.mirrorEls.forEach(m => {
+                      m.textContent = input.value || "(empty)";
+                    });
+                  }
+                });
+                row.appendChild(input);
+              }
+
+              seenVariables.set(v.name, {
+                firstItemName: item.name,
+                inputEl: inputEl,
+                varType: v.var_type,
+                mirrorEls: []
+              });
+            } else {
+              // SUBSEQUENT OCCURRENCE: Render read-only label and reflected current value
+              const record = seenVariables.get(v.name);
+              const readOnlyBox = document.createElement("div");
+              readOnlyBox.style.display = "flex";
+              readOnlyBox.style.alignItems = "center";
+              readOnlyBox.style.justifyContent = "space-between";
+              readOnlyBox.style.padding = "0.35rem 0.6rem";
+              readOnlyBox.style.background = "#eef4f0";
+              readOnlyBox.style.border = "1px solid #c2dec9";
+              readOnlyBox.style.borderRadius = "4px";
+              readOnlyBox.style.fontSize = "0.82rem";
+
+              const refLabel = document.createElement("span");
+              refLabel.style.color = "#333";
+              refLabel.innerHTML = `Value set in <em>${record.firstItemName}</em>:`;
+
+              const valBadge = document.createElement("code");
+              valBadge.style.background = "#fff";
+              valBadge.style.padding = "0.15rem 0.4rem";
+              valBadge.style.border = "1px solid #c2dec9";
+              valBadge.style.borderRadius = "3px";
+              valBadge.style.fontWeight = "600";
+              valBadge.style.color = "var(--green-dark, #103e30)";
+
+              if (record.varType === "boolean") {
+                valBadge.textContent = record.inputEl.checked ? "true" : "false";
+              } else {
+                valBadge.textContent = record.inputEl.value || "(empty)";
+              }
+
+              record.mirrorEls.push(valBadge);
+
+              readOnlyBox.appendChild(refLabel);
+              readOnlyBox.appendChild(valBadge);
+              row.appendChild(readOnlyBox);
+            }
+
+            fieldsetContent.appendChild(row);
+          });
+        }
+
+        fieldset.appendChild(fieldsetContent);
+        container.appendChild(fieldset);
+      });
     } else {
+      // Single Item fallback
       data.variables.forEach(v => {
         const row = document.createElement("div");
         row.style.display = "flex";
@@ -1163,7 +1341,7 @@ async function openRunModal(entryType, targetId) {
         label.style.fontSize = "0.85rem";
         label.style.fontWeight = "600";
         const descSpan = v.description ? ("<span style='font-size:0.75rem; color:#888; font-weight:normal;'>(" + v.description + ")</span>") : "";
-        label.innerHTML = "<code>&#123;&#123; " + v.name + " &#125;&#125;</code> " + descSpan;
+        label.innerHTML = "<code>&#123;&#123; " + v.name + " &#125;&#125;</code> <span class='tag' style='font-size:0.65rem; margin-left:0.25rem;'>" + (v.var_type || "text") + "</span>" + descSpan;
         row.appendChild(label);
 
         if (v.var_type === "boolean") {
@@ -1172,6 +1350,7 @@ async function openRunModal(entryType, targetId) {
           chkLabel.style.alignItems = "center";
           chkLabel.style.gap = "0.4rem";
           chkLabel.style.fontSize = "0.85rem";
+          chkLabel.style.cursor = "pointer";
           const chk = document.createElement("input");
           chk.type = "checkbox";
           chk.name = "var_" + v.name;
@@ -1182,6 +1361,7 @@ async function openRunModal(entryType, targetId) {
         } else {
           const input = document.createElement("input");
           input.type = (v.var_type === "number") ? "number" : "text";
+          if (v.var_type === "number") input.step = "any";
           input.name = "var_" + v.name;
           input.value = v.default_value || "";
           input.style.padding = "0.4rem";
@@ -1193,6 +1373,10 @@ async function openRunModal(entryType, targetId) {
 
         container.appendChild(row);
       });
+    }
+
+    if (window.lucide) {
+      lucide.createIcons();
     }
   } catch (e) {
     container.innerHTML = "Error loading modal data: " + e;
@@ -1671,7 +1855,7 @@ async function pollActiveStatus() {
               } else if (isStepSuccess) {
                 stepStatus.innerHTML = `<span title="Success (Exit 0)"><i data-lucide="check" class="icon-green"></i></span>`;
               } else if (isStepFailed) {
-                stepStatus.innerHTML = `<span title="Failed (Exit Code ${step.exit_code})"><i data-lucide="x" class="icon-green"></i></span>`;
+                stepStatus.innerHTML = `<span title="Failed (Exit Code ${step.exit_code})" style="color:#c62828;"><i data-lucide="x" style="stroke:#c62828; color:#c62828;"></i></span>`;
               } else {
                 stepStatus.innerHTML = `<span style="color:#888; font-size:0.75rem;">(Disabled - Pending)</span>`;
               }

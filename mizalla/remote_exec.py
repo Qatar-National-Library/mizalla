@@ -533,7 +533,10 @@ def get_run_modal_data(entry_type: str, target_id: int):
         title = group.name
         server_name = group.server.name if group.server else "Unknown Server"
 
-        # Loop through all group items using a SET
+        # Loop through all group items preserving sequence and grouping variables
+        items_data = []
+        distinct_var_names = set()
+
         for g_item in group.items:
             c_item = g_item.command_item
             if not c_item:
@@ -541,24 +544,40 @@ def get_run_modal_data(entry_type: str, target_id: int):
             if c_item.command_type == COMMAND_TYPE_UPLOAD:
                 has_upload = True
 
+            item_vars_map = {}
             for v in c_item.variables:
+                item_vars_map[v.name] = {
+                    "name": v.name,
+                    "description": v.description or "",
+                    "var_type": v.var_type,
+                    "default_value": v.default_value or "",
+                }
+                distinct_var_names.add(v.name)
                 if v.name not in variables_map:
-                    variables_map[v.name] = {
-                        "name": v.name,
-                        "description": v.description or "",
-                        "var_type": v.var_type,
-                        "default_value": v.default_value or "",
-                    }
+                    variables_map[v.name] = item_vars_map[v.name]
 
             found_tokens = extract_variable_names(c_item.command_content)
             for tok in found_tokens:
-                if tok not in variables_map:
-                    variables_map[tok] = {
+                if tok not in item_vars_map:
+                    var_info = {
                         "name": tok,
                         "description": "",
                         "var_type": VAR_TYPE_TEXT,
                         "default_value": "",
                     }
+                    item_vars_map[tok] = var_info
+                    distinct_var_names.add(tok)
+                    if tok not in variables_map:
+                        variables_map[tok] = var_info
+
+            items_data.append({
+                "id": c_item.id,
+                "name": c_item.name,
+                "command_type": c_item.command_type,
+                "variables": list(item_vars_map.values()),
+            })
+
+    total_distinct_vars = len(distinct_var_names) if entry_type == "group" else len(variables_map)
 
     return jsonify(
         success=True,
@@ -567,7 +586,9 @@ def get_run_modal_data(entry_type: str, target_id: int):
         entry_type=entry_type,
         target_id=target_id,
         has_upload=has_upload,
+        total_variables=total_distinct_vars,
         variables=list(variables_map.values()),
+        items=items_data if entry_type == "group" else [],
     )
 
 
@@ -609,6 +630,26 @@ def execute_target(entry_type: str, target_id: int):
         return jsonify(error="Permission denied to run this group."), 403
     if group.server and not user_can_view_server(current_user, group.server):
         return jsonify(error="Access to target server is denied."), 403
+
+    # Validate variable types according to declarations
+    for g_item in group.items:
+        c_item = g_item.command_item
+        if not c_item:
+            continue
+        for v in c_item.variables:
+            if v.name in variables:
+                raw_val = str(variables[v.name]).strip()
+                if v.var_type == VAR_TYPE_NUMBER and raw_val != "":
+                    try:
+                        float(raw_val)
+                    except ValueError:
+                        return jsonify(error=f"Variable '{v.name}' in step '{c_item.name}' requires a numeric value, got '{raw_val}'."), 400
+                elif v.var_type == VAR_TYPE_BOOLEAN:
+                    # Normalize boolean strings
+                    if raw_val.lower() in ("true", "1", "yes", "on"):
+                        variables[v.name] = "true"
+                    elif raw_val.lower() in ("false", "0", "no", "off", ""):
+                        variables[v.name] = "false"
 
     audit = dispatch_command_group(
         user_id=current_user.id,
@@ -737,17 +778,13 @@ def duplicate_item(item_id: int):
         db.session.add(new_v)
 
     if item.command_type == COMMAND_TYPE_UPLOAD:
-        src_dir = os.path.join(current_app.instance_path, "command_uploads", str(item.id))
-        dst_dir = os.path.join(current_app.instance_path, "command_uploads", str(new_item.id))
-        if os.path.isdir(src_dir):
-            os.makedirs(dst_dir, exist_ok=True)
-            for fname in os.listdir(src_dir):
-                sfile = os.path.join(src_dir, fname)
-                if os.path.isfile(sfile):
-                    shutil.copy2(sfile, os.path.join(dst_dir, fname))
+        new_item.command_content = "(No files uploaded)"
 
     db.session.commit()
-    flash(f"Command Item '{item.name}' duplicated successfully.", "success")
+    if item.command_type == COMMAND_TYPE_UPLOAD:
+        flash(f"Command Item '{item.name}' duplicated without files. Please edit to upload files for this instance.", "success")
+    else:
+        flash(f"Command Item '{item.name}' duplicated successfully.", "success")
     return redirect(url_for("remote_exec.dashboard"))
 
 
