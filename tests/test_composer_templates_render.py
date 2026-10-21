@@ -137,3 +137,42 @@ def test_composer_test_recipient_fields_present_in_all_composers(app, client, cr
         assert 'id="test-button"' in body, f"test-button missing in {path}"
         assert 'id="send-button"' in body, f"send-button missing in {path}"
 
+
+def test_lock_pdf_checkbox_present_and_checked_in_composers(app, client):
+    """Ensure lock_substituted_pdf checkbox is present, under attachments, and checked by default."""
+    with app.app_context():
+        make_admin()
+
+    login(client)
+    for path in ["/apps/emailer", "/apps/whatsapp"]:
+        body = client.get(path).data.decode()
+        assert 'id="lock_substituted_pdf"' in body, f"lock_substituted_pdf checkbox missing in {path}"
+        assert 'name="lock_substituted_pdf"' in body
+        # Verified checked by default
+        assert 'id="lock_substituted_pdf" name="lock_substituted_pdf" value="true" checked' in body
+        # Ensure it appears after drop-zone-attachments
+        drop_idx = body.find('id="drop-zone-attachments"')
+        lock_idx = body.find('id="lock_substituted_pdf"')
+        assert drop_idx != -1 and lock_idx != -1 and lock_idx > drop_idx, f"Checkbox must be under attachments panel in {path}"
+
+
+def test_pdf_text_alignment_selector_present_in_composers(app, client):
+    """Ensure pdf_text_alignment select dropdown is present under attachments and defaults to center."""
+    with app.app_context():
+        make_admin()
+
+    login(client)
+    for path in ["/apps/emailer", "/apps/whatsapp"]:
+        body = client.get(path).data.decode()
+        assert 'id="pdf_text_alignment"' in body, f"pdf_text_alignment select missing in {path}"
+        assert 'name="pdf_text_alignment"' in body
+        assert '<option value="center" selected>' in body
+        assert '<option value="directional">' in body
+        assert '<option value="left">' in body
+        assert '<option value="right">' in body
+        # Ensure it is placed under attachments panel
+        drop_idx = body.find('id="drop-zone-attachments"')
+        align_idx = body.find('id="pdf_text_alignment"')
+        assert drop_idx != -1 and align_idx != -1 and align_idx > drop_idx, f"Alignment select must be under attachments panel in {path}"
+
+

@@ -32,6 +32,20 @@
         <p class="eyebrow">ATTACHED DOCUMENTS</p>
         <div id="attachment-options-list"></div>
       </div>
+      <div class="field-lock-pdf" style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+        <input type="hidden" name="lock_pdf_submitted" value="1">
+        <input type="checkbox" id="lock_substituted_pdf" name="lock_substituted_pdf" value="true" checked style="width: 1.15rem; height: 1.15rem; min-height: 0; flex: 0 0 auto; margin: 0; cursor: pointer; accent-color: var(--green, #103e30);">
+        <label for="lock_substituted_pdf" style="margin: 0; font-size: 0.875rem; font-weight: 500; cursor: pointer; color: var(--text-color, #1f2937);">Lock PDF attachments against editing</label>
+      </div>
+      <div class="field-pdf-alignment" style="margin-top: 0.65rem; display: flex; flex-direction: column; gap: 0.25rem;">
+        <label for="pdf_text_alignment" style="margin: 0; font-size: 0.8125rem; font-weight: 500; color: var(--text-muted, #4b5563);">PDF Text Alignment</label>
+        <select id="pdf_text_alignment" name="pdf_text_alignment" style="max-width: 22rem; padding: 0.4rem 0.65rem; font-size: 0.8125rem; border-radius: 0.375rem; border: 1px solid var(--border-color, #d1d5db); background: var(--bg-surface, #ffffff); color: var(--text-color, #1f2937); cursor: pointer;">
+          <option value="center" selected>Centered (Certificates, Badges)</option>
+          <option value="directional">Directional: Left for EN, Right for AR (Letters, Invoices)</option>
+          <option value="left">Left-aligned</option>
+          <option value="right">Right-aligned</option>
+        </select>
+      </div>
     </div>
     <div class="upload-field">
       <label class="field-label" for="email-list">Email list <span>REQUIRED</span></label>

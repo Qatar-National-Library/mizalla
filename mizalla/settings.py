@@ -91,6 +91,18 @@ DEFAULT_APP_SETTINGS = {
         "/Library/Fonts/Helvetica.ttf",
         "Configured font file paths for PDF rendering and substitution (one path per line, in order of preference). The system checks paths sequentially and selects the first one that supports the text language.",
     ),
+    "lock_substituted_pdf": (
+        "true",
+        "Lock substituted PDF attachments against editing using permissions encryption. When enabled, generated PDFs open without a password prompt but are restricted from modification, form editing, and copying.",
+    ),
+    "pdf_owner_password": (
+        "",
+        "Optional owner password for unlocking secured PDF attachments in PDF editors (leave blank to use system secure key).",
+    ),
+    "pdf_text_alignment": (
+        "center",
+        "Default text alignment for substituted PDF attachments ('center', 'directional', 'left', 'right'). Directional uses left alignment for English and right alignment for Arabic.",
+    ),
 }
 
 #: Keys that used to be editable here and are now environment-only. Any row

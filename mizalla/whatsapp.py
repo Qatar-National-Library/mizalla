@@ -74,7 +74,7 @@ def _add_recipient_result(job_id, phone, status, reason=None):
             job["completed_at"] = datetime.now(timezone.utc)
 
 
-def process_job(job_id, recipients, message, attachments, device_device_id, created_by_name, rows_data):
+def process_job(job_id, recipients, message, attachments, device_device_id, created_by_name, rows_data, lock_pdf=None, pdf_alignment=None):
     """Process a bulk WhatsApp job — send messages with template substitution."""
     from .settings import get_setting
     job = jobs[job_id]
@@ -123,7 +123,7 @@ def process_job(job_id, recipients, message, attachments, device_device_id, crea
                     filename, content = att
                     should_convert = False
 
-                customized_content = substitute_attachment(filename, content, row_data, convert_pdf=should_convert)
+                customized_content = substitute_attachment(filename, content, row_data, convert_pdf=should_convert, lock_pdf=lock_pdf, pdf_alignment=pdf_alignment)
                 if should_convert and not filename.lower().endswith(".pdf"):
                     filename = Path(filename).stem + ".pdf"
 
@@ -271,6 +271,14 @@ def _handle_send(is_test=False):
     if not is_test and len(recipients) > max_recipients:
         return jsonify(error=f"The list exceeds the {max_recipients} recipient limit."), 400
 
+    lock_pdf = None
+    if "lock_pdf_submitted" in request.form:
+        lock_pdf = request.form.get("lock_substituted_pdf") in {"true", "1", "on", "yes"}
+    elif "lock_substituted_pdf" in request.form:
+        lock_pdf = request.form.get("lock_substituted_pdf") in {"true", "1", "on", "yes"}
+
+    pdf_alignment = request.form.get("pdf_text_alignment") or None
+
     attachments = []
     for idx, uploaded in enumerate(request.files.getlist("attachments")):
         if not uploaded.filename:
@@ -288,7 +296,7 @@ def _handle_send(is_test=False):
 
         should_convert = request.form.get(f"convert_pdf_{idx}") == "1"
         if is_test:
-            content = substitute_attachment(filename, content, rows_data[0], convert_pdf=should_convert)
+            content = substitute_attachment(filename, content, rows_data[0], convert_pdf=should_convert, lock_pdf=lock_pdf, pdf_alignment=pdf_alignment)
             if should_convert and not filename.lower().endswith(".pdf"):
                 filename = Path(filename).stem + ".pdf"
 
@@ -349,7 +357,7 @@ def _handle_send(is_test=False):
 
     def run_with_context():
         with app.app_context():
-            process_job(job_id, recipients, message, attachments, device_device_id, user_name, rows_data)
+            process_job(job_id, recipients, message, attachments, device_device_id, user_name, rows_data, lock_pdf=lock_pdf, pdf_alignment=pdf_alignment)
 
     if is_test:
         run_with_context()

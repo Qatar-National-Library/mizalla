@@ -352,7 +352,7 @@ def _add_recipient_result(job_id, to_email, status, reason=None):
             job["completed_at"] = datetime.now(timezone.utc)
 
 
-def process_job(job_id, recipients, sender, subject, body, attachments, created_by_name, api_key, rows_data):
+def process_job(job_id, recipients, sender, subject, body, attachments, created_by_name, api_key, rows_data, lock_pdf=None, pdf_alignment=None):
     client = None
     client_error = None
     try:
@@ -403,7 +403,7 @@ def process_job(job_id, recipients, sender, subject, body, attachments, created_
                         should_convert = False
 
                     # Substitute template variables in attachment for this recipient
-                    customized_content = substitute_attachment(filename, content, row_data, convert_pdf=should_convert)
+                    customized_content = substitute_attachment(filename, content, row_data, convert_pdf=should_convert, lock_pdf=lock_pdf, pdf_alignment=pdf_alignment)
                     out_filename = Path(filename).stem + ".pdf" if (should_convert and not filename.lower().endswith(".pdf")) else filename
 
                     content_type, _ = mimetypes.guess_type(out_filename)
@@ -619,9 +619,17 @@ def _handle_send(is_test=False):
     app = current_app._get_current_object()
     user_name = current_user.name
 
+    lock_pdf = None
+    if "lock_pdf_submitted" in request.form:
+        lock_pdf = request.form.get("lock_substituted_pdf") in {"true", "1", "on", "yes"}
+    elif "lock_substituted_pdf" in request.form:
+        lock_pdf = request.form.get("lock_substituted_pdf") in {"true", "1", "on", "yes"}
+
+    pdf_alignment = request.form.get("pdf_text_alignment") or None
+
     def run_with_context():
         with app.app_context():
-            process_job(job_id, recipients, sender, subject, body, attachments, user_name, api_key, rows_data)
+            process_job(job_id, recipients, sender, subject, body, attachments, user_name, api_key, rows_data, lock_pdf=lock_pdf, pdf_alignment=pdf_alignment)
 
     if is_test:
         run_with_context()

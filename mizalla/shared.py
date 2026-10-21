@@ -303,6 +303,20 @@ def _find_placeholder_font_info(page, full_match, var_name):
         is_mono = "courier" in clean_font or "mono" in clean_font or "console" in clean_font or bool(flags & 8)
         is_serif = "times" in clean_font or "serif" in clean_font or "roman" in clean_font or "georgia" in clean_font or "garamond" in clean_font or bool(flags & 4)
 
+        is_underline = "underline" in clean_font or "underlined" in clean_font
+        if not is_underline:
+            try:
+                sb = best_span.get("bbox")
+                if sb:
+                    for draw in page.get_drawings():
+                        dr = draw.get("rect")
+                        if dr and dr.height <= 3.5 and abs(dr.y0 - sb[3]) <= 5.0:
+                            if max(dr.x0, sb[0]) < min(dr.x1, sb[2]):
+                                is_underline = True
+                                break
+            except Exception:
+                pass
+
         if is_mono:
             fontname = "cobi" if (is_bold and is_italic) else ("cobo" if is_bold else ("coit" if is_italic else "cour"))
         elif is_serif:
@@ -325,9 +339,115 @@ def _find_placeholder_font_info(page, full_match, var_name):
             "fontsize": font_size,
             "color": color_tuple,
             "font_raw": font_raw,
+            "is_bold": is_bold,
+            "is_italic": is_italic,
+            "is_serif": is_serif,
+            "is_mono": is_mono,
+            "is_underline": is_underline,
         }
     except Exception:
         return None
+
+
+def _resolve_replacement_style(val, font_info, align_mode="center", is_arabic=None):
+    """Resolve CSS font-family, weight, style, decoration, and text-align for HTMLBox replacement."""
+    if is_arabic is None:
+        is_arabic = is_rtl(val)
+    direction = "rtl" if is_arabic else "ltr"
+
+    if font_info:
+        font_size = float(font_info.get("fontsize", 12.0))
+        color_to_use = font_info.get("color", (0.0, 0.0, 0.0))
+        is_bold = bool(font_info.get("is_bold"))
+        is_italic = bool(font_info.get("is_italic"))
+        is_serif = bool(font_info.get("is_serif"))
+        is_mono = bool(font_info.get("is_mono"))
+        is_underline = bool(font_info.get("is_underline"))
+        raw_f = str(font_info.get("font_raw", ""))
+    else:
+        font_size = 14.0
+        color_to_use = (0.0, 0.0, 0.0)
+        is_bold = False
+        is_italic = False
+        is_serif = False
+        is_mono = False
+        is_underline = False
+        raw_f = ""
+
+    clean_f = raw_f.split("+")[-1].lower() if "+" in raw_f else raw_f.lower()
+
+    font_weight = "bold" if is_bold else "normal"
+    font_style = "italic" if is_italic else "normal"
+    text_decoration = "underline" if is_underline else "none"
+
+    if is_arabic:
+        # Match Arabic typography to placeholder style:
+        # Traditional/Naskh serif style vs modern clean sans-serif vs monospaced
+        if is_serif:
+            font_family = "'Traditional Arabic', 'Amiri', 'Times New Roman', serif"
+        elif is_mono:
+            font_family = "'Courier New', monospace"
+        else:
+            font_family = "'Tahoma', 'Arial', 'Noto Sans Arabic', 'Segoe UI', sans-serif"
+    else:
+        # Match English typography directly to placeholder family:
+        if "courier" in clean_f or is_mono:
+            font_family = "'Courier New', Courier, monospace"
+        elif "times" in clean_f or "roman" in clean_f or is_serif:
+            font_family = "'Times New Roman', Times, Georgia, serif"
+        elif "georgia" in clean_f:
+            font_family = "Georgia, 'Times New Roman', serif"
+        elif "garamond" in clean_f:
+            font_family = "Garamond, 'Times New Roman', serif"
+        elif "arial" in clean_f:
+            font_family = "Arial, Helvetica, sans-serif"
+        elif "calibri" in clean_f:
+            font_family = "Calibri, Arial, sans-serif"
+        elif "tahoma" in clean_f:
+            font_family = "Tahoma, Arial, sans-serif"
+        elif "segoe" in clean_f:
+            font_family = "'Segoe UI', Tahoma, sans-serif"
+        elif "helv" in clean_f:
+            font_family = "Helvetica, Arial, sans-serif"
+        elif clean_f:
+            clean_name = raw_f.split("+")[-1]
+            font_family = f"'{clean_name}', Arial, sans-serif"
+        else:
+            font_family = "Arial, Helvetica, sans-serif"
+
+    r_c = int(color_to_use[0] * 255)
+    g_c = int(color_to_use[1] * 255)
+    b_c = int(color_to_use[2] * 255)
+    hex_color = f"#{r_c:02x}{g_c:02x}{b_c:02x}"
+
+    # Determine CSS text-align
+    if align_mode == "directional":
+        css_align = "right" if is_arabic else "left"
+    elif align_mode == "left":
+        css_align = "left"
+    elif align_mode == "right":
+        css_align = "right"
+    else:
+        css_align = "center"
+
+    style = (
+        f"<style>div{{"
+        f"font-family:{font_family};"
+        f"font-weight:{font_weight};"
+        f"font-style:{font_style};"
+        f"text-decoration:{text_decoration};"
+        f"font-size:{font_size}px;"
+        f"color:{hex_color};"
+        f"text-align:{css_align};"
+        f"margin:0;padding:0;line-height:1;"
+        f"}}</style>"
+    )
+    return {
+        "style": style,
+        "font_size": font_size,
+        "css_align": css_align,
+        "direction": direction,
+    }
 
 
 def _find_placeholder_rects(page, full_match, var_name):
@@ -439,11 +559,59 @@ def _find_placeholder_rects(page, full_match, var_name):
     return []
 
 
-def substitute_pdf(pdf_bytes, row_data):
+def _cluster_rects_by_line(rects, line_tolerance=5.0):
+    """Cluster bounding rects into lines/groups that form a single text occurrence."""
+    if not rects:
+        return []
+    sorted_rects = sorted(rects, key=lambda r: (r.y0, r.x0))
+    groups = []
+    current_group = [sorted_rects[0]]
+    for r in sorted_rects[1:]:
+        avg_y0 = sum(item.y0 for item in current_group) / len(current_group)
+        avg_h = sum(item.height for item in current_group) / len(current_group)
+        if abs(r.y0 - avg_y0) <= max(line_tolerance, avg_h * 0.5):
+            current_group.append(r)
+        else:
+            groups.append(current_group)
+            current_group = [r]
+    if current_group:
+        groups.append(current_group)
+    return groups
+
+
+def substitute_pdf(pdf_bytes, row_data, lock_pdf=None, owner_password=None, pdf_alignment=None):
     """Replace @@ COLUMN NAME @@ placeholders in PDF streams using PyMuPDF/FPDF2 for complex scripts."""
     try:
         font_path = get_font_path()
         row_data_lower = _normalize_row_data(row_data) if row_data else {}
+
+        should_lock = False
+        if lock_pdf is not None:
+            should_lock = bool(lock_pdf)
+        else:
+            try:
+                from .settings import get_setting
+                val_s = (get_setting("lock_substituted_pdf") or "").strip().lower()
+                should_lock = val_s in {"true", "1", "yes", "on"}
+            except Exception:
+                should_lock = False
+
+        if owner_password is None:
+            try:
+                from .settings import get_setting
+                owner_password = (get_setting("pdf_owner_password") or "").strip() or "MizallaSecureLock"
+            except Exception:
+                owner_password = "MizallaSecureLock"
+
+        align_mode = (pdf_alignment or "").strip().lower()
+        if not align_mode:
+            try:
+                from .settings import get_setting
+                align_mode = (get_setting("pdf_text_alignment") or "center").strip().lower()
+            except Exception:
+                align_mode = "center"
+        if align_mode not in {"center", "directional", "left", "right"}:
+            align_mode = "center"
 
         # Try PyMuPDF (fitz) first for searching, transparent redaction, and direct text insertion
         try:
@@ -452,6 +620,86 @@ def substitute_pdf(pdf_bytes, row_data):
             fitz_modified = False
 
             for page in doc:
+                # 1. First, check and handle any interactive Form Field Widgets (AcroForm annotations).
+                # Form field widgets are not cleared by page.apply_redactions(), causing the original
+                # placeholder to persist alongside the replacement text. We delete matching widgets
+                # and render the replacement text directly into the page content stream.
+                try:
+                    for w in list(page.widgets()):
+                        val_str = (w.field_value or "")
+                        name_str = (w.field_name or "")
+                        has_template = bool(TEMPLATE_PATTERN.search(val_str) or TEMPLATE_PATTERN.search(name_str))
+
+                        name_match_col = None
+                        if not has_template and not val_str.strip() and name_str:
+                            clean_n = name_str.strip().strip(BIDI_BOM_CHARS).strip().lower()
+                            if clean_n in row_data_lower:
+                                name_match_col = clean_n
+
+                        if has_template or name_match_col:
+                            if name_match_col:
+                                replacement = str(row_data_lower.get(name_match_col, ""))
+                            else:
+                                def _w_repl(m):
+                                    rn = m.group(1)
+                                    cn = (rn or "").strip().strip(BIDI_BOM_CHARS).strip().lower()
+                                    return str(row_data_lower.get(cn, m.group(0)))
+                                if TEMPLATE_PATTERN.search(val_str):
+                                    replacement = TEMPLATE_PATTERN.sub(_w_repl, val_str)
+                                else:
+                                    replacement = TEMPLATE_PATTERN.sub(_w_repl, name_str)
+
+                            r = w.rect
+                            font_size = float(w.text_fontsize) if (w.text_fontsize and w.text_fontsize > 0) else 14.0
+
+                            # Determine font color
+                            tc = w.text_color
+                            if isinstance(tc, (list, tuple)) and len(tc) == 3:
+                                color_to_use = (float(tc[0]), float(tc[1]), float(tc[2]))
+                            elif isinstance(tc, (list, tuple)) and len(tc) == 1:
+                                color_to_use = (float(tc[0]), float(tc[0]), float(tc[0]))
+                            else:
+                                color_to_use = (0.0, 0.0, 0.0)
+
+                            w_font_name = str(w.text_font or "")
+                            clean_w_font = w_font_name.lower()
+                            w_font_info = {
+                                "fontsize": font_size,
+                                "color": color_to_use,
+                                "font_raw": w_font_name,
+                                "is_bold": "bold" in clean_w_font,
+                                "is_italic": "italic" in clean_w_font or "oblique" in clean_w_font,
+                                "is_serif": "times" in clean_w_font or "serif" in clean_w_font or "roman" in clean_w_font,
+                                "is_mono": "courier" in clean_w_font or "mono" in clean_w_font,
+                                "is_underline": False,
+                            }
+                            arabic = is_rtl(replacement)
+                            style_data = _resolve_replacement_style(replacement, w_font_info, align_mode=align_mode, is_arabic=arabic)
+                            html_text = style_data["style"] + f"<div>{replacement}</div>"
+                            css_align = style_data["css_align"]
+                            pos_y = r.y0 - (font_size * 0.15)
+                            box_height = font_size * 3
+
+                            if css_align == "right":
+                                rect_html = fitz.Rect(r.x0, pos_y, r.x1, pos_y + box_height)
+                            elif css_align == "left":
+                                rect_html = fitz.Rect(r.x0, pos_y, r.x1, pos_y + box_height)
+                            else:  # center
+                                rect_html = fitz.Rect(r.x0, pos_y, r.x1, pos_y + box_height)
+
+                            # Delete the interactive form widget so the placeholder is permanently erased
+                            page.delete_widget(w)
+
+                            if replacement:
+                                try:
+                                    page.insert_htmlbox(rect_html, html_text)
+                                except Exception:
+                                    pass
+
+                            fitz_modified = True
+                except Exception:
+                    pass
+
                 text = page.get_text()
                 matches = list(TEMPLATE_PATTERN.finditer(text))
                 if not matches:
@@ -481,7 +729,7 @@ def substitute_pdf(pdf_bytes, row_data):
                 if not page_replacements:
                     continue
 
-                # Add all redaction annotations for this page
+                # Add all redaction annotations for this page (redacting all spans of the placeholder)
                 for item in page_replacements:
                     for r in item["rects"]:
                         page.add_redact_annot(r, fill=None)
@@ -489,7 +737,7 @@ def substitute_pdf(pdf_bytes, row_data):
                 # Apply redactions ONCE per page
                 page.apply_redactions()
 
-                # Insert replacement texts
+                # Insert replacement texts (once per line cluster to prevent multi-span duplication)
                 for item in page_replacements:
                     val = item["val"]
                     rects = item["rects"]
@@ -498,64 +746,62 @@ def substitute_pdf(pdf_bytes, row_data):
                     if not val:
                         continue  # Blank replacement was already redacted
 
-                    if font_info:
-                        font_size = font_info["fontsize"]
-                        color_to_use = font_info["color"]
-                        font_name_to_use = font_info["fontname"]
-                    else:
-                        font_size = float(rects[0].height * 0.75) if rects else 12.0
-                        if font_size < 8.0 or font_size > 72.0:
-                            font_size = 14.0
-                        color_to_use = (0.0, 0.0, 0.0)
-                        font_name_to_use = None
+                    arabic = is_rtl(val)
+                    style_data = _resolve_replacement_style(val, font_info, align_mode=align_mode, is_arabic=arabic)
+                    html_text = style_data["style"] + f"<div>{val}</div>"
+                    css_align = style_data["css_align"]
+                    font_size = style_data["font_size"]
 
-                    for r in rects:
-                        arabic = is_rtl(val)
-                        direction = "rtl" if arabic else "ltr"
-                        font_family = "'Traditional Arabic', 'Arial', 'Tahoma', 'Times New Roman', sans-serif" if arabic else "sans-serif"
-                        font_weight = "normal"
-                        
-                        if font_name_to_use and not arabic:
-                            nl = font_name_to_use.lower()
-                            if "cobo" in nl or "courier-bold" in nl:
-                                font_family = "Courier, monospace"
-                                font_weight = "bold"
-                            elif "courier" in nl or "como" in nl:
-                                font_family = "Courier, monospace"
-                            elif "helv" in nl:
-                                font_family = "Helvetica, sans-serif"
-                            elif "times" in nl or "tiro" in nl:
-                                font_family = "'Times New Roman', serif"
-                            else:
-                                font_family = f"'{font_name_to_use}', sans-serif"
-                        
-                        r_c = int(color_to_use[0] * 255)
-                        g_c = int(color_to_use[1] * 255)
-                        b_c = int(color_to_use[2] * 255)
-                        hex_color = f"#{r_c:02x}{g_c:02x}{b_c:02x}"
+                    # Cluster rects by line so multi-fragment placeholders receive only 1 insertion
+                    clusters = _cluster_rects_by_line(rects)
+                    for cluster in clusters:
+                        min_x = min(r.x0 for r in cluster)
+                        max_x = max(r.x1 for r in cluster)
+                        min_y = min(r.y0 for r in cluster)
+                        pos_y = min_y - (font_size * 0.15)
+                        box_height = font_size * 3
 
-                        # Center text on the original placeholder's center
-                        center_x = (r.x0 + r.x1) / 2
-                        box_width = max(page.rect.width, 800)
-                        pos_x = center_x - (box_width / 2)
-                        
-                        # y0 is the top of the placeholder's bounding box
-                        pos_y = r.y0 - (font_size * 0.15)
-                        rect_html = fitz.Rect(pos_x, pos_y, pos_x + box_width, pos_y + font_size * 3)
-
-                        style = f"<style>div{{font-family:{font_family};font-weight:{font_weight};font-size:{font_size}px;color:{hex_color};text-align:center;direction:{direction};margin:0;padding:0;line-height:1;}}</style>"
-                        html_text = style + f"<div>{val}</div>"
+                        if css_align == "right":
+                            left_bound = max(0.0, max_x - max(page.rect.width * 0.75, 500.0))
+                            rect_html = fitz.Rect(left_bound, pos_y, max_x, pos_y + box_height)
+                        elif css_align == "left":
+                            rect_html = fitz.Rect(min_x, pos_y, page.rect.width, pos_y + box_height)
+                        else:  # center
+                            center_x = (min_x + max_x) / 2
+                            box_width = max(page.rect.width, 800)
+                            pos_x = center_x - (box_width / 2)
+                            rect_html = fitz.Rect(pos_x, pos_y, pos_x + box_width, pos_y + box_height)
 
                         try:
                             page.insert_htmlbox(rect_html, html_text)
                         except Exception:
-                            print("Error in rects loop htmlbox")
+                            print("Error in htmlbox insertion")
                             pass
 
                 fitz_modified = True
 
             if fitz_modified:
-                return doc.tobytes(deflate=True, garbage=4, clean=True)
+                save_kwargs = {
+                    "deflate": True,
+                    "garbage": 4,
+                    "clean": True,
+                }
+                if should_lock:
+                    try:
+                        doc.bake()
+                    except Exception:
+                        pass
+                    perm = int(
+                        fitz.PDF_PERM_PRINT |
+                        fitz.PDF_PERM_ACCESSIBILITY
+                    )
+                    save_kwargs.update({
+                        "encryption": fitz.PDF_ENCRYPT_AES_256,
+                        "owner_pw": owner_password,
+                        "user_pw": "",
+                        "permissions": perm,
+                    })
+                return doc.tobytes(**save_kwargs)
         except Exception as e:
             print("Error in fitz loop:" + str(e))
             pass
@@ -570,6 +816,66 @@ def substitute_pdf(pdf_bytes, row_data):
 
         for page in reader.pages:
             placeholders = []
+
+            # Process interactive form field widgets in /Annots if present
+            if "/Annots" in page:
+                try:
+                    annots = page["/Annots"]
+                    annots_list = annots.get_object() if hasattr(annots, "get_object") else annots
+                    if isinstance(annots_list, list):
+                        kept_annots = []
+                        annots_changed = False
+                        for annot_ref in annots_list:
+                            annot_obj = annot_ref.get_object() if hasattr(annot_ref, "get_object") else annot_ref
+                            subtype = str(annot_obj.get("/Subtype", ""))
+                            val_str = str(annot_obj.get("/V") or "")
+                            name_str = str(annot_obj.get("/T") or "")
+
+                            has_match = False
+                            if subtype == "/Widget":
+                                m_val = list(TEMPLATE_PATTERN.finditer(val_str))
+                                if m_val:
+                                    has_match = True
+                                    for m in m_val:
+                                        rn = m.group(1)
+                                        cn = (rn or "").strip().strip(BIDI_BOM_CHARS).strip().lower()
+                                        if cn in row_data_lower:
+                                            rect = annot_obj.get("/Rect")
+                                            rx0, ry0, rx1, ry1 = [float(x) for x in rect] if rect else (0, 0, 0, 0)
+                                            placeholders.append({
+                                                "full_match": m.group(0),
+                                                "col_name": cn,
+                                                "val": str(row_data_lower[cn]),
+                                                "x": rx0,
+                                                "y": ry0,
+                                                "box_w": rx1 - rx0,
+                                                "font_size": 14.0,
+                                            })
+                                elif name_str:
+                                    m_name = TEMPLATE_PATTERN.search(name_str)
+                                    cn = m_name.group(1).strip().strip(BIDI_BOM_CHARS).strip().lower() if m_name else name_str.strip().lower()
+                                    if cn in row_data_lower:
+                                        has_match = True
+                                        rect = annot_obj.get("/Rect")
+                                        rx0, ry0, rx1, ry1 = [float(x) for x in rect] if rect else (0, 0, 0, 0)
+                                        placeholders.append({
+                                            "full_match": name_str,
+                                            "col_name": cn,
+                                            "val": str(row_data_lower[cn]),
+                                            "x": rx0,
+                                            "y": ry0,
+                                            "box_w": rx1 - rx0,
+                                            "font_size": 14.0,
+                                        })
+                            if has_match:
+                                annots_changed = True
+                            else:
+                                kept_annots.append(annot_ref)
+                        if annots_changed:
+                            page[pypdf.generic.NameObject("/Annots")] = pypdf.generic.ArrayObject(kept_annots)
+                            modified = True
+                except Exception:
+                    pass
 
             def visitor(text, cm, tm, font_dict, font_size):
                 for match in TEMPLATE_PATTERN.finditer(text):
@@ -644,8 +950,18 @@ def substitute_pdf(pdf_bytes, row_data):
 
                     display_w = fpdf.get_string_width(display_text)
                     w_orig = fpdf.get_string_width(p["full_match"])
-                    x_center = p["x"] + (w_orig / 2.0)
-                    x_new = x_center - (display_w / 2.0)
+                    if align_mode == "directional":
+                        if is_rtl(val):
+                            x_new = p["x"] + w_orig - display_w
+                        else:
+                            x_new = p["x"]
+                    elif align_mode == "left":
+                        x_new = p["x"]
+                    elif align_mode == "right":
+                        x_new = p["x"] + w_orig - display_w
+                    else:  # center
+                        x_center = p["x"] + (w_orig / 2.0)
+                        x_new = x_center - (display_w / 2.0)
                     y_fpdf = page_h - p["y"]
 
                     fpdf.text(x_new, y_fpdf, display_text)
@@ -663,6 +979,15 @@ def substitute_pdf(pdf_bytes, row_data):
                     p.compress_content_streams()
                 except Exception:
                     pass
+            if should_lock:
+                try:
+                    writer.encrypt(
+                        user_password="",
+                        owner_password=owner_password,
+                        permissions_flag=pypdf.constants.UserAccessPermissions.PRINT | pypdf.constants.UserAccessPermissions.EXTRACT_TEXT,
+                    )
+                except Exception:
+                    pass
             out = io.BytesIO()
             writer.write(out)
             return out.getvalue()
@@ -672,7 +997,7 @@ def substitute_pdf(pdf_bytes, row_data):
         return pdf_bytes
 
 
-def substitute_attachment(filename, content, row_data, convert_pdf=False):
+def substitute_attachment(filename, content, row_data, convert_pdf=False, lock_pdf=None, owner_password=None, pdf_alignment=None):
     """Substitute template variables in attachment based on file type (PDF, DOCX, XLSX, PPTX, HTML)."""
     from pathlib import Path
     suffix = Path(filename).suffix.lower()
@@ -695,7 +1020,7 @@ def substitute_attachment(filename, content, row_data, convert_pdf=False):
     elif suffix == ".pptx":
         return substitute_pptx(content, row_data)
     elif suffix == ".pdf":
-        return substitute_pdf(content, row_data)
+        return substitute_pdf(content, row_data, lock_pdf=lock_pdf, owner_password=owner_password, pdf_alignment=pdf_alignment)
     else:
         return content
 
