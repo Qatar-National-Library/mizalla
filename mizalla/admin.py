@@ -13,6 +13,7 @@ from flask_login import current_user, login_required
 from .azure_ai import service_status
 from .extensions import db
 from .feature_access import sync_member_features
+from . import google_analytics
 from .jobs import run_all_scheduled_jobs
 from .models import (
     FEATURE_KEYS,
@@ -28,6 +29,7 @@ from .models import (
     CommandGroupPermission,
     CommandItem,
     CommandItemPermission,
+    GoogleAnalyticsProperty,
     GowaDevice,
     GowaDeviceAccess,
     Member,
@@ -70,6 +72,8 @@ FEATURE_NOTES = {
     "chat": "Upload documents and ask questions about them.",
     "upload_file": "Store PDF, Word, Excel, PowerPoint, text and HTML files in a folder on the server.",
     "video_upload": "Send videos straight to Cloudflare Stream. Needs a Cloudflare API token in .env.",
+    "remote_exec": "Execute remote SSH commands and automated command groups across servers.",
+    "analytics": "View Google Analytics metrics, dimensions, and reports (View-only).",
 }
 
 
@@ -1344,5 +1348,116 @@ def permissions_matrix():
         group_perms_map=group_perms_map,
         active_tab=active_tab,
     )
+
+
+@bp.route("/analytics-properties", methods=["GET"])
+@admin_required
+def analytics_properties():
+    """Admin management screen for Google Analytics properties and member access."""
+    properties = GoogleAnalyticsProperty.query.order_by(GoogleAnalyticsProperty.display_name.asc()).all()
+    members = Member.query.filter_by(is_admin=False).order_by(Member.name.asc()).all()
+    return render_template(
+        "analytics_properties.html",
+        properties=properties,
+        members=members,
+    )
+
+
+@bp.route("/analytics-properties/sync", methods=["POST"])
+@admin_required
+def analytics_properties_sync():
+    """Discovers and synchronizes GA properties from Google Analytics Admin API."""
+    try:
+        discovered = google_analytics.discover_properties()
+        count = 0
+        now = datetime.now(timezone.utc)
+        for item in discovered:
+            prop_id = item["property_id"]
+            existing = GoogleAnalyticsProperty.query.filter_by(property_id=prop_id).first()
+            if existing:
+                existing.display_name = item["display_name"]
+                existing.account_name = item["account_name"]
+                existing.last_synced_at = now
+            else:
+                new_prop = GoogleAnalyticsProperty(
+                    property_id=prop_id,
+                    display_name=item["display_name"],
+                    account_name=item["account_name"],
+                    last_synced_at=now,
+                )
+                db.session.add(new_prop)
+                count += 1
+        db.session.commit()
+        flash(f"Successfully synchronized {len(discovered)} Google Analytics properties ({count} new).", "success")
+    except Exception as e:
+        flash(f"Failed to discover Google Analytics properties: {e}", "error")
+    return redirect(url_for("admin.analytics_properties"))
+
+
+@bp.route("/analytics-properties/<int:prop_id>/access", methods=["POST"])
+@admin_required
+def analytics_property_update_access(prop_id: int):
+    """Updates access permissions for a specific property."""
+    prop = db.session.get(GoogleAnalyticsProperty, prop_id)
+    if not prop:
+        flash("Property not found.", "error")
+        return redirect(url_for("admin.analytics_properties"))
+
+    all_members = request.form.get("all_members") == "1"
+    prop.all_members = all_members
+
+    if not all_members:
+        member_ids = request.form.getlist("member_ids", type=int)
+        selected_members = Member.query.filter(Member.id.in_(member_ids)).all() if member_ids else []
+        prop.authorized_members = selected_members
+    else:
+        prop.authorized_members = []
+
+    db.session.commit()
+    flash(f"Updated permissions for '{prop.display_name}'.", "success")
+    return redirect(url_for("admin.analytics_properties"))
+
+
+@bp.route("/analytics-properties/add", methods=["POST"])
+@admin_required
+def analytics_property_add_manual():
+    """Manually add a Google Analytics property ID."""
+    raw_prop_id = request.form.get("property_id", "").strip().replace("properties/", "")
+    display_name = request.form.get("display_name", "").strip()
+    account_name = request.form.get("account_name", "").strip() or "Manual Registration"
+
+    if not raw_prop_id or not display_name:
+        flash("Property ID and Property Name are required.", "error")
+        return redirect(url_for("admin.analytics_properties"))
+
+    existing = GoogleAnalyticsProperty.query.filter_by(property_id=raw_prop_id).first()
+    if existing:
+        flash(f"Property with ID '{raw_prop_id}' already exists.", "error")
+        return redirect(url_for("admin.analytics_properties"))
+
+    new_prop = GoogleAnalyticsProperty(
+        property_id=raw_prop_id,
+        display_name=display_name,
+        account_name=account_name,
+        last_synced_at=datetime.now(timezone.utc),
+    )
+    db.session.add(new_prop)
+    db.session.commit()
+    flash(f"Added Google Analytics property '{display_name}'.", "success")
+    return redirect(url_for("admin.analytics_properties"))
+
+
+@bp.route("/analytics-properties/<int:prop_id>/delete", methods=["POST"])
+@admin_required
+def analytics_property_delete(prop_id: int):
+    """Delete a Google Analytics property."""
+    prop = db.session.get(GoogleAnalyticsProperty, prop_id)
+    if prop:
+        display_name = prop.display_name
+        db.session.delete(prop)
+        db.session.commit()
+        flash(f"Deleted property '{display_name}'.", "success")
+    return redirect(url_for("admin.analytics_properties"))
+
 
 

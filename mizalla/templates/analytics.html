@@ -1,0 +1,505 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb %}
+{% block title %}Google Analytics — Executive Reporting{% endblock %}
+
+{% block content %}
+<link href="https://unpkg.com/gridjs/dist/theme/mermaid.min.css" rel="stylesheet" />
+<style>
+  .ga-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  .ga-card {
+    background: #ffffff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 1.25rem;
+    box-shadow: var(--panel-shadow);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .ga-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  }
+  .ga-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+  }
+  .ga-card-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0;
+  }
+  .ga-card-icon-wrap {
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
+    background: var(--green-pale, #eef4f0);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ga-card-main-val {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--ink);
+    margin: 0 0 0.4rem 0;
+    line-height: 1.1;
+  }
+  .ga-card-subtext {
+    font-size: 0.82rem;
+    color: var(--muted);
+    margin: 0;
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .ga-sub-stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .ga-sub-stat strong {
+    color: var(--ink);
+  }
+  .ga-progress-bar {
+    height: 6px;
+    border-radius: 3px;
+    background: #eef2ed;
+    overflow: hidden;
+    margin-top: 0.35rem;
+  }
+  .ga-progress-fill {
+    height: 100%;
+    background: var(--green-dark, #103e30);
+    border-radius: 3px;
+  }
+  /* Grid.js Custom Styling */
+  .gridjs-container {
+    color: var(--ink);
+    font-family: inherit;
+  }
+  .gridjs-wrapper {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: none;
+  }
+  th.gridjs-th {
+    background-color: #f7faf8 !important;
+    color: var(--green-dark, #103e30) !important;
+    font-weight: 700 !important;
+    font-size: 0.82rem !important;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border-color: var(--line) !important;
+  }
+  td.gridjs-td {
+    font-size: 0.88rem;
+    border-color: var(--line) !important;
+    padding: 0.75rem 1rem !important;
+  }
+  .gridjs-pagination .gridjs-pages button {
+    border-radius: 4px !important;
+    border-color: var(--line) !important;
+    font-size: 0.82rem !important;
+  }
+  .gridjs-pagination .gridjs-pages button.gridjs-currentPage {
+    background-color: var(--green-dark, #103e30) !important;
+    color: #ffffff !important;
+  }
+  .gridjs-search input.gridjs-input {
+    border: 1px solid var(--line) !important;
+    border-radius: 6px !important;
+    padding: 0.45rem 0.75rem !important;
+    font-size: 0.88rem !important;
+  }
+</style>
+
+<div class="analytics-service-container" style="max-width: 1300px; margin: 0 auto; padding-bottom: 3rem;">
+  {{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Google Analytics", None)]) }}
+
+  <div class="page-heading" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.25rem;">
+    <div>
+      <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+        <i data-lucide="line-chart" class="icon-green" style="width: 24px; height: 24px;"></i>
+        <p class="eyebrow" style="margin: 0;">EXECUTIVE REPORTING &amp; DATA EXPLORER</p>
+      </div>
+      <h1 style="margin: 0.2rem 0 0;">Google Analytics Data Explorer</h1>
+      <p class="lede" style="margin-top: 0.4rem; color: var(--muted); font-size: 0.95rem;">
+        Executive analytics reporting, key performance indicators, and page metrics for authorized Google Analytics 4 properties.
+      </p>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+      {% if current_user.is_admin %}
+        <a href="{{ url_for('admin.analytics_properties') }}" class="button button-quiet" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem;">
+          <i data-lucide="settings" class="icon-green" style="width: 15px; height: 15px;"></i> Manage GA Properties
+        </a>
+      {% endif %}
+
+      {% if configured and key_file_exists and connection_info and connection_info.status == 'connected' %}
+        <span class="badge" style="background: #2e7d32; color: #ffffff; padding: 0.35rem 0.75rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem;">
+          <i data-lucide="check-circle" class="icon-white" style="width: 14px; height: 14px;"></i> Service Active (GA4)
+        </span>
+      {% elif not configured or not key_file_exists %}
+        <span class="badge" style="background: #c62828; color: #ffffff; padding: 0.35rem 0.75rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem;">
+          <i data-lucide="alert-triangle" class="icon-white" style="width: 14px; height: 14px;"></i> NOT CONFIGURED
+        </span>
+      {% else %}
+        <span class="badge" style="background: #f57c00; color: #ffffff; padding: 0.35rem 0.75rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem;">
+          <i data-lucide="alert-circle" class="icon-white" style="width: 14px; height: 14px;"></i> CONNECTION ERROR
+        </span>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if not configured or not key_file_exists %}
+    <!-- Key File Warning -->
+    <section class="detail-section" style="background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
+      <div style="display: flex; gap: 1rem; align-items: flex-start;">
+        <i data-lucide="key" class="icon-green" style="width: 28px; height: 28px; flex-shrink: 0; margin-top: 2px;"></i>
+        <div>
+          <h2 style="margin: 0 0 0.5rem; font-size: 1.15rem;">Service Account Key File Required</h2>
+          <p style="margin: 0 0 0.75rem; color: var(--muted); font-size: 0.9rem;">
+            Google Analytics integration requires the <code>GOOGLE_ANALYTICS_APIKEY_JSON</code> environment variable set in <code>.env</code> pointing to a valid Google Cloud Service Account JSON key.
+          </p>
+          {% if missing %}
+            <ul style="margin: 0 0 1rem 1.25rem; font-size: 0.85rem; color: var(--red);">
+              {% for item in missing %}<li>{{ item }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+  {% else %}
+
+    <!-- Connection & Service Account Card -->
+    <div style="background: #ffffff; border: 1px solid var(--line); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: var(--panel-shadow);">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+        <div style="display: flex; gap: 0.85rem; align-items: center;">
+          <div style="width: 44px; height: 44px; border-radius: 8px; background: var(--green-pale, #eef4f0); display: flex; align-items: center; justify-content: center;">
+            <i data-lucide="file-key" class="icon-green" style="width: 24px; height: 24px;"></i>
+          </div>
+          <div>
+            <h2 style="margin: 0; font-size: 1.05rem;">Service Account Authentication</h2>
+            <p style="margin: 0.2rem 0 0; color: var(--muted); font-size: 0.82rem;">
+              Using Key: <code style="background: #f1f3f0; padding: 0.15rem 0.4rem; border-radius: 3px; font-weight: 600;">{{ key_filename }}</code>
+            </p>
+          </div>
+        </div>
+
+        {% if connection_info %}
+          <div style="display: flex; gap: 1.5rem; flex-wrap: wrap; font-size: 0.82rem;">
+            <div>
+              <span class="muted" style="display: block; font-size: 0.72rem; text-transform: uppercase; font-weight: 600;">Project ID</span>
+              <strong style="color: var(--ink);">{{ connection_info.project_id or '—' }}</strong>
+            </div>
+            <div>
+              <span class="muted" style="display: block; font-size: 0.72rem; text-transform: uppercase; font-weight: 600;">Client Email</span>
+              <span style="color: var(--ink); font-family: monospace; font-size: 0.8rem;">{{ connection_info.client_email or '—' }}</span>
+            </div>
+            <div>
+              <span class="muted" style="display: block; font-size: 0.72rem; text-transform: uppercase; font-weight: 600;">Auth Status</span>
+              <span style="color: #2e7d32; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i data-lucide="shield-check" class="icon-green" style="width: 14px; height: 14px;"></i> OAuth 2.0 JWT Active
+              </span>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if not accessible_properties and not current_user.is_admin %}
+    <!-- No Access to any property -->
+    <div style="background: #ffffff; border: 1px solid var(--line); border-radius: 8px; padding: 3rem 1.5rem; text-align: center; box-shadow: var(--panel-shadow);">
+      <i data-lucide="lock" class="icon-green" style="width: 48px; height: 48px; stroke-width: 1.5; margin-bottom: 1rem;"></i>
+      <h2 style="margin: 0 0 0.5rem; font-size: 1.2rem; color: var(--ink);">No GA Properties Assigned</h2>
+      <p style="max-width: 480px; margin: 0 auto; color: var(--muted); font-size: 0.92rem;">
+        You have view-only access to Google Analytics, but an administrator has not yet assigned any specific GA Properties to your account.
+      </p>
+    </div>
+  {% else %}
+
+    <!-- Filter Control Bar: Property Dropdown & Date Range Selector -->
+    <div style="background: #ffffff; border: 1px solid var(--line); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: var(--panel-shadow);">
+      <form method="GET" action="{{ url_for('analytics.index') }}" id="analytics-filter-form" style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 1rem;">
+        
+        <!-- Property Selector -->
+        <div style="flex: 1 1 300px;">
+          <label for="property-select" style="display: block; font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); margin-bottom: 0.4rem;">
+            <i data-lucide="bar-chart-3" class="icon-green" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 0.25rem;"></i> Select GA Property
+          </label>
+          <select id="property-select" name="property_id" onchange="document.getElementById('analytics-filter-form').submit()" style="width: 100%; padding: 0.6rem 0.85rem; border: 1px solid var(--line); border-radius: 6px; font-size: 0.92rem; font-weight: 600; background: #fafafa; color: var(--ink); cursor: pointer;">
+            {% if not accessible_properties %}
+              <option value="">No properties configured</option>
+            {% else %}
+              {% for p in accessible_properties %}
+                <option value="{{ p.property_id }}" {% if selected_property and selected_property.property_id == p.property_id %}selected{% endif %}>
+                  {{ p.display_name }} ({{ p.property_id }}){% if p.account_name %} — {{ p.account_name }}{% endif %}
+                </option>
+              {% endfor %}
+            {% endif %}
+          </select>
+        </div>
+
+        <!-- Date Range Presets -->
+        <div style="display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap;">
+          <div>
+            <span style="display: block; font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); margin-bottom: 0.4rem;">
+              <i data-lucide="calendar" class="icon-green" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 0.25rem;"></i> Date Range
+            </span>
+            <div style="display: flex; gap: 0.35rem; background: #f1f3f0; padding: 0.25rem; border-radius: 6px;">
+              <button type="submit" name="date_preset" value="7d" class="button button-small {% if date_preset == '7d' %}button-primary{% else %}button-quiet{% endif %}" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;">
+                7 Days
+              </button>
+              <button type="submit" name="date_preset" value="30d" class="button button-small {% if date_preset == '30d' %}button-primary{% else %}button-quiet{% endif %}" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;">
+                30 Days
+              </button>
+              <button type="submit" name="date_preset" value="90d" class="button button-small {% if date_preset == '90d' %}button-primary{% else %}button-quiet{% endif %}" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;">
+                90 Days
+              </button>
+              <button type="button" onclick="toggleCustomDates()" class="button button-small {% if date_preset == 'custom' %}button-primary{% else %}button-quiet{% endif %}" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;">
+                Custom...
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Custom Date Range Picker Container (Collapsible) -->
+        <div id="custom-date-container" style="{% if date_preset != 'custom' %}display: none;{% else %}display: flex;{% endif %} gap: 0.5rem; align-items: flex-end; width: 100%; margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px dashed var(--line);">
+          <div>
+            <label for="start_date" style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 0.2rem;">Start Date</label>
+            <input type="date" id="start_date" name="start_date" value="{{ custom_start }}" style="padding: 0.4rem 0.6rem; border: 1px solid var(--line); border-radius: 4px; font-size: 0.85rem;">
+          </div>
+          <div>
+            <label for="end_date" style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 0.2rem;">End Date</label>
+            <input type="date" id="end_date" name="end_date" value="{{ custom_end }}" style="padding: 0.4rem 0.6rem; border: 1px solid var(--line); border-radius: 4px; font-size: 0.85rem;">
+          </div>
+          <button type="submit" name="date_preset" value="custom" class="button button-primary button-small" style="height: 33px;">
+            Apply Custom Range
+          </button>
+        </div>
+      </form>
+    </div>
+
+    {% if report_error %}
+      <div style="margin-bottom: 1.5rem; padding: 1rem 1.25rem; background: var(--red-soft, #fdf2f2); border: 1px solid rgba(166, 61, 53, 0.3); border-radius: 8px; color: var(--red, #c62828); font-size: 0.9rem; display: flex; align-items: flex-start; gap: 0.75rem;">
+        <i data-lucide="alert-octagon" class="icon-red" style="width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px;"></i>
+        <div>
+          <strong>Report Query Error:</strong>
+          <p style="margin: 0.25rem 0 0; font-size: 0.85rem;">{{ report_error }}</p>
+        </div>
+      </div>
+    {% endif %}
+
+    {% if report_data %}
+      <!-- Section 1: Executive KPI Cards -->
+      <div class="ga-kpi-grid">
+        <!-- Card 1: Page Views -->
+        <div class="ga-card">
+          <div class="ga-card-header">
+            <span class="ga-card-title">Page Views</span>
+            <div class="ga-card-icon-wrap">
+              <i data-lucide="eye" class="icon-green" style="width: 18px; height: 18px;"></i>
+            </div>
+          </div>
+          <p class="ga-card-main-val">{{ "{:,}".format(report_data.page_views) }}</p>
+          <div class="ga-card-subtext">
+            <span>Total views across all content</span>
+          </div>
+        </div>
+
+        <!-- Card 2: New Sessions & Returning Users -->
+        <div class="ga-card">
+          <div class="ga-card-header">
+            <span class="ga-card-title">Sessions &amp; Users</span>
+            <div class="ga-card-icon-wrap">
+              <i data-lucide="users" class="icon-green" style="width: 18px; height: 18px;"></i>
+            </div>
+          </div>
+          <p class="ga-card-main-val">{{ "{:,}".format(report_data.sessions) }}</p>
+          <div class="ga-card-subtext">
+            <span class="ga-sub-stat">New: <strong>{{ "{:,}".format(report_data.new_sessions) }}</strong></span>
+            <span>•</span>
+            <span class="ga-sub-stat">Returning: <strong>{{ "{:,}".format(report_data.returning_users) }}</strong></span>
+          </div>
+        </div>
+
+        <!-- Card 3: Page Views per Session -->
+        <div class="ga-card">
+          <div class="ga-card-header">
+            <span class="ga-card-title">Page Views / Session</span>
+            <div class="ga-card-icon-wrap">
+              <i data-lucide="file-text" class="icon-green" style="width: 18px; height: 18px;"></i>
+            </div>
+          </div>
+          <p class="ga-card-main-val">{{ report_data.page_views_per_session_avg }}</p>
+          <div class="ga-card-subtext">
+            <span class="ga-sub-stat">Min: <strong>{{ report_data.page_views_per_session_min }}</strong></span>
+            <span>•</span>
+            <span class="ga-sub-stat">Max: <strong>{{ report_data.page_views_per_session_max }}</strong></span>
+          </div>
+        </div>
+
+        <!-- Card 4: Bounce Rate -->
+        <div class="ga-card">
+          <div class="ga-card-header">
+            <span class="ga-card-title">Bounce Rate</span>
+            <div class="ga-card-icon-wrap">
+              <i data-lucide="arrow-up-right" class="icon-green" style="width: 18px; height: 18px;"></i>
+            </div>
+          </div>
+          <p class="ga-card-main-val">{{ report_data.bounce_rate }}%</p>
+          <div class="ga-card-subtext">
+            <span>Single-page non-engaged sessions</span>
+          </div>
+        </div>
+
+        <!-- Card 5: Session Length (Avg / Min / Max) -->
+        <div class="ga-card">
+          <div class="ga-card-header">
+            <span class="ga-card-title">Session Length</span>
+            <div class="ga-card-icon-wrap">
+              <i data-lucide="clock" class="icon-green" style="width: 18px; height: 18px;"></i>
+            </div>
+          </div>
+          <p class="ga-card-main-val">{{ report_data.avg_session_duration_formatted }}</p>
+          <div class="ga-card-subtext">
+            <span class="ga-sub-stat">Min: <strong>{{ report_data.session_length_min_formatted }}</strong></span>
+            <span>•</span>
+            <span class="ga-sub-stat">Max: <strong>{{ report_data.session_length_max_formatted }}</strong></span>
+          </div>
+        </div>
+
+        <!-- Card 6: Top Countries Summary -->
+        <div class="ga-card">
+          <div class="ga-card-header">
+            <span class="ga-card-title">Top 5 Countries</span>
+            <div class="ga-card-icon-wrap">
+              <i data-lucide="globe" class="icon-green" style="width: 18px; height: 18px;"></i>
+            </div>
+          </div>
+          <div style="margin-top: 0.2rem;">
+            {% if not report_data.top_countries %}
+              <p style="margin: 0; color: var(--muted); font-size: 0.85rem;">No country data recorded.</p>
+            {% else %}
+              <div style="display: flex; flex-direction: column; gap: 0.45rem;">
+                {% for c in report_data.top_countries %}
+                  <div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600;">
+                      <span style="color: var(--ink);">{{ c.country }}</span>
+                      <span style="color: var(--muted);">{{ c.users }} users ({{ c.percentage }}%)</span>
+                    </div>
+                    <div class="ga-progress-bar">
+                      <div class="ga-progress-fill" style="width: {{ c.percentage }}%;"></div>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 2: Grid.js Interactive Pages Table -->
+      <div style="background: #ffffff; border: 1px solid var(--line); border-radius: 8px; padding: 1.25rem; box-shadow: var(--panel-shadow);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div>
+            <h2 style="margin: 0; font-size: 1.1rem; color: var(--ink); display: flex; align-items: center; gap: 0.5rem;">
+              <i data-lucide="table" class="icon-green" style="width: 20px; height: 20px;"></i>
+              Page Performance Breakdown
+            </h2>
+            <p style="margin: 0.2rem 0 0; color: var(--muted); font-size: 0.85rem;">
+              All monitored pages sorted by view count. Search, sort by column, or navigate using 25-item pages.
+            </p>
+          </div>
+          <div>
+            <span class="badge" style="background: #f1f3f0; color: var(--ink); padding: 0.3rem 0.6rem; border-radius: 4px; font-weight: 600; font-size: 0.8rem;">
+              Total Pages: {{ report_data.pages|length }}
+            </span>
+          </div>
+        </div>
+
+        <div id="ga-pages-grid-wrapper"></div>
+      </div>
+    {% endif %}
+
+    {% endif %}
+  {% endif %}
+</div>
+
+<!-- Grid.js Library -->
+<script src="https://unpkg.com/gridjs/dist/gridjs.umd.js"></script>
+<script>
+  function toggleCustomDates() {
+    const el = document.getElementById('custom-date-container');
+    if (el) {
+      el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'flex' : 'none';
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    // Re-initialize Lucide Icons
+    if (window.lucide) {
+      window.lucide.createIcons();
+    }
+
+    // Initialize Grid.js
+    {% if report_data and report_data.pages %}
+      const pageData = [
+        {% for p in report_data.pages %}
+          [
+            {{ p.path | tojson }},
+            {{ p.title | tojson }},
+            {{ p.views }},
+            {{ p.users }},
+            {{ p.bounce_rate | tojson }}
+          ],
+        {% endfor %}
+      ];
+
+      const gridContainer = document.getElementById("ga-pages-grid-wrapper");
+      if (gridContainer && window.gridjs) {
+        new gridjs.Grid({
+          columns: [
+            { name: "Page Path", sort: true },
+            { name: "Page Title", sort: true },
+            { name: "Page Views", sort: true, formatter: (cell) => Number(cell).toLocaleString() },
+            { name: "Active Users", sort: true, formatter: (cell) => Number(cell).toLocaleString() },
+            { name: "Bounce Rate", sort: true }
+          ],
+          data: pageData,
+          search: {
+            placeholder: "Search page path or title..."
+          },
+          sort: true,
+          pagination: {
+            limit: 25,
+            summary: true
+          },
+          language: {
+            search: {
+              placeholder: "Search page path or title..."
+            },
+            pagination: {
+              showing: "Showing",
+              of: "of",
+              to: "to",
+              results: "pages"
+            }
+          }
+        }).render(gridContainer);
+      }
+    {% endif %}
+  });
+</script>
+{% endblock %}

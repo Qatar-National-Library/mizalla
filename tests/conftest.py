@@ -69,6 +69,7 @@ class Credentials:
         "cloudflare_account_id": "CLOUDFLARE_ACCOUNT_ID",
         "cloudflare_api_token": "CLOUDFLARE_API_TOKEN",
         "cloudflare_endpoint": "CLOUDFLARE_ENDPOINT",
+        "google_analytics_apikey_json": "GOOGLE_ANALYTICS_APIKEY_JSON",
     }
 
     DEFAULTS = {
@@ -86,6 +87,7 @@ class Credentials:
         "cloudflare_account_id": "acct0000test",
         "cloudflare_api_token": "cloudflare-token",
         "cloudflare_endpoint": "https://api.cloudflare.test/client/v4",
+        "google_analytics_apikey_json": "apikey_GoogleAnalytics.json",
     }
 
     def set(self, **overrides):

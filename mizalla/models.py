@@ -698,6 +698,7 @@ FEATURE_CHAT = "chat"
 FEATURE_UPLOAD = "upload_file"
 FEATURE_VIDEO_UPLOAD = "video_upload"
 FEATURE_REMOTE_EXEC = "remote_exec"
+FEATURE_ANALYTICS = "analytics"
 
 #: feature_key -> human label shown in the admin UI and service cards
 FEATURE_LABELS = {
@@ -710,6 +711,7 @@ FEATURE_LABELS = {
     FEATURE_UPLOAD: "Upload File",
     FEATURE_VIDEO_UPLOAD: "Video Upload",
     FEATURE_REMOTE_EXEC: "Remote Command Execution",
+    FEATURE_ANALYTICS: "Google Analytics",
 }
 
 FEATURE_KEYS = tuple(FEATURE_LABELS)
@@ -1353,5 +1355,61 @@ class UtilityAppFeedback(db.Model):
     @property
     def is_hidden(self) -> bool:
         return self.status == FEEDBACK_STATUS_HIDDEN
+
+
+# ─── Google Analytics Properties & Access Control ────────────────────────────
+
+ga_property_access = db.Table(
+    "ga_property_access",
+    db.Column("property_id", db.Integer, db.ForeignKey("google_analytics_property.id", ondelete="CASCADE"), primary_key=True),
+    db.Column("member_id", db.Integer, db.ForeignKey("member.id", ondelete="CASCADE"), primary_key=True),
+    db.Column("granted_at", db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)),
+    db.Column("granted_by_id", db.Integer, db.ForeignKey("member.id", ondelete="SET NULL"), nullable=True),
+)
+
+
+class GoogleAnalyticsProperty(db.Model):
+    __tablename__ = "google_analytics_property"
+
+    id = db.Column(db.Integer, primary_key=True)
+    property_id = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    display_name = db.Column(db.String(200), nullable=False)
+    account_name = db.Column(db.String(200), nullable=False, default="")
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    all_members = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    last_synced_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    authorized_members = db.relationship(
+        "Member",
+        secondary=ga_property_access,
+        primaryjoin="GoogleAnalyticsProperty.id == ga_property_access.c.property_id",
+        secondaryjoin="Member.id == ga_property_access.c.member_id",
+        backref=db.backref("authorized_ga_properties", lazy="dynamic"),
+        lazy="selectin",
+    )
+
+    def can_access(self, member) -> bool:
+        if member is None or not getattr(member, "is_authenticated", False):
+            return False
+        if member.is_admin or self.all_members:
+            return True
+        return any(m.id == member.id for m in self.authorized_members)
+
+    @classmethod
+    def accessible_properties_for(cls, member) -> list["GoogleAnalyticsProperty"]:
+        if member is None or not getattr(member, "is_authenticated", False):
+            return []
+        if member.is_admin:
+            return cls.query.filter_by(is_active=True).order_by(cls.display_name.asc()).all()
+
+        return cls.query.filter(
+            cls.is_active.is_(True),
+            db.or_(
+                cls.all_members.is_(True),
+                cls.authorized_members.any(Member.id == member.id),
+            ),
+        ).order_by(cls.display_name.asc()).all()
+
 
 

@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb %}
+{% block title %}Google Analytics Properties &amp; Permissions{% endblock %}
+
+{% block content %}
+<div class="analytics-properties-container" style="max-width: 1200px; margin: 0 auto; padding-bottom: 3rem;">
+  {{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Admin", url_for('admin.settings_list')), ("GA Properties", None)]) }}
+
+  <div class="page-heading" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
+    <div>
+      <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+        <i data-lucide="shield-check" class="icon-green" style="width: 24px; height: 24px;"></i>
+        <p class="eyebrow" style="margin: 0;">ADMINISTRATION</p>
+      </div>
+      <h1 style="margin: 0.2rem 0 0;">Google Analytics Properties &amp; Permissions</h1>
+      <p class="lede" style="margin-top: 0.4rem; color: var(--muted); font-size: 0.95rem;">
+        Auto-discover Google Analytics 4 (GA4) properties accessible to your Service Account and grant view-only access to users.
+      </p>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+      <a href="{{ url_for('analytics.index') }}" class="button button-quiet" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+        <i data-lucide="line-chart" class="icon-green" style="width: 16px; height: 16px;"></i> View Analytics Page
+      </a>
+      <form method="POST" action="{{ url_for('admin.analytics_properties_sync') }}" style="display: inline;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="button button-primary" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+          <i data-lucide="refresh-cw" class="icon-white" style="width: 16px; height: 16px;"></i> Discover &amp; Sync from Google
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Manual Registration Drawer / Form -->
+  <details style="background: #ffffff; border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; box-shadow: var(--panel-shadow);">
+    <summary style="font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; color: var(--green-dark);">
+      <i data-lucide="plus-circle" class="icon-green" style="width: 18px; height: 18px;"></i>
+      <span>Add Property Manually (Fallback)</span>
+    </summary>
+    <form method="POST" action="{{ url_for('admin.analytics_property_add_manual') }}" style="margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)) auto; gap: 1rem; align-items: flex-end;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div>
+        <label for="property_id" style="display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.3rem;">GA4 Property ID *</label>
+        <input type="text" id="property_id" name="property_id" placeholder="e.g. 123456789" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--line); border-radius: 4px; font-size: 0.9rem;">
+      </div>
+      <div>
+        <label for="display_name" style="display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.3rem;">Property Display Name *</label>
+        <input type="text" id="display_name" name="display_name" placeholder="e.g. Main Production Website" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--line); border-radius: 4px; font-size: 0.9rem;">
+      </div>
+      <div>
+        <label for="account_name" style="display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.3rem;">Account Name (Optional)</label>
+        <input type="text" id="account_name" name="account_name" placeholder="e.g. Corporate Account" style="width: 100%; padding: 0.5rem; border: 1px solid var(--line); border-radius: 4px; font-size: 0.9rem;">
+      </div>
+      <div>
+        <button type="submit" class="button button-primary" style="display: inline-flex; align-items: center; gap: 0.35rem; height: 38px;">
+          <i data-lucide="plus" class="icon-white" style="width: 15px; height: 15px;"></i> Add Property
+        </button>
+      </div>
+    </form>
+  </details>
+
+  <!-- Properties List -->
+  <div style="background: #ffffff; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; box-shadow: var(--panel-shadow);">
+    <div style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; background: #fafafa;">
+      <h2 style="margin: 0; font-size: 1.05rem; display: flex; align-items: center; gap: 0.5rem;">
+        <i data-lucide="layers" class="icon-green" style="width: 18px; height: 18px;"></i>
+        Discovered Properties ({{ properties|length }})
+      </h2>
+      <span style="font-size: 0.82rem; color: var(--muted);">Administrators inherently have view access to all properties</span>
+    </div>
+
+    {% if not properties %}
+      <div style="padding: 3rem 1.5rem; text-align: center; color: var(--muted);">
+        <i data-lucide="inbox" class="icon-green" style="width: 44px; height: 44px; stroke-width: 1.5; margin-bottom: 0.75rem;"></i>
+        <h3 style="margin: 0 0 0.5rem; font-size: 1.1rem; color: var(--ink);">No Properties Discovered Yet</h3>
+        <p style="max-width: 500px; margin: 0 auto 1.5rem; font-size: 0.9rem;">
+          Click the "Discover &amp; Sync from Google" button above to auto-discover properties accessible to your Service Account, or add them manually.
+        </p>
+      </div>
+    {% else %}
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.88rem; text-align: left;">
+          <thead>
+            <tr style="border-bottom: 1px solid var(--line); background: #fdfdfd; color: var(--muted); font-size: 0.78rem; text-transform: uppercase;">
+              <th style="padding: 0.75rem 1.25rem;">Property &amp; Account</th>
+              <th style="padding: 0.75rem 1rem;">Property ID</th>
+              <th style="padding: 0.75rem 1rem;">View Permissions</th>
+              <th style="padding: 0.75rem 1rem;">Last Synced</th>
+              <th style="padding: 0.75rem 1.25rem; text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for prop in properties %}
+              <tr style="border-bottom: 1px solid var(--line); vertical-align: top;">
+                <td style="padding: 1rem 1.25rem;">
+                  <strong style="font-size: 0.95rem; color: var(--ink); display: block;">{{ prop.display_name }}</strong>
+                  <span style="color: var(--muted); font-size: 0.8rem;">{{ prop.account_name or '—' }}</span>
+                </td>
+                <td style="padding: 1rem 1rem;">
+                  <code style="background: #f1f3f0; padding: 0.2rem 0.45rem; border-radius: 4px; font-weight: 600; font-size: 0.82rem;">{{ prop.property_id }}</code>
+                </td>
+                <td style="padding: 1rem 1rem;">
+                  {% if prop.all_members %}
+                    <span class="badge" style="background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; padding: 0.2rem 0.55rem; border-radius: 4px; font-weight: 600; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.3rem;">
+                      <i data-lucide="globe" class="icon-green" style="width: 12px; height: 12px;"></i> All Members
+                    </span>
+                  {% elif prop.authorized_members %}
+                    <div style="display: flex; flex-wrap: wrap; gap: 0.35rem; max-width: 320px;">
+                      {% for m in prop.authorized_members %}
+                        <span style="background: #f1f3f0; border: 1px solid #e0e0e0; padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.78rem;">
+                          {{ m.name }}
+                        </span>
+                      {% endfor %}
+                    </div>
+                  {% else %}
+                    <span style="color: var(--muted); font-size: 0.8rem; font-style: italic;">Admins only (no users assigned)</span>
+                  {% endif %}
+                </td>
+                <td style="padding: 1rem 1rem; color: var(--muted); font-size: 0.8rem; white-space: nowrap;">
+                  {{ prop.last_synced_at.strftime('%Y-%m-%d %H:%M') if prop.last_synced_at else '—' }}
+                </td>
+                <td style="padding: 1rem 1.25rem; text-align: right; white-space: nowrap;">
+                  <button type="button" class="button button-small button-quiet" onclick="openAccessModal('modal-{{ prop.id }}')" style="display: inline-flex; align-items: center; gap: 0.3rem;">
+                    <i data-lucide="users" class="icon-green" style="width: 14px; height: 14px;"></i> Manage Access
+                  </button>
+                  <form method="POST" action="{{ url_for('admin.analytics_property_delete', prop_id=prop.id) }}" style="display: inline;" onsubmit="return confirm('Remove property {{ prop.display_name }}?');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="button button-small button-danger" style="display: inline-flex; align-items: center; padding: 0.3rem 0.5rem;" title="Delete Property">
+                      <i data-lucide="trash-2" class="icon-white" style="width: 14px; height: 14px;"></i>
+                    </button>
+                  </form>
+
+                  <!-- Modal for Access Assignment -->
+                  <dialog id="modal-{{ prop.id }}" style="border: 1px solid var(--line); border-radius: 8px; padding: 1.5rem; max-width: 500px; width: 90%; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--line); padding-bottom: 0.75rem;">
+                      <h3 style="margin: 0; font-size: 1.1rem; color: var(--ink);">Access for {{ prop.display_name }}</h3>
+                      <button type="button" onclick="closeAccessModal('modal-{{ prop.id }}')" style="background: none; border: none; cursor: pointer;">
+                        <i data-lucide="x" class="icon-green" style="width: 18px; height: 18px;"></i>
+                      </button>
+                    </div>
+
+                    <form method="POST" action="{{ url_for('admin.analytics_property_update_access', prop_id=prop.id) }}">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      
+                      <div style="margin-bottom: 1.25rem; background: #fdfbf7; padding: 0.75rem; border-radius: 6px; border: 1px solid #fae8c8;">
+                        <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; cursor: pointer;">
+                          <input type="checkbox" name="all_members" value="1" {% if prop.all_members %}checked{% endif %} onchange="toggleMemberCheckboxes(this, 'member-list-{{ prop.id }}')">
+                          <span>Grant View Access to All Members</span>
+                        </label>
+                        <p style="margin: 0.25rem 0 0 1.6rem; font-size: 0.78rem; color: var(--muted);">Any member granted the Analytics service will be able to select this property.</p>
+                      </div>
+
+                      <div id="member-list-{{ prop.id }}" style="margin-bottom: 1.5rem; {% if prop.all_members %}opacity: 0.5; pointer-events: none;{% endif %}">
+                        <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.5rem;">Or select specific authorized members:</label>
+                        <div style="max-height: 200px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; padding: 0.5rem;">
+                          {% if not members %}
+                            <p style="margin: 0.5rem; color: var(--muted); font-size: 0.82rem;">No non-admin members created yet.</p>
+                          {% else %}
+                            {% set current_ids = prop.authorized_members | map(attribute='id') | list %}
+                            {% for m in members %}
+                              <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.5rem; border-radius: 4px; font-size: 0.85rem; cursor: pointer;">
+                                <input type="checkbox" name="member_ids" value="{{ m.id }}" {% if m.id in current_ids %}checked{% endif %}>
+                                <span>{{ m.name }} <small style="color: var(--muted);">({{ m.email }})</small></span>
+                              </label>
+                            {% endfor %}
+                          {% endif %}
+                        </div>
+                      </div>
+
+                      <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+                        <button type="button" class="button button-quiet" onclick="closeAccessModal('modal-{{ prop.id }}')">Cancel</button>
+                        <button type="submit" class="button button-primary">Save Permissions</button>
+                      </div>
+                    </form>
+                  </dialog>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+  function openAccessModal(id) {
+    const dialog = document.getElementById(id);
+    if (dialog && typeof dialog.showModal === 'function') {
+      dialog.showModal();
+    }
+  }
+
+  function closeAccessModal(id) {
+    const dialog = document.getElementById(id);
+    if (dialog && typeof dialog.close === 'function') {
+      dialog.close();
+    }
+  }
+
+  function toggleMemberCheckboxes(checkbox, containerId) {
+    const container = document.getElementById(containerId);
+    if (container) {
+      if (checkbox.checked) {
+        container.style.opacity = '0.5';
+        container.style.pointerEvents = 'none';
+      } else {
+        container.style.opacity = '1';
+        container.style.pointerEvents = 'auto';
+      }
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    if (window.lucide) {
+      window.lucide.createIcons();
+    }
+  });
+</script>
+{% endblock %}

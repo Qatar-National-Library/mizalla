@@ -1,13 +1,17 @@
 # Antigravity IDE & AI Agent Directives
 
-## Execution & Tool Access Permissions
-The AI Agent is authorized with full access to run:
-- **PowerShell**: Commands and `.ps1` scripts without restrictions.
-- **CLI / Command Line**: Windows CMD commands and `.bat` batch scripts.
-- **Python Runtime**: Python CLI, Python commands, `-m` modules, and `.py` scripts.
-- **Package & Dependency Managers**: `pip`, `npm`, `pnpm`, `node`, `npx`, and development servers.
-- **Git**: All Git operations and version control workflows.
-- **Filesystem Access**: Create, edit, delete, and manage files and folders on the filesystem.
+## Permissions & Unconditional Execution Authority
+The agent / Antigravity / Gemini CLI has full, unconditional authority and must NEVER ask repeatedly for permission to execute:
+1. **Scripts, Commands & Terminals**: Full authority to run scripts and commands in **PowerShell**, **Command Line (CMD/batch)**, and **bash**. Do NOT ask repeatedly.
+2. **Filesystem Operations**:
+   - **Current Project Folder**: Full authority to edit, delete, update, and create files under the *current project* folder. Do NOT ask repeatedly.
+   - **Global Settings Folder**: Full access to the global settings and configuration folder (`C:\Users\uahmad\.gemini` and its subdirectories). Do NOT ask repeatedly.
+   - **User-Granted Folders**: Full authority over any other folder the user gives explicit access to.
+   - **External Folder Boundary**: If access is needed to any folder besides the current project, global settings, or explicitly granted folders, ask the user, but that access will strictly be for that *project* only.
+3. **Python Runtime & Tools**: Full authority to run **python**, **venv**, **pip**, and **pipx** scripts and commands. Do NOT ask repeatedly.
+4. **Node & Package Managers**: Full authority to run **node**, **npm**, **pnpm**, and **npx** scripts and commands. Do NOT ask repeatedly.
+5. **Git**: All git operations.
+
 
 ---
 
@@ -41,3 +45,13 @@ The AI Agent is authorized with full access to run:
   - Always use a virtual environment to develop, test, write code, or run Python applications and scripts.
   - If a virtual environment is not available, create one immediately (default name = `venv`, e.g., `python -m venv venv`).
   - If Python packages change (new ones added, version changed, package list edited, etc.) as you develop/write code, drop the virtual environment and recreate it cleanly from scratch before reinstalling packages (`pip install -r requirements.txt`).
+
+---
+
+## Mandatory Pre-Development Planning & Superpowers Workflow Standard
+- **ALWAYS Follow Globally**: These planning directives apply to all projects and tasks without exception:
+  1. **Use Superpowers Before Development**: Always activate and use the `superpowers` skills (`using-superpowers`, `writing-plans`, etc.) to plan out thoroughly before any development or code change.
+  2. **Clarifications on Ambiguity**: If you encounter any ambiguity or need clarifications, proactively ask the user for clarification before making assumptions or proceeding.
+  3. **Plan File Storage**: Prepare and save the detailed plan as `/plans/<plan name>.md` (e.g., `plans/<feature_or_task_name>.md`).
+  4. **Explicit Approval Gate**: Always ask the user for approval to start development before starting implementation. Never begin coding without confirmation.
+

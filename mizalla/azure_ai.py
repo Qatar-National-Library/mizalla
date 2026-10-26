@@ -33,6 +33,7 @@ SMS_REQUIRED = ("pingram_api_key", "pingram_region")
 #: proxy, a regional base URL, a test account), and hardcoding it would make such
 #: a deployment edit code. Read by mizalla.cloudflare_stream.
 VIDEO_REQUIRED = ("cloudflare_account_id", "cloudflare_api_token", "cloudflare_endpoint")
+ANALYTICS_REQUIRED = ("google_analytics_apikey_json",)
 
 #: Environment variable names for each credential, tried in order. The first
 #: name is what this deployment's .env uses; the rest are the conventional Azure
@@ -61,6 +62,7 @@ _ENV_NAMES = {
         "TUS_API_TOKEN",
     ),
     "cloudflare_endpoint": ("CLOUDFLARE_ENDPOINT", "CLOUDFLARE_STREAM_ENDPOINT", "TUS_ENDPOINT"),
+    "google_analytics_apikey_json": ("GOOGLE_ANALYTICS_APIKEY_JSON",),
 }
 
 #: The name an administrator has to put in .env, per credential. This is what
@@ -80,6 +82,7 @@ SETTING_LABELS = {
     "cloudflare_account_id": "CLOUDFLARE_ACCOUNT_ID",
     "cloudflare_api_token": "CLOUDFLARE_API_TOKEN (needs the Stream:Edit permission)",
     "cloudflare_endpoint": "CLOUDFLARE_ENDPOINT",
+    "google_analytics_apikey_json": "GOOGLE_ANALYTICS_APIKEY_JSON",
 }
 
 #: feature key -> required settings, used for both the disabled links and the
@@ -94,6 +97,7 @@ FEATURE_REQUIREMENTS = {
     # them permanently unconfigured.
     "bulk_sms": SMS_REQUIRED,
     "video_upload": VIDEO_REQUIRED,
+    "analytics": ANALYTICS_REQUIRED,
 }
 
 
