@@ -323,6 +323,8 @@ def verify_server_connection(server_id: int):
                 server.k8s_pods = pods or ""
         if "docker_compose_content" in telemetry:
             server.docker_compose_content = telemetry.get("docker_compose_content") or ""
+        if "docker_compose_path" in telemetry:
+            server.docker_compose_path = telemetry.get("docker_compose_path") or ""
 
         db.session.commit()
 
@@ -348,6 +350,7 @@ def verify_server_connection(server_id: int):
             tag_lines=server.get_tag_lines(),
             k8s_pods=server.get_k8s_pods(),
             docker_compose_content=server.docker_compose_content or "",
+            docker_compose_path=server.docker_compose_path or "",
             has_docker_compose=server.has_docker_compose,
         )
     else:
@@ -457,6 +460,8 @@ def save_fallback_credential(server_id: int):
             server.k8s_pods = pods or ""
     if "docker_compose_content" in telemetry:
         server.docker_compose_content = telemetry.get("docker_compose_content") or ""
+    if "docker_compose_path" in telemetry:
+        server.docker_compose_path = telemetry.get("docker_compose_path") or ""
 
     db.session.commit()
     formatted_time = now_utc.strftime("%b %d, %Y %H:%M")
@@ -479,6 +484,7 @@ def save_fallback_credential(server_id: int):
         tag_lines=server.get_tag_lines(),
         k8s_pods=server.get_k8s_pods(),
         docker_compose_content=server.docker_compose_content or "",
+        docker_compose_path=server.docker_compose_path or "",
         has_docker_compose=server.has_docker_compose,
     )
 
@@ -861,6 +867,7 @@ def get_item_data(item_id: int):
         id=item.id,
         name=item.name,
         command_type=item.command_type,
+        target_os=getattr(item, "target_os", "all") or "all",
         command_content=item.command_content,
         variables=variables,
         files=files,
@@ -905,6 +912,9 @@ def save_item():
     item_id = request.form.get("item_id", type=int)
     name = request.form.get("name", "").strip()
     command_type = request.form.get("command_type", COMMAND_TYPE_REMOTE)
+    target_os = request.form.get("target_os", "all").strip().lower()
+    if target_os not in ("all", "linux", "ubuntu", "rhel", "windows"):
+        target_os = "all"
     command_content = request.form.get("command_content", "")
 
     if not name:
@@ -925,6 +935,7 @@ def save_item():
             return redirect(request.form.get("next") or url_for("remote_exec.dashboard"))
         item.name = name
         item.command_type = command_type
+        item.target_os = target_os
         if command_type != COMMAND_TYPE_UPLOAD:
             item.command_content = command_content
     else:
@@ -938,6 +949,7 @@ def save_item():
             server_id=None,
             name=name,
             command_type=command_type,
+            target_os=target_os,
             command_content=command_content if command_type != COMMAND_TYPE_UPLOAD else "",
             created_by_id=current_user.id,
             created_on=datetime.now(timezone.utc),
@@ -1026,6 +1038,7 @@ def save_item():
                 "name": item.name,
                 "command_type": item.command_type,
                 "type_label": type_label,
+                "target_os": item.effective_target_os,
                 "command_content": item.command_content,
                 "creator_name": item.creator.name if item.creator else "Unknown",
                 "can_edit": user_can_edit_item(current_user, item),
@@ -1045,6 +1058,14 @@ def delete_item(item_id: int):
     if not user_can_edit_item(current_user, item):
         flash("You do not have permission to delete this Command Item.", "error")
         return redirect(url_for("remote_exec.dashboard"))
+
+    import os
+    import shutil
+    from flask import current_app
+
+    upload_dir = os.path.join(current_app.instance_path, "command_uploads", str(item.id))
+    if os.path.isdir(upload_dir):
+        shutil.rmtree(upload_dir, ignore_errors=True)
 
     db.session.delete(item)
     db.session.commit()

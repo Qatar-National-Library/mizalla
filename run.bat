@@ -28,6 +28,6 @@ if /i "%~1"=="--production" (
     echo Starting Mizalla Flask App in DEBUG mode...
 )
 
-python -m flask --app mizalla run %FLASK_FLAGS%
+python -m flask --app mizalla run %FLASK_FLAGS% --host 0.0.0.0 --port 8080
 
 

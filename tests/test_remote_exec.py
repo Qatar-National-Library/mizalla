@@ -1288,7 +1288,7 @@ def test_command_group_ui_revamp_dashboard_and_builder(client, app):
     assert "Command Items in this Group" in new_html
     assert "First Item" in new_html
     assert "Second Item" in new_html
-    assert "Created by: Admin CGUI" in new_html
+    assert 'data-item-creator="Admin CGUI"' in new_html
     assert "appendItemToGroup" in new_html
 
     # 3. Create group with initial ordered items [item2, item1]
@@ -1467,3 +1467,115 @@ def test_command_group_item_modal_and_edit_permissions(client, app):
     unauth_data = unauth_resp.get_json()
     assert unauth_data["success"] is False
     assert "permission" in unauth_data["error"]
+
+
+def test_command_group_item_target_os_filtering(app, client):
+    """Test OS compatibility checking and Command Group builder filtering support."""
+    with app.app_context():
+        admin = make_member(name="Admin User", email="admin_os_test@mizalla.local", is_admin=True)
+        server_rhel = make_server(
+            name="RHEL Test Server",
+            ip="192.168.1.101",
+            os_type="linux",
+            os_version="Red Hat Enterprise Linux 8.5",
+            connected_user=admin,
+            with_cred=True,
+        )
+        server_rhel.operating_system = "Red Hat Enterprise Linux 8.5"
+
+        server_ubuntu = make_server(
+            name="Ubuntu Test Server",
+            ip="192.168.1.102",
+            os_type="linux",
+            os_version="Ubuntu 22.04 LTS",
+            connected_user=admin,
+            with_cred=True,
+        )
+        server_ubuntu.operating_system = "Ubuntu 22.04 LTS"
+
+        server_windows = make_server(
+            name="Windows Test Server",
+            ip="192.168.1.103",
+            os_type="windows",
+            os_version="Windows Server 2022",
+            connected_user=admin,
+            with_cred=True,
+        )
+        server_windows.operating_system = "Windows Server 2022"
+
+        # 1. Universal upload item
+        item_upload = CommandItem(
+            name="Upload Config File",
+            command_type="upload",
+            created_by_id=admin.id,
+            target_os="any",
+        )
+        # 2. Universal local command item
+        item_local = CommandItem(
+            name="Local Echo Test",
+            command_type="local",
+            command_content="echo local",
+            created_by_id=admin.id,
+            target_os="any",
+        )
+        # 3. RHEL-specific item (explicit target_os or yum script)
+        item_rhel = CommandItem(
+            name="Install via YUM",
+            command_type="remote",
+            command_content="sudo yum install -y nginx",
+            created_by_id=admin.id,
+            target_os="rhel",
+        )
+        # 4. Ubuntu-specific item (explicit target_os or apt script)
+        item_ubuntu = CommandItem(
+            name="Install via APT",
+            command_type="remote",
+            command_content="sudo apt-get update && sudo apt install -y nginx",
+            created_by_id=admin.id,
+            target_os="ubuntu",
+        )
+        # 5. Windows-specific item (explicit target_os)
+        item_windows = CommandItem(
+            name="Restart IIS Service",
+            command_type="remote",
+            command_content="Restart-Service W3SVC",
+            created_by_id=admin.id,
+            target_os="windows",
+        )
+        db.session.add_all([item_upload, item_local, item_rhel, item_ubuntu, item_windows])
+        db.session.commit()
+
+        # Test backend compatibility model logic
+        assert item_upload.is_compatible_with_server(server_rhel) is True
+        assert item_upload.is_compatible_with_server(server_ubuntu) is True
+        assert item_upload.is_compatible_with_server(server_windows) is True
+
+        assert item_local.is_compatible_with_server(server_rhel) is True
+        assert item_local.is_compatible_with_server(server_ubuntu) is True
+        assert item_local.is_compatible_with_server(server_windows) is True
+
+        assert item_rhel.is_compatible_with_server(server_rhel) is True
+        assert item_rhel.is_compatible_with_server(server_ubuntu) is False
+        assert item_rhel.is_compatible_with_server(server_windows) is False
+
+        assert item_ubuntu.is_compatible_with_server(server_ubuntu) is True
+        assert item_ubuntu.is_compatible_with_server(server_rhel) is False
+        assert item_ubuntu.is_compatible_with_server(server_windows) is False
+
+        assert item_windows.is_compatible_with_server(server_windows) is True
+        assert item_windows.is_compatible_with_server(server_ubuntu) is False
+        assert item_windows.is_compatible_with_server(server_rhel) is False
+
+    # Login and check form template renders target_os attributes and indicators
+    login(client, email="admin_os_test@mizalla.local")
+    res = client.get("/apps/remote-exec/groups/new")
+    assert res.status_code == 200
+    html = res.get_data(as_text=True)
+    assert 'id="group-target-server-select"' in html
+    assert 'filterAvailableItemsByServerOS()' in html
+    assert 'id="avail-items-os-filter-indicator"' in html
+    assert 'id="avail-items-no-matches-msg"' in html
+    assert 'data-item-target-os=' in html
+    assert 'data-command-type=' in html
+    assert 'data-os-type=' in html
+

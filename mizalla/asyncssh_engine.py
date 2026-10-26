@@ -303,6 +303,144 @@ async def _probe_os(conn, os_type: str = "linux", cmds: Optional[List[str]] = No
         }
 
 
+def _parse_linux_ram(out: str) -> Optional[Dict[str, Any]]:
+    """Parses /proc/meminfo or free command output into normalized RAM metrics."""
+    if not out:
+        return None
+
+    # 1. First attempt: /proc/meminfo lines
+    tot_kb, avail_kb = 0.0, 0.0
+    free_kb, buffers_kb, cached_kb, sreclaimable_kb = 0.0, 0.0, 0.0, 0.0
+    has_avail = False
+
+    for line in out.splitlines():
+        line_s = line.strip()
+        if line_s.startswith("MemTotal:"):
+            nums = re.findall(r"\d+", line_s)
+            if nums:
+                tot_kb = float(nums[0])
+        elif line_s.startswith("MemAvailable:"):
+            nums = re.findall(r"\d+", line_s)
+            if nums:
+                avail_kb = float(nums[0])
+                has_avail = True
+        elif line_s.startswith("MemFree:"):
+            nums = re.findall(r"\d+", line_s)
+            if nums:
+                free_kb = float(nums[0])
+        elif line_s.startswith("Buffers:"):
+            nums = re.findall(r"\d+", line_s)
+            if nums:
+                buffers_kb = float(nums[0])
+        elif line_s.startswith("Cached:"):
+            nums = re.findall(r"\d+", line_s)
+            if nums:
+                cached_kb = float(nums[0])
+        elif line_s.startswith("SReclaimable:"):
+            nums = re.findall(r"\d+", line_s)
+            if nums:
+                sreclaimable_kb = float(nums[0])
+
+    if not has_avail and (free_kb or buffers_kb or cached_kb):
+        avail_kb = free_kb + buffers_kb + cached_kb + sreclaimable_kb
+
+    if tot_kb > 0:
+        used_kb = max(0.0, tot_kb - avail_kb)
+        tot_gb = tot_kb / (1024 * 1024)
+        used_gb = used_kb / (1024 * 1024)
+        pct = round((used_gb / tot_gb) * 100, 1) if tot_gb > 0 else 0.0
+        return {
+            "ram_total": f"{tot_gb:.1f} GB",
+            "ram_used": f"{used_gb:.1f} GB",
+            "ram_percent": pct,
+        }
+
+    # 2. Second attempt: free command output (free -b, free -m, free -k)
+    for line in out.splitlines():
+        parts = line.strip().split()
+        if len(parts) >= 3 and parts[0].lower().startswith("mem"):
+            try:
+                total_val = float(parts[1])
+                if total_val > 0:
+                    if total_val > 100_000_000:  # bytes from free -b
+                        tot_gb = total_val / (1024**3)
+                        if len(parts) >= 7 and parts[6].replace(".", "", 1).isdigit():
+                            avail_gb = float(parts[6]) / (1024**3)
+                            used_gb = max(0.0, tot_gb - avail_gb)
+                        else:
+                            used_gb = float(parts[2]) / (1024**3)
+                    elif total_val > 100_000:  # KB from free -k
+                        tot_gb = total_val / (1024 * 1024)
+                        if len(parts) >= 7 and parts[6].replace(".", "", 1).isdigit():
+                            avail_gb = float(parts[6]) / (1024 * 1024)
+                            used_gb = max(0.0, tot_gb - avail_gb)
+                        else:
+                            used_gb = float(parts[2]) / (1024 * 1024)
+                    else:  # MB from free -m
+                        tot_gb = total_val / 1024
+                        if len(parts) >= 7 and parts[6].replace(".", "", 1).isdigit():
+                            avail_gb = float(parts[6]) / 1024
+                            used_gb = max(0.0, tot_gb - avail_gb)
+                        else:
+                            used_gb = float(parts[2]) / 1024
+
+                    pct = round((used_gb / tot_gb) * 100, 1) if tot_gb > 0 else 0.0
+                    return {
+                        "ram_total": f"{tot_gb:.1f} GB",
+                        "ram_used": f"{used_gb:.1f} GB",
+                        "ram_percent": pct,
+                    }
+            except Exception:
+                pass
+
+    return None
+
+
+def _parse_linux_disk(out: str) -> Optional[Dict[str, Any]]:
+    """Parses POSIX or standard df output into normalized disk metrics."""
+    if not out:
+        return None
+    for line in out.splitlines():
+        line_str = line.strip()
+        if not line_str or line_str.lower().startswith("filesystem") or line_str.startswith("#"):
+            continue
+        parts = line_str.split()
+        # Case A: Wrapped line (e.g. from long RHEL LVM device name without -P):
+        # Line 1: /dev/mapper/rhel-root
+        # Line 2: 52403200 10485760 41917440 21% /
+        if len(parts) >= 4 and parts[0].isdigit() and parts[1].isdigit():
+            try:
+                tot_kb = float(parts[0])
+                used_kb = float(parts[1])
+                tot_gb = tot_kb / (1024 * 1024)
+                used_gb = used_kb / (1024 * 1024)
+                pct = round((used_gb / tot_gb) * 100, 1) if tot_gb > 0 else 0.0
+                return {
+                    "disk_total": f"{tot_gb:.1f} GB",
+                    "disk_used": f"{used_gb:.1f} GB",
+                    "disk_percent": pct,
+                }
+            except Exception:
+                pass
+        # Case B: Standard unwrapped line (e.g. df -Pk /):
+        # /dev/mapper/rhel-root 52403200 10485760 41917440 21% /
+        elif len(parts) >= 4 and parts[1].isdigit() and parts[2].isdigit():
+            try:
+                tot_kb = float(parts[1])
+                used_kb = float(parts[2])
+                tot_gb = tot_kb / (1024 * 1024)
+                used_gb = used_kb / (1024 * 1024)
+                pct = round((used_gb / tot_gb) * 100, 1) if tot_gb > 0 else 0.0
+                return {
+                    "disk_total": f"{tot_gb:.1f} GB",
+                    "disk_used": f"{used_gb:.1f} GB",
+                    "disk_percent": pct,
+                }
+            except Exception:
+                pass
+    return None
+
+
 async def _probe_ram(conn, os_type: str = "linux", cmds: Optional[List[str]] = None) -> Dict[str, Any]:
     """Determine how much RAM is installed and how much is in use."""
     out = ""
@@ -351,31 +489,21 @@ async def _probe_ram(conn, os_type: str = "linux", cmds: Optional[List[str]] = N
                 "ram_percent": 40.0,
             }
     else:
-        # Linux via /proc/meminfo
-        if not cmds:
-            res = await conn.run("cat /proc/meminfo 2>/dev/null", check=False, timeout=5.0)
-            out = res.stdout
+        # Linux / RHEL via /proc/meminfo or free command
+        if out:
+            parsed = _parse_linux_ram(out)
+            if parsed:
+                return parsed
 
-        tot_kb, avail_kb = 0.0, 0.0
-        for line in out.splitlines():
-            if line.startswith("MemTotal:"):
-                nums = re.findall(r"\d+", line)
-                if nums:
-                    tot_kb = float(nums[0])
-            elif line.startswith("MemAvailable:"):
-                nums = re.findall(r"\d+", line)
-                if nums:
-                    avail_kb = float(nums[0])
-        if tot_kb > 0:
-            used_kb = max(0.0, tot_kb - avail_kb)
-            tot_gb = tot_kb / (1024 * 1024)
-            used_gb = used_kb / (1024 * 1024)
-            pct = round((used_gb / tot_gb) * 100, 1) if tot_gb > 0 else 0.0
-            return {
-                "ram_total": f"{tot_gb:.1f} GB",
-                "ram_used": f"{used_gb:.1f} GB",
-                "ram_percent": pct,
-            }
+        # Direct fallback execution on connection
+        try:
+            rhel_ram_cmd = "free -b 2>/dev/null || free -m 2>/dev/null || cat /proc/meminfo 2>/dev/null"
+            res = await conn.run(rhel_ram_cmd, check=False, timeout=5.0)
+            parsed = _parse_linux_ram(res.stdout)
+            if parsed:
+                return parsed
+        except Exception as e:
+            logger.warning(f"Fallback RAM probe failed: {e}")
 
     return {"ram_total": "0 GB", "ram_used": "0 GB", "ram_percent": 0.0}
 
@@ -414,27 +542,21 @@ async def _probe_disk(conn, os_type: str = "linux", cmds: Optional[List[str]] = 
             except Exception:
                 pass
     else:
-        # Linux / Mac root filesystem via df -k /
-        if not cmds:
-            res = await conn.run("df -k / 2>/dev/null | tail -n 1", check=False, timeout=5.0)
-            out = res.stdout
+        # Linux / RHEL / Mac root filesystem
+        if out:
+            parsed = _parse_linux_disk(out)
+            if parsed:
+                return parsed
 
-        for line in out.splitlines():
-            parts = line.strip().split()
-            if len(parts) >= 4 and parts[1].isdigit() and parts[2].isdigit():
-                try:
-                    tot_kb = float(parts[1])
-                    used_kb = float(parts[2])
-                    tot_gb = tot_kb / (1024 * 1024)
-                    used_gb = used_kb / (1024 * 1024)
-                    pct = round((used_gb / tot_gb) * 100, 1) if tot_gb > 0 else 0.0
-                    return {
-                        "disk_total": f"{tot_gb:.1f} GB",
-                        "disk_used": f"{used_gb:.1f} GB",
-                        "disk_percent": pct,
-                    }
-                except Exception:
-                    pass
+        # Direct fallback execution on connection
+        try:
+            rhel_disk_cmd = "df -Pk / 2>/dev/null || df -k -P / 2>/dev/null || df -k / 2>/dev/null || df -Pk . 2>/dev/null"
+            res = await conn.run(rhel_disk_cmd, check=False, timeout=5.0)
+            parsed = _parse_linux_disk(res.stdout)
+            if parsed:
+                return parsed
+        except Exception as e:
+            logger.warning(f"Fallback disk probe failed: {e}")
 
     return {"disk_total": "0 GB", "disk_used": "0 GB", "disk_percent": 0.0}
 
@@ -1056,7 +1178,7 @@ async def test_ssh_connection(
     """Tests SSH connectivity and gathers comprehensive OS, hardware, and extensible core_tags in parallel."""
     opts = _build_client_options(username, password, private_key, timeout=timeout)
 
-    # 1. Open initial SSH connection to validate user credentials and server existence
+    # 1. Open SSH connection to validate user credentials, detect OS, and gather telemetry
     try:
         async with asyncssh.connect(ip, port=port or 22, **opts) as primary_conn:
             res_uname = await primary_conn.run("uname -s", check=False, timeout=5.0)
@@ -1066,6 +1188,9 @@ async def test_ssh_connection(
             elif "Linux" in primary_out:
                 rel = await primary_conn.run("cat /etc/os-release 2>/dev/null", check=False, timeout=5.0)
                 rel_lower = rel.stdout.lower()
+                if not rel_lower.strip():
+                    rel_rh = await primary_conn.run("cat /etc/redhat-release /etc/centos-release /etc/system-release 2>/dev/null", check=False, timeout=5.0)
+                    rel_lower = rel_rh.stdout.lower()
                 if "ubuntu" in rel_lower:
                     detected_os = "ubuntu"
                 elif any(k in rel_lower for k in ["rhel", "red hat", "centos", "rocky", "almalinux", "fedora"]):
@@ -1076,159 +1201,176 @@ async def test_ssh_connection(
                     detected_os = "ubuntu"
             else:
                 detected_os = "windows"
+
+            # 2. Load OS telemetry script from /automate/scripts/<os>.txt
+            script_sections = load_os_script(detected_os)
+            if not script_sections and detected_os not in ["windows", "mac"]:
+                script_sections = load_os_script("ubuntu") or load_os_script("rhel")
+
+            # 3. Run all telemetry probe steps over the established SSH connection
+            sem = asyncio.Semaphore(4)
+
+            async def run_probe(probe_coro_fn, cmds=None):
+                async with sem:
+                    try:
+                        return await probe_coro_fn(primary_conn, detected_os, cmds=cmds)
+                    except Exception as err:
+                        logger.warning(f"Probe {probe_coro_fn.__name__} error: {err}")
+                        return None
+
+            sec = script_sections or {}
+
+            # Core typed hardware & OS probes
+            os_task = run_probe(_probe_os, sec.get("os_version"))
+            ram_task = run_probe(_probe_ram, sec.get("ram"))
+            disk_task = run_probe(_probe_disk, sec.get("disk"))
+
+            known_handlers = {
+                "external_storage": _probe_external_storage,
+                "docker": _probe_docker,
+                "kubernetes": _probe_kubernetes,
+                "kubernetes_pods": _probe_kubernetes_pods,
+                "python": _probe_python,
+                "php": _probe_php,
+                "nodejs": _probe_nodejs,
+                "uvicorn": _probe_uvicorn,
+                "apache": _probe_apache,
+                "nginx": _probe_nginx,
+                "drupal": _probe_drupal,
+                # Legacy/combined groups:
+                "containerizers": _probe_containerizers,
+                "runtimes": _probe_runtimes,
+                "web_services": _probe_web_services,
+            }
+
+            tag_tasks = []
+            tag_names = []
+            for tag_name, cmds in sec.items():
+                if tag_name in ("os_version", "ram", "disk"):
+                    continue
+                handler = known_handlers.get(tag_name, _probe_generic_tag)
+                tag_tasks.append(run_probe(handler, cmds))
+                tag_names.append(tag_name)
+
+            all_results = await asyncio.gather(os_task, ram_task, disk_task, *tag_tasks, return_exceptions=True)
+            os_res = all_results[0] if isinstance(all_results[0], dict) else {}
+            ram_res = all_results[1] if isinstance(all_results[1], dict) else {}
+            disk_res = all_results[2] if isinstance(all_results[2], dict) else {}
+            tag_results = all_results[3:]
+
+            # If RHEL / Linux RAM or Disk failed or returned 0 GB, perform direct fallback probe
+            if (not ram_res or ram_res.get("ram_total") in ("", "0 GB")) and detected_os in ("rhel", "linux", "ubuntu"):
+                try:
+                    fb_ram = await _probe_ram(primary_conn, detected_os)
+                    if fb_ram and fb_ram.get("ram_total") not in ("", "0 GB"):
+                        ram_res = fb_ram
+                except Exception as fb_err:
+                    logger.warning(f"Fallback RAM probe failed: {fb_err}")
+
+            if (not disk_res or disk_res.get("disk_total") in ("", "0 GB")) and detected_os in ("rhel", "linux", "ubuntu"):
+                try:
+                    fb_disk = await _probe_disk(primary_conn, detected_os)
+                    if fb_disk and fb_disk.get("disk_total") not in ("", "0 GB"):
+                        disk_res = fb_disk
+                except Exception as fb_err:
+                    logger.warning(f"Fallback disk probe failed: {fb_err}")
+
+            # Collect core_tags lines and pods (omit tags that are None or empty)
+            k8s_pods_list = []
+            core_tag_lines = []
+            for tag_name, tag_val in zip(tag_names, tag_results):
+                if isinstance(tag_val, tuple):
+                    tag_str, pods = tag_val
+                    if pods:
+                        k8s_pods_list.extend(pods)
+                    if tag_str and tag_str.strip():
+                        core_tag_lines.append(f"{tag_name}: {tag_str.strip()}")
+                elif isinstance(tag_val, str) and tag_val.strip():
+                    core_tag_lines.append(f"{tag_name}: {tag_val.strip()}")
+
+            # Check if kubectl was detected on this server
+            k8s_detected = any(line.lower().startswith("kubernetes:") or "kubernetes" in line.lower() or "kubectl" in line.lower() for line in core_tag_lines)
+
+            # If Kubectl is detected for a server, run it and list the IDs of the pods
+            if k8s_detected and not k8s_pods_list:
+                try:
+                    pod_cmds = sec.get("kubernetes_pods")
+                    _, fetched_pods = await _probe_kubernetes_pods(primary_conn, detected_os, cmds=pod_cmds)
+                    if fetched_pods:
+                        k8s_pods_list.extend(fetched_pods)
+                except Exception as err:
+                    logger.warning(f"Error fetching k8s pods for detected kubectl: {err}")
+            elif not k8s_detected:
+                k8s_pods_list = []
+
+            core_tags = "\r\n".join(core_tag_lines)
+
+            # Check if docker compose is detected on this server
+            docker_compose_content = ""
+            compose_file_path = ""
+
+            # 1. Check if compose file path was found in docker tag
+            for line in core_tag_lines:
+                if "compose:" in line.lower():
+                    m_comp = re.search(r"\[Compose:\s*([^,\]]+)", line, re.IGNORECASE)
+                    if m_comp:
+                        compose_file_path = m_comp.group(1).strip()
+                        break
+
+            # 2. If docker or compose is detected but path was not yet located, locate it
+            is_docker_detected = any("docker" in line.lower() or "compose" in line.lower() for line in core_tag_lines)
+            if not is_docker_detected:
+                try:
+                    cli_check = "powershell -Command \"docker compose version; docker-compose --version\"" if detected_os == "windows" else "docker compose version 2>/dev/null || docker-compose --version 2>/dev/null"
+                    res_c = await primary_conn.run(cli_check, check=False, timeout=4.0)
+                    if res_c.exit_status == 0 and res_c.stdout.strip():
+                        is_docker_detected = True
+                except Exception:
+                    pass
+
+            if is_docker_detected and not compose_file_path:
+                try:
+                    located = await _locate_docker_compose_file(primary_conn, detected_os)
+                    if located:
+                        compose_file_path = located
+                except Exception as err:
+                    logger.warning(f"Error locating docker-compose file: {err}")
+
+            # 3. If docker compose is detected, read its contents
+            if compose_file_path:
+                try:
+                    content = await _read_docker_compose_file(primary_conn, compose_file_path, detected_os)
+                    if content:
+                        docker_compose_content = content
+                except Exception as err:
+                    logger.warning(f"Error reading docker-compose.yml file at {compose_file_path}: {err}")
+
+            telemetry: Dict[str, Any] = {
+                "os_type": os_res.get("os_type") or detected_os,
+                "operating_system": os_res.get("operating_system") or os_res.get("os_version") or detected_os.title(),
+                "os_version": os_res.get("os_version") or os_res.get("operating_system") or detected_os.title(),
+                "packages_summary": os_res.get("packages_summary", ""),
+                "ram_total": ram_res.get("ram_total", ""),
+                "ram_used": ram_res.get("ram_used", ""),
+                "ram_percent": ram_res.get("ram_percent", 0.0),
+                "disk_total": disk_res.get("disk_total", ""),
+                "disk_used": disk_res.get("disk_used", ""),
+                "disk_percent": disk_res.get("disk_percent", 0.0),
+                "core_tags": core_tags,
+                "k8s_pods": json.dumps(k8s_pods_list) if k8s_pods_list else "",
+                "docker_compose_content": docker_compose_content,
+                "docker_compose_path": compose_file_path,
+            }
+
+            msg = f"SSH connection successful ({telemetry.get('operating_system', detected_os.title())})."
+            return True, msg, telemetry
+
     except (asyncssh.PermissionDenied, asyncssh.KeyImportError) as e:
         return False, f"Authentication failed: {e}", {}
     except (asyncio.TimeoutError, TimeoutError):
         return False, f"Connection timed out connecting to {ip}:{port}.", {}
     except Exception as e:
         return False, f"Connection failed: {e}", {}
-
-    # 2. Load OS telemetry script from /automate/scripts/<os>.txt
-    script_sections = load_os_script(detected_os)
-    if not script_sections and detected_os not in ["windows", "mac"]:
-        script_sections = load_os_script("ubuntu") or load_os_script("rhel")
-
-    # 3. Run all telemetry probe steps in parallel using separate SSH connections
-    async def run_probe(probe_coro_fn, cmds=None):
-        try:
-            async with asyncssh.connect(ip, port=port or 22, **opts) as conn:
-                return await probe_coro_fn(conn, detected_os, cmds=cmds)
-        except Exception as err:
-            logger.warning(f"Probe {probe_coro_fn.__name__} error: {err}")
-            return None
-
-    sec = script_sections or {}
-
-    # Core typed hardware & OS probes
-    os_task = run_probe(_probe_os, sec.get("os_version"))
-    ram_task = run_probe(_probe_ram, sec.get("ram"))
-    disk_task = run_probe(_probe_disk, sec.get("disk"))
-
-    known_handlers = {
-        "external_storage": _probe_external_storage,
-        "docker": _probe_docker,
-        "kubernetes": _probe_kubernetes,
-        "kubernetes_pods": _probe_kubernetes_pods,
-        "python": _probe_python,
-        "php": _probe_php,
-        "nodejs": _probe_nodejs,
-        "uvicorn": _probe_uvicorn,
-        "apache": _probe_apache,
-        "nginx": _probe_nginx,
-        "drupal": _probe_drupal,
-        # Legacy/combined groups:
-        "containerizers": _probe_containerizers,
-        "runtimes": _probe_runtimes,
-        "web_services": _probe_web_services,
-    }
-
-    tag_tasks = []
-    tag_names = []
-    for tag_name, cmds in sec.items():
-        if tag_name in ("os_version", "ram", "disk"):
-            continue
-        handler = known_handlers.get(tag_name, _probe_generic_tag)
-        tag_tasks.append(run_probe(handler, cmds))
-        tag_names.append(tag_name)
-
-    all_results = await asyncio.gather(os_task, ram_task, disk_task, *tag_tasks, return_exceptions=True)
-    os_res = all_results[0] if isinstance(all_results[0], dict) else {}
-    ram_res = all_results[1] if isinstance(all_results[1], dict) else {}
-    disk_res = all_results[2] if isinstance(all_results[2], dict) else {}
-    tag_results = all_results[3:]
-
-    # Collect core_tags lines and pods (omit tags that are None or empty)
-    k8s_pods_list = []
-    core_tag_lines = []
-    for tag_name, tag_val in zip(tag_names, tag_results):
-        if isinstance(tag_val, tuple):
-            tag_str, pods = tag_val
-            if pods:
-                k8s_pods_list.extend(pods)
-            if tag_str and tag_str.strip():
-                core_tag_lines.append(f"{tag_name}: {tag_str.strip()}")
-        elif isinstance(tag_val, str) and tag_val.strip():
-            core_tag_lines.append(f"{tag_name}: {tag_val.strip()}")
-
-    # Check if kubectl was detected on this server
-    k8s_detected = any(line.lower().startswith("kubernetes:") or "kubernetes" in line.lower() or "kubectl" in line.lower() for line in core_tag_lines)
-
-    # If Kubectl is detected for a server, run it and list the IDs of the pods
-    if k8s_detected and not k8s_pods_list:
-        try:
-            pod_cmds = sec.get("kubernetes_pods")
-            async with asyncssh.connect(ip, port=port or 22, **opts) as conn:
-                _, fetched_pods = await _probe_kubernetes_pods(conn, detected_os, cmds=pod_cmds)
-                if fetched_pods:
-                    k8s_pods_list.extend(fetched_pods)
-        except Exception as err:
-            logger.warning(f"Error fetching k8s pods for detected kubectl: {err}")
-    elif not k8s_detected:
-        k8s_pods_list = []
-
-    core_tags = "\r\n".join(core_tag_lines)
-
-    # Check if docker compose is detected on this server
-    docker_compose_content = ""
-    compose_file_path = ""
-
-    # 1. Check if compose file path was found in docker tag
-    for line in core_tag_lines:
-        if "compose:" in line.lower():
-            m_comp = re.search(r"\[Compose:\s*([^,\]]+)", line, re.IGNORECASE)
-            if m_comp:
-                compose_file_path = m_comp.group(1).strip()
-                break
-
-    # 2. If docker or compose is detected but path was not yet located, locate it
-    is_docker_detected = any("docker" in line.lower() or "compose" in line.lower() for line in core_tag_lines)
-    if not is_docker_detected:
-        try:
-            async with asyncssh.connect(ip, port=port or 22, **opts) as conn:
-                cli_check = "powershell -Command \"docker compose version; docker-compose --version\"" if detected_os == "windows" else "docker compose version 2>/dev/null || docker-compose --version 2>/dev/null"
-                res_c = await conn.run(cli_check, check=False, timeout=4.0)
-                if res_c.exit_status == 0 and res_c.stdout.strip():
-                    is_docker_detected = True
-        except Exception:
-            pass
-
-    if is_docker_detected and not compose_file_path:
-        try:
-            async with asyncssh.connect(ip, port=port or 22, **opts) as conn:
-                located = await _locate_docker_compose_file(conn, detected_os)
-                if located:
-                    compose_file_path = located
-        except Exception as err:
-            logger.warning(f"Error locating docker-compose file: {err}")
-
-    # 3. If docker compose is detected, read its contents
-    if compose_file_path:
-        try:
-            async with asyncssh.connect(ip, port=port or 22, **opts) as conn:
-                content = await _read_docker_compose_file(conn, compose_file_path, detected_os)
-                if content:
-                    docker_compose_content = content
-        except Exception as err:
-            logger.warning(f"Error reading docker-compose.yml file at {compose_file_path}: {err}")
-
-    telemetry: Dict[str, Any] = {
-        "os_type": os_res.get("os_type") or detected_os,
-        "operating_system": os_res.get("operating_system") or os_res.get("os_version") or detected_os.title(),
-        "os_version": os_res.get("os_version") or os_res.get("operating_system") or detected_os.title(),
-        "packages_summary": os_res.get("packages_summary", ""),
-        "ram_total": ram_res.get("ram_total", ""),
-        "ram_used": ram_res.get("ram_used", ""),
-        "ram_percent": ram_res.get("ram_percent", 0.0),
-        "disk_total": disk_res.get("disk_total", ""),
-        "disk_used": disk_res.get("disk_used", ""),
-        "disk_percent": disk_res.get("disk_percent", 0.0),
-        "core_tags": core_tags,
-        "k8s_pods": json.dumps(k8s_pods_list) if k8s_pods_list else "",
-        "docker_compose_content": docker_compose_content,
-    }
-
-    msg = f"SSH connection successful ({telemetry.get('operating_system', detected_os.title())})."
-    return True, msg, telemetry
 
 
 # ─── Remote Process Termination ──────────────────────────────────────────────

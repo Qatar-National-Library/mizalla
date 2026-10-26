@@ -248,7 +248,7 @@
                       <summary class="accordion-head" style="background:#f4fbf7; padding:0.45rem 0.65rem; display:flex; align-items:center; gap:0.5rem; cursor:pointer; font-weight:600; font-size:0.8rem; color:var(--green-dark, #103e30); user-select:none;">
                         <span class="accordion-chevron" aria-hidden="true"></span>
                         <i data-lucide="file-code" style="width:14px; height:14px; color:var(--green-dark, #103e30);"></i>
-                        <span class="accordion-heading" style="font-weight:700;">docker-compose.yml</span>
+                        <span class="accordion-heading" id="docker-compose-heading-{{ server.id }}" style="font-weight:700;">docker-compose.yml{% if server.docker_compose_path %} ({{ server.docker_compose_path }}){% endif %}</span>
                       </summary>
                       <div class="accordion-body" style="padding:0; margin:0; border-top:1px solid rgba(16, 62, 48, 0.15); background:#1e1e1e;">
                         <pre id="docker-compose-content-{{ server.id }}" class="docker-compose-pre" style="margin:0; padding:0.75rem 1rem; color:#f0f0f0; background:#1e1e1e; font-family:Consolas, Monaco, 'Courier New', monospace; font-size:0.75rem; line-height:1.45; overflow-x:auto; white-space:pre; tab-size:2; max-height:360px; overflow-y:auto;">{{ compose_content if compose_content else '# No docker-compose.yml file found' }}</pre>
@@ -491,6 +491,24 @@ function startPollingForServer(serverId) {
             var diskText = document.getElementById('disk-text-' + serverId);
             if (diskBar) diskBar.style.width = (data.disk_percent || 0) + '%';
             if (diskText) diskText.textContent = (data.disk_used || '0 GB') + ' / ' + (data.disk_total || '0 GB');
+
+            var composeAccordion = document.getElementById('docker-compose-accordion-' + serverId);
+            var composeHeading = document.getElementById('docker-compose-heading-' + serverId);
+            var composePre = document.getElementById('docker-compose-content-' + serverId);
+            if (composeAccordion && composePre) {
+              if (data.docker_compose_content || data.has_docker_compose) {
+                composeAccordion.style.display = 'block';
+                var cPath = data.docker_compose_path || '';
+                if (composeHeading) {
+                  composeHeading.textContent = cPath ? 'docker-compose.yml (' + cPath + ')' : 'docker-compose.yml';
+                }
+                if (data.docker_compose_content) {
+                  composePre.textContent = data.docker_compose_content;
+                }
+              } else {
+                composeAccordion.style.display = 'none';
+              }
+            }
           }
         } else {
           var isFailed = data.agent_status === 'failed';

@@ -26,6 +26,9 @@ SQLITE_ADDITIONS = {
         "last_connected_at": "DATETIME",
         "connection_status": "VARCHAR(20) NOT NULL DEFAULT 'unverified'",
     },
+    "command_item": {
+        "target_os": "VARCHAR(30) NOT NULL DEFAULT 'all'",
+    },
     "command_item_permission": {
         "can_view": "BOOLEAN NOT NULL DEFAULT 1",
     },
@@ -78,6 +81,7 @@ SQLITE_ADDITIONS = {
         "core_tags": "TEXT NOT NULL DEFAULT ''",
         "k8s_pods": "TEXT DEFAULT ''",
         "docker_compose_content": "TEXT DEFAULT ''",
+        "docker_compose_path": "VARCHAR(500) DEFAULT ''",
     },
     "command_audit": {
         "client_ip": "VARCHAR(45) DEFAULT ''",

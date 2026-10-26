@@ -175,7 +175,7 @@
               <summary class="accordion-head" style="background:#f4fbf7; padding:0.45rem 0.65rem; display:flex; align-items:center; gap:0.5rem; cursor:pointer; font-weight:600; font-size:0.8rem; color:var(--green-dark, #103e30); user-select:none;">
                 <span class="accordion-chevron" aria-hidden="true"></span>
                 <i data-lucide="file-code" style="width:14px; height:14px; color:var(--green-dark, #103e30);"></i>
-                <span class="accordion-heading" style="font-weight:700;">docker-compose.yml</span>
+                <span class="accordion-heading" id="docker-compose-heading-{{ server.id }}" style="font-weight:700;">docker-compose.yml{% if server.docker_compose_path %} ({{ server.docker_compose_path }}){% endif %}</span>
               </summary>
               <div class="accordion-body" style="padding:0; margin:0; border-top:1px solid rgba(16, 62, 48, 0.15); background:#1e1e1e;">
                 <pre id="docker-compose-content-{{ server.id }}" class="docker-compose-pre" style="margin:0; padding:0.75rem 1rem; color:#f0f0f0; background:#1e1e1e; font-family:Consolas, Monaco, 'Courier New', monospace; font-size:0.75rem; line-height:1.45; overflow-x:auto; white-space:pre; tab-size:2; max-height:360px; overflow-y:auto;">{{ compose_content if compose_content else '# No docker-compose.yml file found' }}</pre>
@@ -381,8 +381,17 @@
         <div class="accordion-header" style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.25rem; background: #fdfdfd; cursor: {% if audit.has_output and logs_allowed[audit.id] %}pointer{% else %}default{% endif %}; border-bottom: 1px solid transparent; transition: background 0.15s ease;"
              {% if audit.has_output and logs_allowed[audit.id] %}onclick="toggleAccordion({{ audit.id }})"{% endif %}>
           
-          <!-- Left: Type Badge & Title & Command -->
-          <div style="display:flex; align-items:center; gap: 0.75rem; flex-wrap:wrap; flex: 1 1 auto;">
+          <!-- Left: Chevron, Title & Type Badge -->
+          <div style="display:flex; align-items:center; gap: 0.65rem; flex-wrap:wrap; flex: 1 1 auto; min-width: 0;">
+            <!-- Chevron indicator if expandable -->
+            {% if audit.has_output and logs_allowed[audit.id] %}
+            <span class="chevron-icon chevron" id="chevron-{{ audit.id }}" style="display:inline-flex; align-items:center; color:var(--muted); transition: transform 0.2s ease;"><i data-lucide="chevron-down" class="icon-green"></i></span>
+            {% elif not logs_allowed[audit.id] %}
+            <span style="display:inline-flex; align-items:center;" title="View logs permission restricted"><i data-lucide="lock" class="icon-green"></i></span>
+            {% endif %}
+
+            <strong style="font-size: 0.95rem; color: #202124;">{{ audit.title or "Executed Command" }}</strong>
+
             <!-- Badge: Command Item vs Command Group -->
             {% if audit.entry_type == 'group' %}
             <span class="tag" style="background:#e8f0fe; color:#1967d2; font-weight:700; font-size:0.75rem; padding: 0.2rem 0.5rem; border-radius:4px;">
@@ -393,12 +402,6 @@
               [Command Item]
             </span>
             {% endif %}
-
-            <strong style="font-size: 0.95rem; color: #202124;">{{ audit.title or "Executed Command" }}</strong>
-
-            <code style="font-size:0.8rem; background:rgba(0,0,0,0.04); padding:0.15rem 0.4rem; border-radius:3px; max-width:340px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-              {{ audit.executed_command or audit.command }}
-            </code>
           </div>
 
           <!-- Right: Timing, Re-run, Status Indicator (Tick / Cross / Spinner) -->
@@ -430,13 +433,6 @@
               <span title="Failed (Exit Code {{ audit.exit_code or 1 }})"><i data-lucide="x" class="icon-green"></i></span>
               {% endif %}
             </div>
-
-            <!-- Chevron indicator if expandable -->
-            {% if audit.has_output and logs_allowed[audit.id] %}
-            <span class="chevron-icon" id="chevron-{{ audit.id }}" style="display:inline-flex; align-items:center; color:var(--muted); transition: transform 0.2s ease;"><i data-lucide="chevron-down" class="icon-green"></i></span>
-            {% elif not logs_allowed[audit.id] %}
-            <span style="display:inline-flex; align-items:center;" title="View logs permission restricted"><i data-lucide="lock" class="icon-green"></i></span>
-            {% endif %}
           </div>
         </div>
 
@@ -811,10 +807,15 @@ function updateServerCardTelemetry(serverId, data) {
     }
 
     const composeAccordion = document.getElementById("docker-compose-accordion-" + serverId);
+    const composeHeading = document.getElementById("docker-compose-heading-" + serverId);
     const composePre = document.getElementById("docker-compose-content-" + serverId);
     if (composeAccordion && composePre) {
       if (data.docker_compose_content || data.has_docker_compose) {
         composeAccordion.style.display = "block";
+        const cPath = data.docker_compose_path || "";
+        if (composeHeading) {
+          composeHeading.textContent = cPath ? `docker-compose.yml (${cPath})` : "docker-compose.yml";
+        }
         if (data.docker_compose_content) {
           composePre.textContent = data.docker_compose_content;
         }

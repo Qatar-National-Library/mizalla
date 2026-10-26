@@ -382,6 +382,8 @@ def _run_connection_cycle(app, server_id: int, username: str, password: str, max
                         server.k8s_pods = telemetry.get("k8s_pods") or ""
                     if "docker_compose_content" in telemetry:
                         server.docker_compose_content = telemetry.get("docker_compose_content") or ""
+                    if "docker_compose_path" in telemetry:
+                        server.docker_compose_path = telemetry.get("docker_compose_path") or ""
 
                     now = datetime.now(timezone.utc)
                     server.last_checked = now
@@ -591,6 +593,7 @@ def server_connection_status(server_id):
         "has_telemetry": server.has_telemetry,
         "k8s_pods": server.get_k8s_pods(),
         "docker_compose_content": server.docker_compose_content or "",
+        "docker_compose_path": server.docker_compose_path or "",
         "has_docker_compose": server.has_docker_compose,
     })
 

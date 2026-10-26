@@ -1,4 +1,5 @@
 import json
+import re
 import secrets
 from datetime import date, datetime, timezone
 
@@ -48,8 +49,8 @@ class Project(db.Model):
     estimated_completion_date = db.Column(db.Date, nullable=True)
     actual_start_date = db.Column(db.Date, nullable=True)
     actual_completion_date = db.Column(db.Date, nullable=True)
-    test_server_id = db.Column(db.Integer, db.ForeignKey("server.id"), nullable=True)
-    production_server_id = db.Column(db.Integer, db.ForeignKey("server.id"), nullable=True)
+    test_server_id = db.Column(db.Integer, db.ForeignKey("server.id", ondelete="SET NULL"), nullable=True)
+    production_server_id = db.Column(db.Integer, db.ForeignKey("server.id", ondelete="SET NULL"), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     memberships = db.relationship("ProjectMembership", back_populates="project", cascade="all, delete-orphan")
@@ -83,7 +84,7 @@ class Meeting(db.Model):
     # links and reminders but gain no project access.
     external_attendees = db.Column(db.Text, nullable=False, default="")
     project = db.relationship("Project", back_populates="meetings")
-    attendees = db.relationship("Member", secondary=meeting_attendees, order_by="Member.name")
+    attendees = db.relationship("Member", secondary=meeting_attendees, order_by="Member.name", backref=db.backref("attended_meetings"))
 
     def get_external_attendee_list(self) -> list[str]:
         if not self.external_attendees:
@@ -210,6 +211,7 @@ class Server(db.Model):
     core_tags = db.Column(db.Text, nullable=False, default="")
     k8s_pods = db.Column(db.Text, nullable=True, default="")
     docker_compose_content = db.Column(db.Text, nullable=True, default="")
+    _docker_compose_path = db.Column("docker_compose_path", db.String(500), nullable=True, default="")
 
     test_projects = db.relationship("Project", foreign_keys="Project.test_server_id", back_populates="test_server")
     production_projects = db.relationship("Project", foreign_keys="Project.production_server_id", back_populates="production_server")
@@ -280,6 +282,21 @@ class Server(db.Model):
         return bool(self.docker_compose_content or "[compose:" in (self.core_tags or "").lower() or self.has_tag("compose") or self.has_tag("docker-compose"))
 
     @property
+    def docker_compose_path(self) -> str:
+        """Returns the primary docker-compose file path, falling back to core_tags extraction."""
+        if self._docker_compose_path:
+            return self._docker_compose_path
+        if self.core_tags:
+            m = re.search(r"\[Compose:\s*([^,\]]+)", self.core_tags, re.IGNORECASE)
+            if m:
+                return m.group(1).strip()
+        return ""
+
+    @docker_compose_path.setter
+    def docker_compose_path(self, val: str) -> None:
+        self._docker_compose_path = val or ""
+
+    @property
     def has_k8s(self) -> bool:
         """Returns True if Kubectl or Kubernetes is detected for this server."""
         return self.has_tag("kubernetes") or self.has_tag("kubectl") or bool(self.k8s_pods)
@@ -347,7 +364,7 @@ class ServerAccess(db.Model):
     connection_status = db.Column(db.String(20), nullable=False, default="unverified")
 
     server = db.relationship("Server", backref=db.backref("access_grants", cascade="all, delete-orphan"))
-    member = db.relationship("Member", foreign_keys=[member_id], backref="server_access")
+    member = db.relationship("Member", foreign_keys=[member_id], backref=db.backref("server_access", cascade="all, delete-orphan"))
     granted_by = db.relationship("Member", foreign_keys=[granted_by_id])
 
     __table_args__ = (db.UniqueConstraint("server_id", "member_id"),)
@@ -553,7 +570,7 @@ class GowaDeviceAccess(db.Model):
     granted_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     device = db.relationship("GowaDevice", back_populates="access_grants")
-    member = db.relationship("Member", foreign_keys=[member_id], backref="gowa_device_access")
+    member = db.relationship("Member", foreign_keys=[member_id], backref=db.backref("gowa_device_access", cascade="all, delete-orphan"))
     granted_by = db.relationship("Member", foreign_keys=[granted_by_id])
 
     __table_args__ = (db.UniqueConstraint("device_id", "member_id"),)
@@ -738,7 +755,7 @@ class ServerCredential(db.Model):
     last_tested = db.Column(db.DateTime(timezone=True), nullable=True)
 
     server = db.relationship("Server", back_populates="credentials")
-    user = db.relationship("Member")
+    user = db.relationship("Member", backref=db.backref("server_credentials", cascade="all, delete-orphan"))
 
     @property
     def password(self) -> str:
@@ -770,17 +787,95 @@ class CommandItem(db.Model):
     __tablename__ = "command_item"
 
     id = db.Column(db.Integer, primary_key=True)
-    server_id = db.Column(db.Integer, db.ForeignKey("server.id", ondelete="CASCADE"), nullable=True, index=True)
+    server_id = db.Column(db.Integer, db.ForeignKey("server.id", ondelete="SET NULL"), nullable=True, index=True)
     name = db.Column(db.String(180), nullable=False)
     command_type = db.Column(db.String(30), nullable=False, default=COMMAND_TYPE_REMOTE)
     command_content = db.Column(db.Text, nullable=False, default="")
+    target_os = db.Column(db.String(30), nullable=False, default="all")  # all, linux, ubuntu, rhel, windows
     created_by_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="CASCADE"), nullable=False, index=True)
     created_on = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
 
     server = db.relationship("Server", backref=db.backref("command_items", lazy="dynamic"))
-    creator = db.relationship("Member", backref=db.backref("created_command_items", lazy="dynamic"))
+    creator = db.relationship("Member", backref=db.backref("created_command_items", cascade="all, delete-orphan", lazy="dynamic"))
     variables = db.relationship("CommandVariable", back_populates="command_item", cascade="all, delete-orphan")
     permissions = db.relationship("CommandItemPermission", back_populates="command_item", cascade="all, delete-orphan")
+    group_links = db.relationship("CommandGroupItem", back_populates="command_item", cascade="all, delete-orphan")
+
+    @property
+    def effective_target_os(self) -> str:
+        """Returns the effective target OS: 'all', 'linux', 'ubuntu', 'rhel', 'windows'."""
+        explicit = (getattr(self, "target_os", None) or "all").lower().strip()
+        if explicit and explicit != "all":
+            return explicit
+
+        if self.command_type == "upload":
+            return "all"
+
+        content = (self.command_content or "").lower()
+
+        # Ubuntu / Debian
+        if re.search(r"\b(apt|apt-get|dpkg)\b", content):
+            return "ubuntu"
+
+        # RHEL / CentOS / Oracle Linux / Fedora / Rocky
+        if re.search(r"\b(yum|dnf|rpm)\b", content):
+            return "rhel"
+
+        # Windows / PowerShell / Batch
+        if re.search(r"(\$env:|powershell|pwsh\s+-command|get-|set-|new-|start-|stop-|invoke-|write-host|write-output|\.bat|\.cmd|cmd\.exe|dir\s+[a-z]:|[a-z]:\\)", content, re.IGNORECASE):
+            return "windows"
+
+        # General Linux
+        if re.search(r"\b(sudo|systemctl|journalctl|chown|chmod|uname|rm -rf|mkdir -p|cat /|#!/bin/)\b", content) or content.strip().startswith("./") or ".sh" in content:
+            return "linux"
+
+        return "all"
+
+    def is_compatible_with_server(self, server: "Server | None") -> bool:
+        """Returns True if this command item can execute on the target server's OS."""
+        if not server:
+            return True
+        if self.command_type == "upload":
+            return True
+
+        srv_os = (server.operating_system or "").lower()
+        srv_type = (server.os_type or "linux").lower()
+        content = (self.command_content or "").lower()
+
+        is_windows = "win" in srv_os or srv_type == "windows"
+        is_ubuntu = "ubuntu" in srv_os or "debian" in srv_os or srv_type in ("ubuntu", "debian")
+        is_rhel = any(k in srv_os for k in ("rhel", "redhat", "red hat", "centos", "rocky", "alma", "fedora", "oracle")) or srv_type in ("rhel", "redhat", "centos")
+
+        eff = self.effective_target_os
+
+        if is_windows:
+            if eff in ("linux", "ubuntu", "rhel"):
+                return False
+            if re.search(r"\b(apt|apt-get|yum|dnf|dpkg|rpm|sudo|systemctl|chown|chmod|uname|rm -rf|mkdir -p)\b", content):
+                return False
+            return True
+
+        # Target server is Linux
+        if is_ubuntu:
+            if eff in ("windows", "rhel"):
+                return False
+            if re.search(r"\b(yum|dnf|rpm|powershell\.exe|cmd\.exe|\.bat|\.cmd)\b", content):
+                return False
+            return True
+
+        if is_rhel:
+            if eff in ("windows", "ubuntu"):
+                return False
+            if re.search(r"\b(apt|apt-get|dpkg|powershell\.exe|cmd\.exe|\.bat|\.cmd)\b", content):
+                return False
+            return True
+
+        # Generic Linux
+        if eff == "windows":
+            return False
+        if re.search(r"(\.bat|\.cmd|cmd\.exe|dir\s+[a-z]:|[a-z]:\\)", content):
+            return False
+        return True
 
     def sync_inferred_variables(self, var_overrides=None):
         """Infer @@ Variable-Name @@ placeholders from self.command_content.
@@ -852,8 +947,8 @@ class CommandGroup(db.Model):
     created_by_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="CASCADE"), nullable=False, index=True)
     created_on = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
 
-    server = db.relationship("Server", backref=db.backref("command_groups", lazy="dynamic"))
-    creator = db.relationship("Member", backref=db.backref("created_command_groups", lazy="dynamic"))
+    server = db.relationship("Server", backref=db.backref("command_groups", cascade="all, delete-orphan", lazy="dynamic"))
+    creator = db.relationship("Member", backref=db.backref("created_command_groups", cascade="all, delete-orphan", lazy="dynamic"))
     items = db.relationship("CommandGroupItem", back_populates="group", cascade="all, delete-orphan", order_by="CommandGroupItem.sequence_order")
     permissions = db.relationship("CommandGroupPermission", back_populates="group", cascade="all, delete-orphan")
 
@@ -869,7 +964,7 @@ class CommandGroupItem(db.Model):
     sequence_order = db.Column(db.Integer, nullable=False, default=0)
 
     group = db.relationship("CommandGroup", back_populates="items")
-    command_item = db.relationship("CommandItem")
+    command_item = db.relationship("CommandItem", back_populates="group_links")
 
 
 class CommandGroupPermission(db.Model):
@@ -888,7 +983,7 @@ class CommandGroupPermission(db.Model):
     can_duplicate = db.Column(db.Boolean, nullable=False, default=False)
 
     group = db.relationship("CommandGroup", back_populates="permissions")
-    user = db.relationship("Member")
+    user = db.relationship("Member", backref=db.backref("command_group_permissions", cascade="all, delete-orphan"))
     __table_args__ = (db.UniqueConstraint("group_id", "user_id"),)
 
 
@@ -907,7 +1002,7 @@ class CommandItemPermission(db.Model):
     can_duplicate = db.Column(db.Boolean, nullable=False, default=False)
 
     command_item = db.relationship("CommandItem", back_populates="permissions")
-    user = db.relationship("Member")
+    user = db.relationship("Member", backref=db.backref("command_item_permissions", cascade="all, delete-orphan"))
     __table_args__ = (db.UniqueConstraint("command_item_id", "user_id"),)
 
 
@@ -938,8 +1033,8 @@ class CommandAudit(db.Model):
     client_ip = db.Column(db.String(45), nullable=True, default="")
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
 
-    user = db.relationship("Member", backref=db.backref("command_audits", lazy="dynamic"))
-    server = db.relationship("Server", backref=db.backref("command_audits", lazy="dynamic"))
+    user = db.relationship("Member", backref=db.backref("command_audits", cascade="all, delete-orphan", lazy="dynamic"))
+    server = db.relationship("Server", backref=db.backref("command_audits", cascade="all, delete-orphan", lazy="dynamic"))
     group = db.relationship("CommandGroup", backref=db.backref("executions", lazy="dynamic"))
     command_item = db.relationship("CommandItem", backref=db.backref("executions", lazy="dynamic"))
 
@@ -1037,7 +1132,7 @@ class AppFeatureAccess(db.Model):
     granted_by_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="SET NULL"), nullable=True)
     granted_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
-    member = db.relationship("Member", foreign_keys=[member_id], backref="feature_access")
+    member = db.relationship("Member", foreign_keys=[member_id], backref=db.backref("feature_access", cascade="all, delete-orphan"))
     granted_by = db.relationship("Member", foreign_keys=[granted_by_id])
 
     __table_args__ = (db.UniqueConstraint("feature_key", "member_id"),)

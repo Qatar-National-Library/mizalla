@@ -1,11 +1,11 @@
 # os_version
-cat /etc/os-release 2>/dev/null
+cat /etc/os-release 2>/dev/null || cat /etc/redhat-release /etc/centos-release /etc/system-release 2>/dev/null
 
 # ram
-cat /proc/meminfo 2>/dev/null
+free -b 2>/dev/null || free -m 2>/dev/null || cat /proc/meminfo 2>/dev/null
 
 # disk
-df -k / 2>/dev/null | tail -n 1
+df -Pk / 2>/dev/null || df -k -P / 2>/dev/null || df -k / 2>/dev/null
 
 # external_storage
 findmnt -rn -o TARGET,FSTYPE,SOURCE 2>/dev/null | grep -E '/media/|/mnt/|/run/media/|nfs|cifs|smb' | grep -v 'rootfs' | grep -vE '^\s*(/home|/root|/var/lib|/tmp|/run)' | awk '{print $1}' || true

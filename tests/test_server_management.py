@@ -1317,10 +1317,76 @@ services:
     assert "image: postgres:15" in html
     assert 'POSTGRES_PASSWORD: secretpassword' in html
 
-    # 2. Verify connection status endpoint returns docker compose content
+    # 2. Verify connection status endpoint returns docker compose content and path
     status_resp = client.get(f"/apps/admin/servers/{sid}/connection-status")
     assert status_resp.status_code == 200
     data = status_resp.get_json()
     assert data["has_docker_compose"] is True
     assert "version: '3.8'" in data["docker_compose_content"]
+    assert data["docker_compose_path"] == "/opt/app/docker-compose.yml"
+
+    # Heading displays path in brackets next to docker-compose.yml
+    assert "docker-compose.yml (/opt/app/docker-compose.yml)" in html
+
+
+def test_rhel_ram_and_storage_parsers():
+    """Verify RHEL RAM and Storage parsers handle all RHEL output formats (free, /proc/meminfo without MemAvailable, wrapped df)."""
+    from mizalla.asyncssh_engine import _parse_linux_ram, _parse_linux_disk
+
+    # 1. RHEL /proc/meminfo without MemAvailable (standard on RHEL 6 and early RHEL 7 kernels)
+    rhel_meminfo_no_avail = """MemTotal:       16384000 kB
+MemFree:         4096000 kB
+Buffers:          512000 kB
+Cached:          3584000 kB
+SReclaimable:     204800 kB
+SwapTotal:       2097148 kB
+"""
+    res_ram = _parse_linux_ram(rhel_meminfo_no_avail)
+    assert res_ram is not None
+    assert res_ram["ram_total"] == "15.6 GB"
+    assert float(res_ram["ram_percent"]) > 0
+
+    # 2. RHEL free -b (bytes) output
+    rhel_free_b = """              total        used        free      shared  buff/cache   available
+Mem:    17179869184  4294967296  8589934592   12345678  4294967296 12884901888
+Swap:    2147483648           0  2147483648
+"""
+    res_free = _parse_linux_ram(rhel_free_b)
+    assert res_free is not None
+    assert res_free["ram_total"] == "16.0 GB"
+    assert res_free["ram_used"] == "4.0 GB"
+    assert res_free["ram_percent"] == 25.0
+
+    # 3. RHEL free -m (megabytes) output
+    rhel_free_m = """              total        used        free      shared  buff/cache   available
+Mem:          16384        4096        8192          12        4096       12288
+Swap:          2048           0        2048
+"""
+    res_free_m = _parse_linux_ram(rhel_free_m)
+    assert res_free_m is not None
+    assert res_free_m["ram_total"] == "16.0 GB"
+    assert res_free_m["ram_used"] == "4.0 GB"
+    assert res_free_m["ram_percent"] == 25.0
+
+    # 4. RHEL POSIX df -Pk / output (unwrapped)
+    rhel_df_posix = """Filesystem         1024-blocks      Used Available Capacity Mounted on
+/dev/mapper/rhel-root 52428800  10485760  41943040      20% /
+"""
+    res_disk_p = _parse_linux_disk(rhel_df_posix)
+    assert res_disk_p is not None
+    assert res_disk_p["disk_total"] == "50.0 GB"
+    assert res_disk_p["disk_used"] == "10.0 GB"
+    assert res_disk_p["disk_percent"] == 20.0
+
+    # 5. RHEL df -k / with wrapped line due to long LVM device name
+    rhel_df_wrapped = """Filesystem           1K-blocks      Used Available Use% Mounted on
+/dev/mapper/rhel_production--server--01-root
+                      52428800  10485760  41943040  20% /
+"""
+    res_disk_w = _parse_linux_disk(rhel_df_wrapped)
+    assert res_disk_w is not None
+    assert res_disk_w["disk_total"] == "50.0 GB"
+    assert res_disk_w["disk_used"] == "10.0 GB"
+    assert res_disk_w["disk_percent"] == 20.0
+
 

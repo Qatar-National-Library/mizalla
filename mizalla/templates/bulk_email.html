@@ -196,11 +196,9 @@ function renderAttachments() {
   const names = selectedAttachments.map((file) => file.name);
   
   if (names.length) {
-    if (symbol) symbol.style.display = "none";
     if (small) small.style.display = "none";
     document.querySelector("#attachment-label").textContent = `${names.length} file${names.length === 1 ? "" : "s"} selected`;
   } else {
-    if (symbol) symbol.style.display = "";
     if (small) small.style.display = "";
     document.querySelector("#attachment-label").textContent = "Add files or drop here";
   }
@@ -278,11 +276,9 @@ emailListInput.addEventListener("change", (event) => {
   const symbol = document.querySelector("#drop-zone-list .upload-symbol");
   const small = document.querySelector("#drop-zone-list small");
   if (file) {
-    if (symbol) symbol.style.display = "none";
     if (small) small.style.display = "none";
     document.querySelector("#list-label").textContent = file.name;
   } else {
-    if (symbol) symbol.style.display = "";
     if (small) small.style.display = "";
     document.querySelector("#list-label").textContent = "Choose CSV or drop here";
   }

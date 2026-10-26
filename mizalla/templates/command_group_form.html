@@ -44,11 +44,12 @@
             </label>
             <label style="flex:1 1 200px;">
               Target Server <span style="color:#c62828;">*</span>
-              <select name="server_id" required {% if group %}disabled{% endif %} style="width:100%; padding:0.5rem; border:1px solid #ccc; border-radius:4px;">
+              <select name="server_id" id="group-target-server-select" required {% if group %}disabled{% endif %} onchange="filterAvailableItemsByServerOS()" style="width:100%; padding:0.5rem; border:1px solid #ccc; border-radius:4px;">
                 <option value="">-- Choose Target Server --</option>
                 {% for s in servers %}
                 <option value="{{ s.id }}"{% if group and group.server_id == s.id %} selected{% endif %}
                   data-os="{{ (s.operating_system or '')|lower }}"
+                  data-os-type="{{ (s.os_type or 'linux')|lower }}"
                   data-tags="{{ (s.core_tags or '')|lower }}"
                   data-has-docker="{{ 'true' if s.has_docker_compose else 'false' }}"
                   data-has-k8s="{{ 'true' if s.has_k8s else 'false' }}">
@@ -172,35 +173,33 @@
         </button>
         {% endif %}
       </div>
-      <p class="muted" style="margin:0 0 1rem; font-size:0.8rem; line-height:1.4;">
+      <p class="muted" style="margin:0 0 0.65rem; font-size:0.8rem; line-height:1.4;">
         Available items you created or have access to. Click <strong>+</strong> to append to the group, or click expand to inspect the script.
       </p>
 
+      <!-- Target OS Filter Banner Indicator -->
+      <div id="avail-items-os-filter-indicator" style="display:none; align-items:center; gap:0.4rem; padding:0.45rem 0.65rem; background:#f0f9ff; border:1px solid #b9e6fe; border-radius:6px; font-size:0.75rem; color:#0369a1; margin-bottom:0.75rem;">
+        <i data-lucide="filter" class="icon-green" style="width:14px; height:14px; flex-shrink:0;"></i>
+        <span id="avail-items-filter-text" style="flex:1;">Filtered by target server OS</span>
+      </div>
+
       <!-- Accordion Items List -->
       <div class="available-items-list" style="display:flex; flex-direction:column; gap:0.65rem; max-height: calc(100vh - 220px); overflow-y:auto; padding-right:0.25rem;">
+        <!-- Fallback when items exist but none match server OS -->
+        <div id="avail-items-no-matches-msg" style="display:none; text-align:center; padding:1.75rem 1rem; background:#fafafa; border:1px dashed #d0d7de; border-radius:6px;">
+          <i data-lucide="alert-circle" class="icon-green" style="width:28px; height:28px; margin-bottom:0.35rem;"></i>
+          <p style="margin:0; font-size:0.85rem; font-weight:600; color:var(--ink);">No compatible Command Items</p>
+          <p class="muted" style="margin:0.25rem 0 0; font-size:0.78rem;">No items match the operating system of the selected target server.</p>
+        </div>
+
         {% for item in available_items %}
         {% set type_label = 'On Remote Server' if item.command_type == 'remote' else ('On Local Server' if item.command_type == 'local' else ('Upload File(s)' if item.command_type == 'upload' else item.command_type)) %}
         {% set can_edit_this = can_edit_item(item) if can_edit_item is defined else false %}
-        <div class="avail-item-accordion" id="avail-item-{{ item.id }}" data-item-id="{{ item.id }}" data-item-name="{{ item.name }}" data-item-type="{{ type_label }}" data-item-creator="{{ item.creator.name if item.creator else (item.creator.email if item.creator else 'Unknown') }}" data-can-edit="{{ 'true' if can_edit_this else 'false' }}" draggable="true" style="border: 1px solid #e0e0e0; border-radius: 6px; overflow:hidden; background:#fafafa; transition: border-color 0.15s ease; cursor:grab;" title="Drag into Command Group or click + to add">
+        <div class="avail-item-accordion" id="avail-item-{{ item.id }}" data-item-id="{{ item.id }}" data-item-name="{{ item.name }}" data-item-type="{{ type_label }}" data-command-type="{{ item.command_type }}" data-item-target-os="{{ item.effective_target_os }}" data-item-creator="{{ item.creator.name if item.creator else (item.creator.email if item.creator else 'Unknown') }}" data-can-edit="{{ 'true' if can_edit_this else 'false' }}" draggable="true" style="border: 1px solid #e0e0e0; border-radius: 6px; overflow:hidden; background:#fafafa; transition: border-color 0.15s ease; cursor:grab;" title="Drag into Command Group or click + to add">
           
           <!-- Accordion Header -->
-          <div class="avail-item-header" style="padding: 0.65rem 0.8rem; display:flex; justify-content:space-between; align-items:flex-start; gap:0.4rem; background:#fff;">
-            <div style="min-width:0; flex:1; display:flex; align-items:flex-start; gap:0.4rem;">
-              <span class="avail-drag-handle" style="color:var(--muted); display:inline-flex; align-items:center; cursor:grab; margin-top:0.15rem;" title="Drag to add to group"><i data-lucide="grip-vertical" class="icon-green"></i></span>
-              <div style="min-width:0; flex:1;">
-                <strong class="avail-item-name" style="font-size:0.88rem; display:block; color:var(--ink); word-break:break-word;">{{ item.name }}</strong>
-                <div class="muted avail-item-creator" style="font-size:0.74rem; margin-top:0.15rem;">
-                  Created by: {{ item.creator.name if item.creator else (item.creator.email if item.creator else 'Unknown') }}
-                </div>
-                <div style="margin-top:0.25rem;">
-                  <span class="tag avail-item-type-tag" style="font-size:0.68rem; background:rgba(0,0,0,0.06); padding:0.05rem 0.35rem; border-radius:3px;">
-                    {{ type_label }}
-                  </span>
-                <span class="muted avail-item-vars-tag" style="font-size:0.72rem; margin-left:0.3rem; {% if item.command_type == 'upload' or not item.variables %}display:none;{% endif %}">
-                  ({{ item.variables|length }} var{{ 's' if item.variables|length != 1 else '' }})
-                </span>
-              </div>
-            </div>
+          <div class="avail-item-header" style="padding: 0.65rem 0.8rem; display:flex; justify-content:space-between; align-items:center; gap:0.5rem; background:#fff;">
+            <strong class="avail-item-name" style="font-size:0.88rem; color:var(--ink); word-break:break-word; min-width:0; flex:1;">{{ item.name }}</strong>
 
             <!-- Action Buttons: Edit, Expand, and Add (+) -->
             <div style="display:flex; align-items:center; gap:0.25rem; flex-shrink:0;">
@@ -257,16 +256,26 @@
       <div id="item-vars-hidden-container"></div>
 
       <div style="display:flex; gap:1rem; flex-wrap:wrap;">
-        <label style="flex:2 1 240px;">
+        <label style="flex:2 1 200px;">
           Item Name
           <input type="text" name="name" id="item-input-name" required placeholder="e.g. Restart App, Pull Git Repo" style="width:100%; padding:0.45rem; border:1px solid #ccc; border-radius:4px;">
         </label>
-        <label style="flex:1 1 200px;">
+        <label style="flex:1 1 150px;">
           Command Type
           <select name="command_type" id="item-input-type" onchange="toggleItemTypeFields()" style="width:100%; padding:0.45rem; border:1px solid #ccc; border-radius:4px;">
             <option value="remote">On Remote Server</option>
             <option value="local">On Local Server</option>
             <option value="upload">Upload File(s)</option>
+          </select>
+        </label>
+        <label style="flex:1 1 150px;" id="item-target-os-container">
+          Target OS
+          <select name="target_os" id="item-input-target-os" style="width:100%; padding:0.45rem; border:1px solid #ccc; border-radius:4px;">
+            <option value="any">Any / Universal</option>
+            <option value="linux">Generic Linux</option>
+            <option value="ubuntu">Ubuntu / Debian</option>
+            <option value="rhel">RHEL / Red Hat / CentOS</option>
+            <option value="windows">Windows</option>
           </select>
         </label>
       </div>
@@ -834,6 +843,8 @@ function openNewItemModal() {
   document.getElementById("item-input-name").value = "";
   document.getElementById("item-input-content").value = "";
   document.getElementById("item-input-type").value = "remote";
+  const targetOsSelect = document.getElementById("item-input-target-os");
+  if (targetOsSelect) targetOsSelect.value = "any";
   currentVariablesMap = {};
   currentExistingFiles = [];
   const fileInput = document.getElementById("item-upload-files");
@@ -872,6 +883,8 @@ async function openEditItemModal(itemId) {
     document.getElementById("item-input-name").value = data.name || "";
     document.getElementById("item-input-type").value = data.command_type || "remote";
     document.getElementById("item-input-content").value = data.command_content || "";
+    const targetOsSelect = document.getElementById("item-input-target-os");
+    if (targetOsSelect) targetOsSelect.value = data.target_os || "any";
 
     currentVariablesMap = {};
     (data.variables || []).forEach(v => {
@@ -949,21 +962,20 @@ async function submitItemForm(event) {
       if (scriptPre) scriptPre.textContent = item.command_content || (item.command_type === "upload" ? "(Upload Step)" : "(Empty Script)");
 
       const varsContainer = availCard.querySelector(".avail-item-vars-container");
-      const varsTag = availCard.querySelector(".avail-item-vars-tag");
       const varsText = availCard.querySelector(".avail-item-vars-text");
       if (item.command_type !== "upload" && item.variables && item.variables.length > 0) {
-        if (varsTag) {
-          varsTag.textContent = `(${item.variables.length} var${item.variables.length !== 1 ? 's' : ''})`;
-          varsTag.style.display = "inline";
-        }
         if (varsContainer && varsText) {
           varsText.textContent = item.variables.join(", ");
           varsContainer.style.display = "block";
         }
       } else {
-        if (varsTag) varsTag.style.display = "none";
         if (varsContainer) varsContainer.style.display = "none";
       }
+
+      availCard.setAttribute("data-item-name", item.name);
+      availCard.setAttribute("data-item-type", item.type_label);
+      availCard.setAttribute("data-command-type", item.command_type);
+      availCard.setAttribute("data-item-target-os", item.target_os || "any");
 
       // Update onclick of + button with new name
       const addBtn = availCard.querySelector(".btn-add-avail-item");
@@ -981,24 +993,19 @@ async function submitItemForm(event) {
         newCard.className = "avail-item-accordion";
         newCard.id = `avail-item-${item.id}`;
         newCard.setAttribute("data-item-id", item.id);
-        newCard.style.cssText = "border: 1px solid #e0e0e0; border-radius: 6px; overflow:hidden; background:#fafafa; transition: border-color 0.15s ease;";
+        newCard.setAttribute("data-item-name", item.name);
+        newCard.setAttribute("data-item-type", item.type_label);
+        newCard.setAttribute("data-command-type", item.command_type);
+        newCard.setAttribute("data-item-target-os", item.target_os || "any");
+        newCard.setAttribute("data-item-creator", item.creator_name || 'Unknown');
+        newCard.setAttribute("data-can-edit", item.can_edit ? "true" : "false");
+        newCard.setAttribute("draggable", "true");
+        newCard.style.cssText = "border: 1px solid #e0e0e0; border-radius: 6px; overflow:hidden; background:#fafafa; transition: border-color 0.15s ease; cursor:grab;";
+        newCard.title = "Drag into Command Group or click + to add";
 
         newCard.innerHTML = `
-          <div class="avail-item-header" style="padding: 0.65rem 0.8rem; display:flex; justify-content:space-between; align-items:flex-start; gap:0.4rem; background:#fff;">
-            <div style="min-width:0; flex:1;">
-              <strong class="avail-item-name" style="font-size:0.88rem; display:block; color:var(--ink); word-break:break-word;">${escapeHtml(item.name)}</strong>
-              <div class="muted avail-item-creator" style="font-size:0.74rem; margin-top:0.15rem;">
-                Created by: ${escapeHtml(item.creator_name || 'Unknown')}
-              </div>
-              <div style="margin-top:0.25rem;">
-                <span class="tag avail-item-type-tag" style="font-size:0.68rem; background:rgba(0,0,0,0.06); padding:0.05rem 0.35rem; border-radius:3px;">
-                  ${escapeHtml(item.type_label)}
-                </span>
-                <span class="muted avail-item-vars-tag" style="font-size:0.72rem; margin-left:0.3rem; ${item.command_type === 'upload' || !item.variables || item.variables.length === 0 ? 'display:none;' : ''}">
-                  (${item.variables ? item.variables.length : 0} var${item.variables && item.variables.length === 1 ? '' : 's'})
-                </span>
-              </div>
-            </div>
+          <div class="avail-item-header" style="padding: 0.65rem 0.8rem; display:flex; justify-content:space-between; align-items:center; gap:0.5rem; background:#fff;">
+            <strong class="avail-item-name" style="font-size:0.88rem; color:var(--ink); word-break:break-word; min-width:0; flex:1;">${escapeHtml(item.name)}</strong>
             <div style="display:flex; align-items:center; gap:0.25rem; flex-shrink:0;">
               ${item.can_edit ? `
               <button type="button" class="button button-quiet button-small btn-edit-avail-item" onclick="openEditItemModal(${item.id})" title="Edit Command Item" style="padding:0.25rem 0.4rem;">
@@ -1023,14 +1030,11 @@ async function submitItemForm(event) {
         `;
 
         listContainer.prepend(newCard);
-
-        const badge = document.getElementById("avail-items-count-badge");
-        if (badge) {
-          const currentCount = parseInt(badge.textContent.trim()) || 0;
-          badge.textContent = (currentCount + 1).toString();
-        }
       }
     }
+
+    // Re-run OS filter to update counts and visibility
+    filterAvailableItemsByServerOS();
 
     // 2. Also update all cards currently added in the left column
     const addedCards = document.querySelectorAll(`#group-items-container .added-item-card[data-item-id="${item.id}"]`);
@@ -1244,9 +1248,135 @@ function displayGroupWarnings(warnings) {
   }
 }
 
+// ─── Filter Available Command Items by Target Server OS ──────────────────────
+function isItemCompatibleWithServerOS(card, serverOS, serverOsType) {
+  // 1. File uploads and local server commands are always compatible
+  const commandType = (card.getAttribute("data-command-type") || "").toLowerCase();
+  const itemType = (card.getAttribute("data-item-type") || "").toLowerCase();
+  if (commandType === "upload" || commandType === "local" || itemType.includes("upload") || itemType.includes("local")) {
+    return true;
+  }
+
+  // 2. Explicit target_os setting check
+  const itemTargetOs = (card.getAttribute("data-item-target-os") || "any").toLowerCase();
+  const scriptEl = card.querySelector(".avail-item-script-pre");
+  const script = scriptEl ? scriptEl.textContent || "" : "";
+
+  const isWindows = serverOS.includes("windows") || serverOS.includes("win") || serverOsType === "windows";
+  const isUbuntu = serverOS.includes("ubuntu") || serverOS.includes("debian") || serverOsType.includes("ubuntu") || serverOsType.includes("debian");
+  const isRhel = serverOS.includes("rhel") || serverOS.includes("redhat") || serverOS.includes("centos") || serverOS.includes("rocky") || serverOS.includes("alma") || serverOS.includes("fedora") || serverOS.includes("oracle") || serverOsType.includes("rhel") || serverOsType.includes("redhat") || serverOsType.includes("centos");
+
+  if (isWindows) {
+    if (itemTargetOs === "linux" || itemTargetOs === "ubuntu" || itemTargetOs === "rhel") {
+      return false;
+    }
+    // Linux package managers and shell-specific commands on Windows
+    if (/\b(apt|apt-get|yum|dnf|dpkg|rpm|pacman|zypper|sudo|systemctl|journalctl|chown|chmod|uname)\b/i.test(script)) {
+      return false;
+    }
+    return true;
+  }
+
+  if (isUbuntu) {
+    if (itemTargetOs === "windows" || itemTargetOs === "rhel") {
+      return false;
+    }
+    // RHEL package tools or Windows batch/PowerShell commands on Ubuntu
+    if (/\b(yum|dnf|rpm|powershell\.exe|cmd\.exe|\.bat|\.cmd)\b/i.test(script)) {
+      return false;
+    }
+    return true;
+  }
+
+  if (isRhel) {
+    if (itemTargetOs === "windows" || itemTargetOs === "ubuntu") {
+      return false;
+    }
+    // Debian/Ubuntu package tools or Windows batch/PowerShell commands on RHEL
+    if (/\b(apt|apt-get|dpkg|powershell\.exe|cmd\.exe|\.bat|\.cmd)\b/i.test(script)) {
+      return false;
+    }
+    return true;
+  }
+
+  // Generic or other Linux server
+  if (itemTargetOs === "windows") {
+    return false;
+  }
+  if (/(\.bat|\.cmd|cmd\.exe|dir\s+[a-z]:|[a-z]:\\)/i.test(script)) {
+    return false;
+  }
+  return true;
+}
+
+function filterAvailableItemsByServerOS() {
+  const serverSelect = document.getElementById("group-target-server-select") || document.querySelector("select[name='server_id']");
+  const cards = document.querySelectorAll(".available-items-list .avail-item-accordion");
+  const countBadge = document.getElementById("avail-items-count-badge");
+  const indicator = document.getElementById("avail-items-os-filter-indicator");
+  const filterText = document.getElementById("avail-items-filter-text");
+  const noMatchesMsg = document.getElementById("avail-items-no-matches-msg");
+
+  let serverOS = "";
+  let serverOsType = "";
+  let serverName = "";
+
+  if (serverSelect) {
+    const selectedOpt = serverSelect.options[serverSelect.selectedIndex];
+    if (selectedOpt && selectedOpt.value) {
+      serverOS = (selectedOpt.getAttribute("data-os") || "").toLowerCase();
+      serverOsType = (selectedOpt.getAttribute("data-os-type") || "").toLowerCase();
+      serverName = selectedOpt.textContent.trim();
+    }
+  }
+
+  // If no server selected yet, show all items
+  if (!serverOS && !serverOsType) {
+    let visibleCount = 0;
+    cards.forEach(card => {
+      card.style.display = "";
+      visibleCount++;
+    });
+    if (countBadge) countBadge.textContent = visibleCount.toString();
+    if (indicator) indicator.style.display = "none";
+    if (noMatchesMsg) noMatchesMsg.style.display = "none";
+    return;
+  }
+
+  let visibleCount = 0;
+  cards.forEach(card => {
+    const compatible = isItemCompatibleWithServerOS(card, serverOS, serverOsType);
+    if (compatible) {
+      card.style.display = "";
+      visibleCount++;
+    } else {
+      card.style.display = "none";
+    }
+  });
+
+  if (countBadge) {
+    countBadge.textContent = visibleCount.toString();
+  }
+
+  if (indicator && filterText) {
+    const osDisplay = serverOS ? serverOS.toUpperCase() : (serverOsType ? serverOsType.toUpperCase() : "Target Server");
+    filterText.innerHTML = `Showing items compatible with <strong>${escapeHtml(osDisplay)}</strong>`;
+    indicator.style.display = "flex";
+  }
+
+  if (noMatchesMsg) {
+    noMatchesMsg.style.display = (cards.length > 0 && visibleCount === 0) ? "block" : "none";
+  }
+
+  if (window.lucide) {
+    lucide.createIcons();
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   initDragAndDrop();
   updateSequenceBadges();
+  filterAvailableItemsByServerOS();
 
   const groupForm = document.getElementById("group-builder-form");
   if (groupForm) {
@@ -1257,5 +1387,8 @@ document.addEventListener("DOMContentLoaded", () => {
     lucide.createIcons();
   }
 });
+
+// Also trigger immediately in case script runs after DOM is ready
+filterAvailableItemsByServerOS();
 </script>
 {% endblock %}
