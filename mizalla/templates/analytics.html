@@ -244,7 +244,11 @@
             {% else %}
               {% for p in accessible_properties %}
                 <option value="{{ p.property_id }}" {% if selected_property and selected_property.property_id == p.property_id %}selected{% endif %}>
-                  {{ p.display_name }} ({{ p.property_id }}){% if p.account_name %} — {{ p.account_name }}{% endif %}
+                  {% if current_user.is_admin %}
+                    {{ p.friendly_label }} (ID: {{ p.property_id }}){% if p.account_name %} — {{ p.account_name }}{% endif %}
+                  {% else %}
+                    {{ p.friendly_label }}
+                  {% endif %}
                 </option>
               {% endfor %}
             {% endif %}

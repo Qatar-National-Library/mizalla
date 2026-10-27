@@ -1356,20 +1356,23 @@ def analytics_properties():
     """Admin management screen for Google Analytics properties and member access."""
     properties = GoogleAnalyticsProperty.query.order_by(GoogleAnalyticsProperty.display_name.asc()).all()
     members = Member.query.filter_by(is_admin=False).order_by(Member.name.asc()).all()
+    last_synced_at = db.session.query(db.func.max(GoogleAnalyticsProperty.last_synced_at)).scalar()
     return render_template(
         "analytics_properties.html",
         properties=properties,
         members=members,
+        last_synced_at=last_synced_at,
     )
 
 
 @bp.route("/analytics-properties/sync", methods=["POST"])
 @admin_required
 def analytics_properties_sync():
-    """Discovers and synchronizes GA properties from Google Analytics Admin API."""
+    """Manually fetches and synchronizes GA properties from Google Analytics Admin API on demand."""
     try:
         discovered = google_analytics.discover_properties()
-        count = 0
+        new_count = 0
+        updated_count = 0
         now = datetime.now(timezone.utc)
         for item in discovered:
             prop_id = item["property_id"]
@@ -1378,6 +1381,7 @@ def analytics_properties_sync():
                 existing.display_name = item["display_name"]
                 existing.account_name = item["account_name"]
                 existing.last_synced_at = now
+                updated_count += 1
             else:
                 new_prop = GoogleAnalyticsProperty(
                     property_id=prop_id,
@@ -1386,22 +1390,25 @@ def analytics_properties_sync():
                     last_synced_at=now,
                 )
                 db.session.add(new_prop)
-                count += 1
+                new_count += 1
         db.session.commit()
-        flash(f"Successfully synchronized {len(discovered)} Google Analytics properties ({count} new).", "success")
+        flash(f"Refetched {len(discovered)} properties from Google Analytics ({new_count} new, {updated_count} updated).", "success")
     except Exception as e:
-        flash(f"Failed to discover Google Analytics properties: {e}", "error")
+        flash(f"Failed to refetch Google Analytics properties: {e}", "error")
     return redirect(url_for("admin.analytics_properties"))
 
 
 @bp.route("/analytics-properties/<int:prop_id>/access", methods=["POST"])
 @admin_required
 def analytics_property_update_access(prop_id: int):
-    """Updates access permissions for a specific property."""
+    """Updates friendly name and access permissions for a specific property."""
     prop = db.session.get(GoogleAnalyticsProperty, prop_id)
     if not prop:
         flash("Property not found.", "error")
         return redirect(url_for("admin.analytics_properties"))
+
+    if "user_friendly_name" in request.form:
+        prop.user_friendly_name = request.form.get("user_friendly_name", "").strip()
 
     all_members = request.form.get("all_members") == "1"
     prop.all_members = all_members
@@ -1414,7 +1421,7 @@ def analytics_property_update_access(prop_id: int):
         prop.authorized_members = []
 
     db.session.commit()
-    flash(f"Updated permissions for '{prop.display_name}'.", "success")
+    flash(f"Updated settings for '{prop.friendly_label}'.", "success")
     return redirect(url_for("admin.analytics_properties"))
 
 
@@ -1424,6 +1431,7 @@ def analytics_property_add_manual():
     """Manually add a Google Analytics property ID."""
     raw_prop_id = request.form.get("property_id", "").strip().replace("properties/", "")
     display_name = request.form.get("display_name", "").strip()
+    user_friendly_name = request.form.get("user_friendly_name", "").strip()
     account_name = request.form.get("account_name", "").strip() or "Manual Registration"
 
     if not raw_prop_id or not display_name:
@@ -1438,12 +1446,13 @@ def analytics_property_add_manual():
     new_prop = GoogleAnalyticsProperty(
         property_id=raw_prop_id,
         display_name=display_name,
+        user_friendly_name=user_friendly_name,
         account_name=account_name,
         last_synced_at=datetime.now(timezone.utc),
     )
     db.session.add(new_prop)
     db.session.commit()
-    flash(f"Added Google Analytics property '{display_name}'.", "success")
+    flash(f"Added Google Analytics property '{new_prop.friendly_label}'.", "success")
     return redirect(url_for("admin.analytics_properties"))
 
 

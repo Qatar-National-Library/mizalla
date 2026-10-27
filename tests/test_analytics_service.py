@@ -411,5 +411,250 @@ def test_analytics_dashboard_property_selector_and_access(app, client, monkeypat
         assert "Secret Portal" not in forbidden_resp.get_data(as_text=True)
 
 
+def test_admin_properties_page_does_not_call_discover_properties(app, client, monkeypatch):
+    """Admin properties page load/refresh must NOT auto-fetch properties from GA."""
+    from mizalla import google_analytics
+    from mizalla.models import GoogleAnalyticsProperty
+
+    with app.app_context():
+        make_member("Admin User", "admin_nofetch@example.com", is_admin=True)
+        prop = GoogleAnalyticsProperty(
+            property_id="5001",
+            display_name="Cached Property 1",
+            account_name="Cached Account",
+        )
+        db.session.add(prop)
+        db.session.commit()
+
+    calls = []
+    monkeypatch.setattr(google_analytics, "discover_properties", lambda: calls.append(1) or [])
+
+    login(client, "admin_nofetch@example.com")
+    resp = client.get("/apps/admin/analytics-properties")
+    assert resp.status_code == 200
+
+    # Ensure discover_properties was NEVER called on page load
+    assert len(calls) == 0
+
+    html = resp.get_data(as_text=True)
+    assert "Refetch Properties from GA" in html
+    assert "refetch-ga-properties-btn" in html
+    assert "Cached Property 1" in html
+    assert "GA Properties" in html
+    assert "only updated on demand" in html
+
+
+def test_analytics_dashboard_does_not_call_discover_properties(app, client, monkeypatch, credentials):
+    """User analytics dashboard page load/refresh must NOT auto-fetch properties from GA."""
+    credentials.set()
+    from mizalla import google_analytics
+    from mizalla.models import GoogleAnalyticsProperty
+
+    with app.app_context():
+        user = make_member("Dashboard User", "dash_user@example.com")
+        sync_member_features(user, [FEATURE_ANALYTICS])
+        prop = GoogleAnalyticsProperty(
+            property_id="6001",
+            display_name="Cached User Prop",
+            all_members=True,
+        )
+        db.session.add(prop)
+        db.session.commit()
+
+    calls = []
+    monkeypatch.setattr(google_analytics, "discover_properties", lambda: calls.append(1) or [])
+    monkeypatch.setattr(
+        google_analytics,
+        "test_connection",
+        lambda: {"status": "connected", "project_id": "test-p", "client_email": "sa@test.iam.gserviceaccount.com"},
+    )
+    monkeypatch.setattr(
+        google_analytics,
+        "fetch_executive_analytics",
+        lambda *args, **kwargs: {
+            "property_id": "6001",
+            "page_views": 100,
+            "sessions": 50,
+            "new_sessions": 30,
+            "returning_users": 20,
+            "bounce_rate": 10.0,
+            "avg_session_duration_sec": 60.0,
+            "avg_session_duration_formatted": "1m 00s",
+            "page_views_per_session_avg": 2.0,
+            "page_views_per_session_min": 1.0,
+            "page_views_per_session_max": 3.0,
+            "session_length_min_sec": 30.0,
+            "session_length_max_sec": 90.0,
+            "session_length_min_formatted": "30s",
+            "session_length_max_formatted": "1m 30s",
+            "top_countries": [],
+            "pages": [],
+        },
+    )
+
+    login(client, "dash_user@example.com")
+    resp = client.get("/apps/analytics/")
+    assert resp.status_code == 200
+
+    # Must NOT call discover_properties on dashboard load
+    assert len(calls) == 0
+
+
+def test_admin_refetch_button_triggers_discovery_and_updates_cache(app, client, monkeypatch):
+    """Clicking Refetch Properties from GA posts to sync, which executes discover_properties."""
+    from mizalla import google_analytics
+    from mizalla.models import GoogleAnalyticsProperty
+
+    with app.app_context():
+        make_member("Admin Sync User", "admin_sync@example.com", is_admin=True)
+
+    mock_discovered = [
+        {"property_id": "7001", "display_name": "New Property 7001", "account_name": "Acme Corp"},
+    ]
+    calls = []
+
+    def mock_discover():
+        calls.append(1)
+        return mock_discovered
+
+    monkeypatch.setattr(google_analytics, "discover_properties", mock_discover)
+
+    login(client, "admin_sync@example.com")
+    resp = client.post("/apps/admin/analytics-properties/sync", follow_redirects=True)
+    assert resp.status_code == 200
+    assert len(calls) == 1
+
+    html = resp.get_data(as_text=True)
+    assert "Refetched 1 properties from Google Analytics" in html
+    assert "New Property 7001" in html
+
+    with app.app_context():
+        prop = GoogleAnalyticsProperty.query.filter_by(property_id="7001").first()
+        assert prop is not None
+        assert prop.last_synced_at is not None
+
+
+def test_admin_set_user_friendly_name_and_sync_preserves_it(app, client, monkeypatch):
+    """Admin can record user-friendly name, and subsequent sync preserves it."""
+    from mizalla import google_analytics
+    from mizalla.models import GoogleAnalyticsProperty
+
+    with app.app_context():
+        make_member("Admin Editor", "admin_editor@example.com", is_admin=True)
+        prop = GoogleAnalyticsProperty(
+            property_id="301981519",
+            display_name="qnl-mobile",
+            account_name="Mobile Application",
+        )
+        db.session.add(prop)
+        db.session.commit()
+        prop_id = prop.id
+
+    login(client, "admin_editor@example.com")
+
+    # 1. Admin sets User-Friendly Name
+    resp = client.post(
+        f"/apps/admin/analytics-properties/{prop_id}/access",
+        data={
+            "user_friendly_name": "QNL Mobile Application",
+            "all_members": "1",
+        },
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "QNL Mobile Application" in html
+    assert "301981519" in html
+
+    # 2. Re-sync from Google Analytics should NOT overwrite the friendly name
+    mock_discovered = [
+        {"property_id": "301981519", "display_name": "qnl-mobile-updated", "account_name": "Mobile Application"},
+    ]
+    monkeypatch.setattr(google_analytics, "discover_properties", lambda: mock_discovered)
+    sync_resp = client.post("/apps/admin/analytics-properties/sync", follow_redirects=True)
+    assert sync_resp.status_code == 200
+
+    with app.app_context():
+        refreshed = db.session.get(GoogleAnalyticsProperty, prop_id)
+        assert refreshed.user_friendly_name == "QNL Mobile Application"
+        assert refreshed.display_name == "qnl-mobile-updated"
+        assert refreshed.friendly_label == "QNL Mobile Application"
+
+
+def test_regular_user_sees_friendly_name_and_technical_id_is_masked(app, client, monkeypatch, credentials):
+    """Regular users see only the friendly name; technical ID/account are masked."""
+    credentials.set()
+    from mizalla import google_analytics
+    from mizalla.models import GoogleAnalyticsProperty
+
+    with app.app_context():
+        user = make_member("Staff Member", "staff@example.com")
+        sync_member_features(user, [FEATURE_ANALYTICS])
+        admin = make_member("Admin Boss", "admin_boss@example.com", is_admin=True)
+        sync_member_features(admin, [FEATURE_ANALYTICS])
+
+        prop = GoogleAnalyticsProperty(
+            property_id="99887766",
+            display_name="tech-sys-name",
+            account_name="Internal Dept Account",
+            user_friendly_name="Public Knowledge Portal",
+            all_members=True,
+        )
+        db.session.add(prop)
+        db.session.commit()
+
+    monkeypatch.setattr(
+        google_analytics,
+        "test_connection",
+        lambda: {"status": "connected", "project_id": "test-p", "client_email": "sa@test.com"},
+    )
+    monkeypatch.setattr(
+        google_analytics,
+        "fetch_executive_analytics",
+        lambda *args, **kwargs: {
+            "property_id": "99887766",
+            "page_views": 500,
+            "sessions": 200,
+            "new_sessions": 150,
+            "returning_users": 50,
+            "bounce_rate": 15.0,
+            "avg_session_duration_sec": 90.0,
+            "avg_session_duration_formatted": "1m 30s",
+            "page_views_per_session_avg": 2.5,
+            "page_views_per_session_min": 1.0,
+            "page_views_per_session_max": 4.0,
+            "session_length_min_sec": 30.0,
+            "session_length_max_sec": 120.0,
+            "session_length_min_formatted": "30s",
+            "session_length_max_formatted": "2m 00s",
+            "top_countries": [],
+            "pages": [],
+        },
+    )
+
+    # 1. Regular user logs in: should see friendly name and NOT see technical ID or internal account
+    login(client, "staff@example.com")
+    user_resp = client.get("/apps/analytics/")
+    assert user_resp.status_code == 200
+    user_html = user_resp.get_data(as_text=True)
+
+    assert "Public Knowledge Portal" in user_html
+    # In selector options, user must NOT see (99887766) or (ID: 99887766) or internal account name
+    assert "Public Knowledge Portal (ID: 99887766)" not in user_html
+    assert "Internal Dept Account" not in user_html
+
+    # 2. Admin logs in: Admin sees friendly name AND technical ID
+    login(client, "admin_boss@example.com")
+    admin_resp = client.get("/apps/analytics/")
+    assert admin_resp.status_code == 200
+    admin_html = admin_resp.get_data(as_text=True)
+
+    assert "Public Knowledge Portal" in admin_html
+    assert "(ID: 99887766)" in admin_html
+    assert "Internal Dept Account" in admin_html
+
+
+
+
 
 

@@ -1,33 +1,48 @@
 {% extends "base.html" %}
-{% from "macros.html" import breadcrumb %}
-{% block title %}Google Analytics Properties &amp; Permissions{% endblock %}
+{% from "macros.html" import breadcrumb, admin_nav %}
+{% block title %}Google Analytics Properties &amp; Permissions · Administration{% endblock %}
 
 {% block content %}
 <div class="analytics-properties-container" style="max-width: 1200px; margin: 0 auto; padding-bottom: 3rem;">
   {{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Admin", url_for('admin.settings_list')), ("GA Properties", None)]) }}
 
-  <div class="page-heading" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
-    <div>
-      <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
-        <i data-lucide="shield-check" class="icon-green" style="width: 24px; height: 24px;"></i>
-        <p class="eyebrow" style="margin: 0;">ADMINISTRATION</p>
-      </div>
-      <h1 style="margin: 0.2rem 0 0;">Google Analytics Properties &amp; Permissions</h1>
-      <p class="lede" style="margin-top: 0.4rem; color: var(--muted); font-size: 0.95rem;">
-        Auto-discover Google Analytics 4 (GA4) properties accessible to your Service Account and grant view-only access to users.
-      </p>
-    </div>
+  {{ admin_nav('analytics_properties') }}
 
-    <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-      <a href="{{ url_for('analytics.index') }}" class="button button-quiet" style="display: inline-flex; align-items: center; gap: 0.4rem;">
-        <i data-lucide="line-chart" class="icon-green" style="width: 16px; height: 16px;"></i> View Analytics Page
-      </a>
-      <form method="POST" action="{{ url_for('admin.analytics_properties_sync') }}" style="display: inline;">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="button button-primary" style="display: inline-flex; align-items: center; gap: 0.4rem;">
-          <i data-lucide="refresh-cw" class="icon-white" style="width: 16px; height: 16px;"></i> Discover &amp; Sync from Google
-        </button>
-      </form>
+  <!-- Manual On-Demand Refetch & Info Bar -->
+  <div style="background: #ffffff; border: 1px solid var(--line); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: var(--panel-shadow);">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+      <div>
+        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+          <i data-lucide="bar-chart-3" class="icon-green" style="width: 22px; height: 22px;"></i>
+          <h2 style="margin: 0; font-size: 1.15rem; color: var(--ink);">Google Analytics Properties &amp; Permissions</h2>
+        </div>
+        <p style="margin: 0.25rem 0 0; color: var(--muted); font-size: 0.88rem;">
+          Properties are cached locally and <strong>only updated on demand</strong>. They are never refetched automatically on page refresh or timers.
+        </p>
+        {% if last_synced_at %}
+          <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.4rem; font-size: 0.8rem; color: #2e7d32; font-weight: 500;">
+            <i data-lucide="check-circle" class="icon-green" style="width: 14px; height: 14px;"></i>
+            <span>Last refetched from GA: <strong>{{ last_synced_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</strong></span>
+          </div>
+        {% else %}
+          <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.4rem; font-size: 0.8rem; color: var(--muted); font-style: italic;">
+            <i data-lucide="clock" class="icon-green" style="width: 14px; height: 14px;"></i>
+            <span>Never refetched yet. Click below to fetch properties from Google Analytics.</span>
+          </div>
+        {% endif %}
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <a href="{{ url_for('analytics.index') }}" class="button button-quiet" style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.88rem;">
+          <i data-lucide="line-chart" class="icon-green" style="width: 16px; height: 16px;"></i> View Analytics Page
+        </a>
+        <form method="POST" action="{{ url_for('admin.analytics_properties_sync') }}" style="display: inline;" onsubmit="const btn=this.querySelector('button'); btn.disabled=true; btn.innerHTML='<i data-lucide=\'refresh-cw\' class=\'icon-white\'></i> Refetching...'; if(window.lucide) lucide.createIcons();">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" id="refetch-ga-properties-btn" class="button button-primary" style="display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 600; padding: 0.55rem 1rem;">
+            <i data-lucide="refresh-cw" class="icon-white" style="width: 16px; height: 16px;"></i> Refetch Properties from GA
+          </button>
+        </form>
+      </div>
     </div>
   </div>
 
@@ -37,19 +52,23 @@
       <i data-lucide="plus-circle" class="icon-green" style="width: 18px; height: 18px;"></i>
       <span>Add Property Manually (Fallback)</span>
     </summary>
-    <form method="POST" action="{{ url_for('admin.analytics_property_add_manual') }}" style="margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)) auto; gap: 1rem; align-items: flex-end;">
+    <form method="POST" action="{{ url_for('admin.analytics_property_add_manual') }}" style="margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) auto; gap: 1rem; align-items: flex-end;">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div>
+        <label for="user_friendly_name" style="display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.3rem;">User-Friendly Name (Shown to Users)</label>
+        <input type="text" id="user_friendly_name" name="user_friendly_name" placeholder="e.g. QNL Mobile App" style="width: 100%; padding: 0.5rem; border: 1px solid var(--line); border-radius: 4px; font-size: 0.9rem;">
+      </div>
       <div>
         <label for="property_id" style="display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.3rem;">GA4 Property ID *</label>
         <input type="text" id="property_id" name="property_id" placeholder="e.g. 123456789" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--line); border-radius: 4px; font-size: 0.9rem;">
       </div>
       <div>
-        <label for="display_name" style="display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.3rem;">Property Display Name *</label>
-        <input type="text" id="display_name" name="display_name" placeholder="e.g. Main Production Website" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--line); border-radius: 4px; font-size: 0.9rem;">
+        <label for="display_name" style="display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.3rem;">Actual GA Display Name *</label>
+        <input type="text" id="display_name" name="display_name" placeholder="e.g. qnl-mobile" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--line); border-radius: 4px; font-size: 0.9rem;">
       </div>
       <div>
-        <label for="account_name" style="display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.3rem;">Account Name (Optional)</label>
-        <input type="text" id="account_name" name="account_name" placeholder="e.g. Corporate Account" style="width: 100%; padding: 0.5rem; border: 1px solid var(--line); border-radius: 4px; font-size: 0.9rem;">
+        <label for="account_name" style="display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.3rem;">GA Account Name (Optional)</label>
+        <input type="text" id="account_name" name="account_name" placeholder="e.g. Mobile Application" style="width: 100%; padding: 0.5rem; border: 1px solid var(--line); border-radius: 4px; font-size: 0.9rem;">
       </div>
       <div>
         <button type="submit" class="button button-primary" style="display: inline-flex; align-items: center; gap: 0.35rem; height: 38px;">
@@ -66,7 +85,7 @@
         <i data-lucide="layers" class="icon-green" style="width: 18px; height: 18px;"></i>
         Discovered Properties ({{ properties|length }})
       </h2>
-      <span style="font-size: 0.82rem; color: var(--muted);">Administrators inherently have view access to all properties</span>
+      <span style="font-size: 0.82rem; color: var(--muted);">User-Friendly names are shown to regular users; technical IDs are visible to Admins only</span>
     </div>
 
     {% if not properties %}
@@ -74,7 +93,7 @@
         <i data-lucide="inbox" class="icon-green" style="width: 44px; height: 44px; stroke-width: 1.5; margin-bottom: 0.75rem;"></i>
         <h3 style="margin: 0 0 0.5rem; font-size: 1.1rem; color: var(--ink);">No Properties Discovered Yet</h3>
         <p style="max-width: 500px; margin: 0 auto 1.5rem; font-size: 0.9rem;">
-          Click the "Discover &amp; Sync from Google" button above to auto-discover properties accessible to your Service Account, or add them manually.
+          Click the "Refetch Properties from GA" button above to query properties accessible to your Service Account, or add them manually.
         </p>
       </div>
     {% else %}
@@ -82,8 +101,8 @@
         <table style="width: 100%; border-collapse: collapse; font-size: 0.88rem; text-align: left;">
           <thead>
             <tr style="border-bottom: 1px solid var(--line); background: #fdfdfd; color: var(--muted); font-size: 0.78rem; text-transform: uppercase;">
-              <th style="padding: 0.75rem 1.25rem;">Property &amp; Account</th>
-              <th style="padding: 0.75rem 1rem;">Property ID</th>
+              <th style="padding: 0.75rem 1.25rem;">Property &amp; Friendly Name</th>
+              <th style="padding: 0.75rem 1rem;">GA Property ID (Admin)</th>
               <th style="padding: 0.75rem 1rem;">View Permissions</th>
               <th style="padding: 0.75rem 1rem;">Last Synced</th>
               <th style="padding: 0.75rem 1.25rem; text-align: right;">Actions</th>
@@ -93,8 +112,19 @@
             {% for prop in properties %}
               <tr style="border-bottom: 1px solid var(--line); vertical-align: top;">
                 <td style="padding: 1rem 1.25rem;">
-                  <strong style="font-size: 0.95rem; color: var(--ink); display: block;">{{ prop.display_name }}</strong>
-                  <span style="color: var(--muted); font-size: 0.8rem;">{{ prop.account_name or '—' }}</span>
+                  {% if prop.user_friendly_name %}
+                    <strong style="font-size: 0.98rem; color: var(--green-dark); display: flex; align-items: center; gap: 0.4rem;">
+                      <i data-lucide="tag" class="icon-green" style="width: 14px; height: 14px;"></i> {{ prop.user_friendly_name }}
+                    </strong>
+                    <span style="color: var(--muted); font-size: 0.8rem; display: block; margin-top: 0.25rem;">
+                      GA Name: <code>{{ prop.display_name }}</code> {% if prop.account_name %} &bull; Account: {{ prop.account_name }}{% endif %}
+                    </span>
+                  {% else %}
+                    <strong style="font-size: 0.95rem; color: var(--ink); display: block;">{{ prop.display_name }}</strong>
+                    <span style="color: var(--muted); font-size: 0.8rem; display: block; margin-top: 0.25rem;">
+                      Account: {{ prop.account_name or '—' }} &bull; <em style="color: #b45309;">No friendly name set (using GA display name)</em>
+                    </span>
+                  {% endif %}
                 </td>
                 <td style="padding: 1rem 1rem;">
                   <code style="background: #f1f3f0; padding: 0.2rem 0.45rem; border-radius: 4px; font-weight: 600; font-size: 0.82rem;">{{ prop.property_id }}</code>
@@ -121,7 +151,7 @@
                 </td>
                 <td style="padding: 1rem 1.25rem; text-align: right; white-space: nowrap;">
                   <button type="button" class="button button-small button-quiet" onclick="openAccessModal('modal-{{ prop.id }}')" style="display: inline-flex; align-items: center; gap: 0.3rem;">
-                    <i data-lucide="users" class="icon-green" style="width: 14px; height: 14px;"></i> Manage Access
+                    <i data-lucide="edit" class="icon-green" style="width: 14px; height: 14px;"></i> Manage
                   </button>
                   <form method="POST" action="{{ url_for('admin.analytics_property_delete', prop_id=prop.id) }}" style="display: inline;" onsubmit="return confirm('Remove property {{ prop.display_name }}?');">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -130,10 +160,13 @@
                     </button>
                   </form>
 
-                  <!-- Modal for Access Assignment -->
-                  <dialog id="modal-{{ prop.id }}" style="border: 1px solid var(--line); border-radius: 8px; padding: 1.5rem; max-width: 500px; width: 90%; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+                  <!-- Modal for Friendly Name & Access Assignment -->
+                  <dialog id="modal-{{ prop.id }}" style="border: 1px solid var(--line); border-radius: 8px; padding: 1.5rem; max-width: 520px; width: 90%; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--line); padding-bottom: 0.75rem;">
-                      <h3 style="margin: 0; font-size: 1.1rem; color: var(--ink);">Access for {{ prop.display_name }}</h3>
+                      <div>
+                        <h3 style="margin: 0; font-size: 1.1rem; color: var(--ink);">Manage {{ prop.friendly_label }}</h3>
+                        <span style="font-size: 0.78rem; color: var(--muted);">GA ID: <code>{{ prop.property_id }}</code></span>
+                      </div>
                       <button type="button" onclick="closeAccessModal('modal-{{ prop.id }}')" style="background: none; border: none; cursor: pointer;">
                         <i data-lucide="x" class="icon-green" style="width: 18px; height: 18px;"></i>
                       </button>
@@ -141,6 +174,17 @@
 
                     <form method="POST" action="{{ url_for('admin.analytics_property_update_access', prop_id=prop.id) }}">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                      <!-- User Friendly Name Field -->
+                      <div style="margin-bottom: 1.25rem; background: #fdfdfd; padding: 0.75rem; border-radius: 6px; border: 1px solid var(--line);">
+                        <label for="friendly_name_{{ prop.id }}" style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.3rem;">
+                          User-Friendly Name (Shown to regular users)
+                        </label>
+                        <input type="text" id="friendly_name_{{ prop.id }}" name="user_friendly_name" value="{{ prop.user_friendly_name }}" placeholder="e.g. Qatar National Library Mobile App" style="width: 100%; padding: 0.55rem; border: 1px solid var(--line); border-radius: 4px; font-size: 0.9rem;">
+                        <p style="margin: 0.3rem 0 0; font-size: 0.75rem; color: var(--muted);">
+                          Regular users will only see this friendly name on their GA dashboard. Technical IDs and internal GA names remain hidden from them.
+                        </p>
+                      </div>
                       
                       <div style="margin-bottom: 1.25rem; background: #fdfbf7; padding: 0.75rem; border-radius: 6px; border: 1px solid #fae8c8;">
                         <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; cursor: pointer;">
@@ -169,7 +213,7 @@
 
                       <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
                         <button type="button" class="button button-quiet" onclick="closeAccessModal('modal-{{ prop.id }}')">Cancel</button>
-                        <button type="submit" class="button button-primary">Save Permissions</button>
+                        <button type="submit" class="button button-primary">Save Changes</button>
                       </div>
                     </form>
                   </dialog>

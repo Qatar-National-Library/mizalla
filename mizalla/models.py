@@ -1374,11 +1374,17 @@ class GoogleAnalyticsProperty(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     property_id = db.Column(db.String(64), unique=True, nullable=False, index=True)
     display_name = db.Column(db.String(200), nullable=False)
+    user_friendly_name = db.Column(db.String(200), nullable=False, default="")
     account_name = db.Column(db.String(200), nullable=False, default="")
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     all_members = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     last_synced_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    @property
+    def friendly_label(self) -> str:
+        """Returns the user friendly name if recorded, otherwise falls back to GA display name."""
+        return self.user_friendly_name.strip() if (self.user_friendly_name and self.user_friendly_name.strip()) else self.display_name
 
     authorized_members = db.relationship(
         "Member",

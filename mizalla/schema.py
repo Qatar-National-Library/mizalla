@@ -93,6 +93,9 @@ SQLITE_ADDITIONS = {
         "command_item_id": "INTEGER",
         "step_results": "TEXT NOT NULL DEFAULT ''",
     },
+    "google_analytics_property": {
+        "user_friendly_name": "VARCHAR(200) NOT NULL DEFAULT ''",
+    },
 }
 
 
