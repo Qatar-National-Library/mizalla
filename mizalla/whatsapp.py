@@ -489,11 +489,15 @@ def device_list():
     # Get devices from local database
     local_devices = GowaDevice.query.order_by(GowaDevice.created_at.desc()).all()
 
+    from . import gowa_manager
+    gowa_status = gowa_manager.get_gowa_process_status(current_app)
+
     return render_template(
         "whatsapp_devices.html",
         devices=local_devices,
         gowa_devices=[],
         gowa_health=gowa_health,
+        gowa_status=gowa_status,
     )
 
 

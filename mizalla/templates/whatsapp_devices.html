@@ -9,14 +9,38 @@
 
   <div class="flash-stack" style="margin-top:1rem">
     {% if gowa_health.online %}
-      <p class="flash flash-success">GOWA is online — <code>{{ gowa_health.url }}</code> responded with HTTP {{ gowa_health.status_code }}.</p>
+      <p class="flash flash-success"><i data-lucide="check-circle" class="icon-green" style="vertical-align:middle; margin-right:0.35rem"></i> GOWA is online — <code>{{ gowa_health.url }}</code> responded with HTTP {{ gowa_health.status_code }}.</p>
     {% else %}
       <p class="flash flash-error">
-        <strong>GOWA is offline.</strong> {{ gowa_health.error }}
+        <i data-lucide="alert-circle" class="icon-white" style="vertical-align:middle; margin-right:0.35rem"></i> <strong>GOWA is offline.</strong> {{ gowa_health.error }}
         Device synchronization is disabled until GOWA is running.
         {% if gowa_health.status_code %}Last response: HTTP {{ gowa_health.status_code }}.{% endif %}
         Checked <code>{{ gowa_health.url }}</code>.
       </p>
+    {% endif %}
+
+    {% if gowa_status and gowa_status.managed %}
+      <div style="background:var(--card-bg, #ffffff); border:1px solid var(--border-color, #e0e0e0); border-radius:8px; padding:1rem; margin-top:0.75rem; font-size:0.9rem">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem">
+          <div>
+            <strong><i data-lucide="cpu" class="icon-green" style="vertical-align:middle; margin-right:0.3rem"></i> GOWA Auto-Lifecycle:</strong>
+            {% if gowa_status.running %}
+              <span class="status-chip sent">Running (PID: {{ gowa_status.pid }})</span>
+            {% else %}
+              <span class="status-chip error">Stopped / Not Running</span>
+            {% endif %}
+            <span style="margin-left:0.75rem; color:var(--text-muted, #666)">Port: <code>{{ gowa_status.port }}</code></span>
+          </div>
+          <div>
+            <span style="color:var(--text-muted, #666); font-size:0.85rem">Exec: <code>{{ gowa_status.executable }}</code></span>
+          </div>
+        </div>
+        {% if gowa_status.history %}
+          <div style="margin-top:0.5rem; font-size:0.82rem; color:var(--text-muted, #666)">
+            PID History (newest first, max 5): <code>{{ gowa_status.history|join(', ') }}</code>
+          </div>
+        {% endif %}
+      </div>
     {% endif %}
   </div>
 
@@ -25,7 +49,7 @@
     <form method="post" action="{{ url_for('whatsapp.device_fetch') }}" style="display:inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="button button-quiet button-small" type="submit"{% if not gowa_health.online %} disabled{% endif %}>
-        🔄 Fetch Devices from GOWA
+        <i data-lucide="refresh-cw" class="icon-green"></i> Fetch Devices from GOWA
       </button>
     </form>
   </div>

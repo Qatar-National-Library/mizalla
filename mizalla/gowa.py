@@ -19,7 +19,32 @@ def _next_id():
 
 
 def get_mcp_base_url() -> str:
-    """Get the GOWA MCP base URL from hot settings."""
+    """Get the GOWA MCP base URL from hot settings.
+
+    When MANAGE_GOWA is enabled, defaults to http://127.0.0.1:{GOWA_PORT} unless
+    explicitly overridden in AppSetting.
+    """
+    try:
+        from .extensions import db
+        from .models import AppSetting
+
+        with db.session.no_autoflush:
+            setting = db.session.scalar(db.select(AppSetting).filter_by(key="gowa_mcp_base_url"))
+            if setting and setting.value and setting.value.strip():
+                return setting.value.strip().rstrip("/")
+    except Exception:
+        pass
+
+    try:
+        from flask import current_app, has_app_context
+
+        if has_app_context() and current_app:
+            if current_app.config.get("MANAGE_GOWA"):
+                port = current_app.config.get("GOWA_PORT", 5000)
+                return f"http://127.0.0.1:{port}"
+    except Exception:
+        pass
+
     return get_setting("gowa_mcp_base_url", "http://127.0.0.1:3000").rstrip("/")
 
 

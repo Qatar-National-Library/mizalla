@@ -145,6 +145,9 @@ def create_app(test_config: dict | None = None) -> Flask:
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true",
+        GOWA_EXECUTABLE=os.environ.get("GOWA_EXECUTABLE", "/gowa/gowa.exe").strip(),
+        GOWA_PORT=int(os.environ.get("GOWA_PORT", "5000")),
+        MANAGE_GOWA=os.environ.get("MANAGE_GOWA", "false").lower() in ("true", "1", "yes"),
     )
     if test_config:
         app.config.update(test_config)
@@ -335,5 +338,13 @@ def create_app(test_config: dict | None = None) -> Flask:
 
             if backfill_legacy_access():
                 app.logger.info("Seeded feature-access grants from the legacy can_bulk_email flag.")
+
+    # GOWA process lifecycle auto-management
+    is_reloader_worker = os.environ.get("WERKZEUG_RUN_MAIN") == "true"
+    is_non_reloader = os.environ.get("WERKZEUG_RUN_MAIN") is None
+    if (is_reloader_worker or is_non_reloader) and app.config.get("MANAGE_GOWA"):
+        from . import gowa_manager
+
+        gowa_manager.start_gowa_service(app)
 
     return app
