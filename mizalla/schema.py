@@ -19,6 +19,13 @@ SQLITE_ADDITIONS = {
         "is_pm": "BOOLEAN NOT NULL DEFAULT 0",
         "can_add_command_items": "BOOLEAN NOT NULL DEFAULT 0",
         "can_add_command_groups": "BOOLEAN NOT NULL DEFAULT 0",
+        "must_set_password": "BOOLEAN NOT NULL DEFAULT 0",
+        "failed_login_attempts": "INTEGER NOT NULL DEFAULT 0",
+        "is_locked": "BOOLEAN NOT NULL DEFAULT 0",
+        "locked_at": "DATETIME",
+        "lock_reason": "VARCHAR(255)",
+        "password_reset_token_hash": "VARCHAR(128)",
+        "password_reset_sent_at": "DATETIME",
     },
     "server_access": {
         "can_view": "BOOLEAN NOT NULL DEFAULT 1",

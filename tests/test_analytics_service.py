@@ -654,6 +654,161 @@ def test_regular_user_sees_friendly_name_and_technical_id_is_masked(app, client,
     assert "Internal Dept Account" in admin_html
 
 
+def test_fetch_executive_analytics_daily_sessions_and_rounding(monkeypatch):
+    """fetch_executive_analytics extracts sorted daily_sessions and rounds min/max pv/session to 2 decimals."""
+    from mizalla import google_analytics
+
+    def mock_run_report(prop_id, spec):
+        dims = [d["name"] for d in spec.get("dimensions", [])]
+        if "date" in dims:
+            # Daily spec
+            return {
+                "rows": [
+                    {
+                        "dimensionValues": [{"value": "20261016"}],
+                        "metricValues": [{"value": "100"}, {"value": "45"}, {"value": "90.0"}, {"value": "2.279828018631315"}],
+                    },
+                    {
+                        "dimensionValues": [{"value": "20261015"}],
+                        "metricValues": [{"value": "80"}, {"value": "30"}, {"value": "60.0"}, {"value": "1.3245997088791848"}],
+                    },
+                ]
+            }
+        elif "country" in dims:
+            return {
+                "rows": [
+                    {"dimensionValues": [{"value": "Qatar"}], "metricValues": [{"value": "100"}]},
+                    {"dimensionValues": [{"value": "United States"}], "metricValues": [{"value": "20"}]},
+                ]
+            }
+        elif "pagePath" in dims:
+            return {"rows": []}
+        else:
+            # Overview KPIs
+            return {
+                "rows": [
+                    {
+                        "metricValues": [
+                            {"value": "180"},
+                            {"value": "75"},
+                            {"value": "50"},
+                            {"value": "70"},
+                            {"value": "0.35"},
+                            {"value": "75.0"},
+                            {"value": "1.8345"},
+                        ]
+                    }
+                ]
+            }
+
+    monkeypatch.setattr(google_analytics, "run_report", mock_run_report)
+
+    result = google_analytics.fetch_executive_analytics("12345", start_date="2026-10-15", end_date="2026-10-16")
+
+    # Verify rounding to 2 decimal places
+    assert result["page_views_per_session_min"] == 1.32
+    assert result["page_views_per_session_max"] == 2.28
+    assert result["page_views_per_session_avg"] == 1.83
+
+    # Verify daily sessions sorted chronologically
+    assert len(result["daily_sessions"]) == 2
+    assert result["daily_sessions"][0]["raw_date"] == "20261015"
+    assert result["daily_sessions"][0]["date"] == "Oct 15"
+    assert result["daily_sessions"][0]["sessions"] == 30
+
+    assert result["daily_sessions"][1]["raw_date"] == "20261016"
+    assert result["daily_sessions"][1]["date"] == "Oct 16"
+    assert result["daily_sessions"][1]["sessions"] == 45
+
+
+def test_analytics_explorer_ui_enhancements_rendering(app, client, credentials, monkeypatch):
+    """Verify that the Explorer dashboard renders spinner overlay, chart canvas, direct date inputs, and green accents."""
+    credentials.set()
+    from mizalla import google_analytics
+    from mizalla.models import GoogleAnalyticsProperty
+
+    with app.app_context():
+        admin = make_member("Admin", "admin_chart@example.com", is_admin=True)
+        prop = GoogleAnalyticsProperty(
+            property_id="11223344",
+            display_name="Main Portal",
+            user_friendly_name="Library Portal",
+            all_members=True,
+        )
+        db.session.add(prop)
+        db.session.commit()
+
+    monkeypatch.setattr(
+        google_analytics,
+        "test_connection",
+        lambda: {"status": "connected", "project_id": "test-p", "client_email": "sa@test.com"},
+    )
+    monkeypatch.setattr(
+        google_analytics,
+        "fetch_executive_analytics",
+        lambda *args, **kwargs: {
+            "property_id": "11223344",
+            "page_views": 187347,
+            "sessions": 102104,
+            "new_sessions": 61830,
+            "returning_users": 5740,
+            "bounce_rate": 54.9,
+            "avg_session_duration_sec": 200.0,
+            "avg_session_duration_formatted": "3m 20s",
+            "page_views_per_session_avg": 1.83,
+            "page_views_per_session_min": 1.32,
+            "page_views_per_session_max": 2.28,
+            "session_length_min_sec": 59.0,
+            "session_length_max_sec": 305.0,
+            "session_length_min_formatted": "0m 59s",
+            "session_length_max_formatted": "5m 05s",
+            "top_countries": [
+                {"country": "Qatar", "users": 42308, "percentage": 80.1},
+                {"country": "United States", "users": 3734, "percentage": 7.1},
+            ],
+            "daily_sessions": [
+                {"raw_date": "20261015", "date": "Oct 15", "sessions": 3100},
+                {"raw_date": "20261016", "date": "Oct 16", "sessions": 3400},
+            ],
+            "pages": [],
+        },
+    )
+
+    login(client, "admin_chart@example.com")
+    resp = client.get("/apps/analytics/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+
+    # 1. Full-page Loading Spinner Overlay
+    assert 'id="ga-loading-overlay"' in html
+    assert 'ga-large-spinner' in html
+    assert 'Fetching Google Analytics Data...' in html
+    assert 'showLoadingOverlay()' in html
+
+    # 2. Direct Start Date and End Date inputs (no 7d/30d/90d preset buttons)
+    assert 'id="start_date"' in html
+    assert 'id="end_date"' in html
+    assert '7 Days' not in html
+    assert '30 Days' not in html
+    assert '90 Days' not in html
+
+    # 3. User Sessions Trend Chart canvas (2 card width)
+    assert 'ga-card-span-2' in html
+    assert 'id="ga-sessions-chart"' in html
+    assert 'User Sessions Trend' in html
+
+    # 4. Label rename: Average Session Length
+    assert 'Average Session Length' in html
+
+    # 5. Min and Max Page Views / Session rounded to 2 decimals
+    assert 'Min: <strong>1.32</strong>' in html
+    assert 'Max: <strong>2.28</strong>' in html
+
+    # 6. Green theme color applied to major metrics and top country
+    assert 'style="color: var(--green-dark, #103e30);"' in html
+    assert 'Qatar' in html
+
+
 
 
 

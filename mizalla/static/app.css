@@ -49,8 +49,10 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 .navigation a { color: #c7d6cd; font-size: .86rem; text-decoration: none; transition: color .18s ease; }
 .navigation a:hover, .navigation a:focus-visible { color: white; }
 .navigation a span { color: #a9d0b6; font-size: 1.1rem; }
-.nav-separator { color: #557568; margin: 0 .3rem; user-select: none; }
+.nav-separator { display: inline-block; width: 1px; height: 18px; background-color: #3a5a4a; margin: 0 .4rem; vertical-align: middle; align-self: center; flex-shrink: 0; }
 .public-navigation { margin-left: auto; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.spin-icon { animation: spin 1s linear infinite; display: inline-block; }
 
 /* Account & User Dropdown */
 .account-menu { display: flex; align-items: center; gap: 1rem; }
@@ -88,7 +90,7 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 .dropdown-logout .dropdown-item { width: 100%; text-align: left; background: none; border: 0; cursor: pointer; font-family: inherit; font-size: .82rem; }
 
 /* App Switcher */
-.app-switcher { display: flex; align-items: center; gap: .8rem; padding: .3rem 0; border-right: 1px solid #3a5a4a; padding-right: 1rem; margin-right: .5rem; }
+.app-switcher { display: flex; align-items: center; gap: .8rem; padding: .3rem 0; }
 .app-switcher-label { color: #7a9a8a; font-size: .62rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .app-switcher-link { color: #c7d6cd; font-size: .8rem; text-decoration: none; transition: color .18s ease; }
 .app-switcher-link:hover, .app-switcher-link:focus-visible { color: white; }
@@ -284,7 +286,7 @@ input[type="file"] { min-height: 0; padding: .45rem; font-size: .73rem; }
 .admin-tag { margin-left: .5rem; padding: .2rem .35rem; background: var(--green-pale); color: var(--green); font-size: .62rem; font-weight: 700; }
 .pm-tag { margin-left: .5rem; padding: .2rem .35rem; background: #e8d5c4; color: #8b4513; font-size: .62rem; font-weight: 700; }
 .checkbox-row .pm-tag { display: inline-block; margin-left: 0; background: var(--red-soft); color: #8b302a; font-weight: 600; letter-spacing: 0; }
-.service-tag { display: inline-block; padding: .1rem .35rem; border-radius: 3px; background: rgba(23, 107, 77, .5); color: #0b3a28; font-size: .6rem; font-weight: 700; letter-spacing: .03em; margin-left: .3rem; vertical-align: middle; }
+.service-tag, .status-tag { display: inline-block; padding: .1rem .35rem; border-radius: 3px; background: rgba(23, 107, 77, .5); color: #0b3a28; font-size: .6rem; font-weight: 700; letter-spacing: .03em; margin-left: .3rem; vertical-align: middle; }
 .role-tag { padding: .15rem .45rem; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--ink); font-size: .74rem; font-family: monospace; }
 
 /* Lists & Tables */

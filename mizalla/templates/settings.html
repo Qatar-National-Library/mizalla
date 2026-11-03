@@ -21,7 +21,8 @@
       <button type="button" class="tab" id="tab-whatsapp" role="tab" aria-controls="panel-whatsapp" aria-selected="false" tabindex="-1"><i data-lucide="message-square" class="icon-green"></i> WhatsApp Service</button>
       <button type="button" class="tab" id="tab-sms" role="tab" aria-controls="panel-sms" aria-selected="false" tabindex="-1"><i data-lucide="smartphone" class="icon-green"></i> SMS Service</button>
       <button type="button" class="tab" id="tab-ai" role="tab" aria-controls="panel-ai" aria-selected="false" tabindex="-1"><i data-lucide="bot" class="icon-green"></i> Azure AI & Security</button>
-      <button type="button" class="tab" id="tab-storage" role="tab" aria-controls="panel-storage" aria-selected="false" tabindex="-1"><i data-lucide="folder" class="icon-green"></i> Storage & Media</button>
+      <button type="button" class="tab" id="tab-uploads" role="tab" aria-controls="panel-uploads" aria-selected="false" tabindex="-1"><i data-lucide="upload-cloud" class="icon-green"></i> Uploaded Files</button>
+      <button type="button" class="tab" id="tab-media-walls" role="tab" aria-controls="panel-media-walls" aria-selected="false" tabindex="-1"><i data-lucide="tv" class="icon-green"></i> Media Walls &amp; Totems</button>
     </div>
 
     {% set settings_by_key = {} %}
@@ -115,7 +116,7 @@
         {{ render_setting('font_paths') }}
 
         {% for s in settings %}
-          {% if s.key not in ['app_base_url', 'jira_base_url', 'project_team_roles', 'task_highlight_types', 'task_edit_permission', 'font_paths', 'sendgrid_from_email', 'email_status_report_days', 'email_due_reminder_days', 'email_stale_task_nudge_days', 'email_overdue_alert_days', 'email_upcoming_meeting_hours', 'test_email_account', 'gowa_mcp_base_url', 'test_whatsapp_number', 'test_sms_number', 'azure_skip_tls_verify', 'vision_id_mapping', 'chat_chunk_chars', 'chat_max_chunks', 'upload_file_folder', 'upload_file_base_url', 'video_upload_max_duration_seconds', 'whatsapp_throttle_base_delay', 'whatsapp_throttle_jitter', 'whatsapp_batch_size', 'whatsapp_batch_delay'] %}
+          {% if s.key not in ['app_base_url', 'jira_base_url', 'project_team_roles', 'task_highlight_types', 'task_edit_permission', 'font_paths', 'sendgrid_from_email', 'email_status_report_days', 'email_due_reminder_days', 'email_stale_task_nudge_days', 'email_overdue_alert_days', 'email_upcoming_meeting_hours', 'test_email_account', 'gowa_mcp_base_url', 'test_whatsapp_number', 'test_sms_number', 'azure_skip_tls_verify', 'vision_id_mapping', 'chat_chunk_chars', 'chat_max_chunks', 'upload_file_folder', 'upload_file_base_url', 'video_upload_max_duration_seconds', 'whatsapp_throttle_base_delay', 'whatsapp_throttle_jitter', 'whatsapp_batch_size', 'whatsapp_batch_delay', 'media_wall_folder', 'media_wall_base_url', 'media_wall_slide_duration'] %}
             {{ render_setting(s.key) }}
           {% endif %}
         {% endfor %}
@@ -257,10 +258,10 @@
       </div>
     </section>
 
-    {# ── Panel 6: Storage & Media ── #}
-    <section class="tab-panel settings-panel" id="panel-storage" role="tabpanel" aria-labelledby="tab-storage" tabindex="0" hidden>
+    {# ── Panel 6: Uploaded Files & Video Upload ── #}
+    <section class="tab-panel settings-panel" id="panel-uploads" role="tabpanel" aria-labelledby="tab-uploads" tabindex="0" hidden>
       <div class="card" style="margin-bottom: 1.5rem;">
-        <h2><i data-lucide="folder" class="icon-green"></i> Storage & Media Services</h2>
+        <h2><i data-lucide="upload-cloud" class="icon-green"></i> Uploaded Files &amp; Storage Services</h2>
         <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 1rem;">Document upload storage directory paths and Cloudflare Stream video duration limits.</p>
 
         <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
@@ -285,6 +286,20 @@
         {{ render_setting('upload_file_folder') }}
         {{ render_setting('upload_file_base_url') }}
         {{ render_setting('video_upload_max_duration_seconds') }}
+
+        {{ render_save_footer() }}
+      </div>
+    </section>
+
+    {# ── Panel 7: Media Walls & Totems ── #}
+    <section class="tab-panel settings-panel" id="panel-media-walls" role="tabpanel" aria-labelledby="tab-media-walls" tabindex="0" hidden>
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <h2><i data-lucide="tv" class="icon-green"></i> Media Walls &amp; Totems Settings</h2>
+        <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 1rem;">Configure the root Media Folder, public asset delivery base URL, and slideshow rotation intervals for physical totems and interactive walls.</p>
+
+        {{ render_setting('media_wall_folder') }}
+        {{ render_setting('media_wall_base_url') }}
+        {{ render_setting('media_wall_slide_duration') }}
 
         {{ render_save_footer() }}
       </div>

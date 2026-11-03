@@ -69,6 +69,19 @@ DEFAULT_APP_SETTINGS = {
         "",
         "Base URL for generating public file links after upload (e.g. https://files.example.com or http://127.0.0.1:5000/uploads). When set, uploading a file displays a success message with a link built as base URL / filename.",
     ),
+    # ── Media Walls & Totems service ──
+    "media_wall_folder": (
+        "",
+        "Media Folder (root folder the Media Walls & Totems service stores files in). Images are stored in /media-wall/images and /totems/images; videos in /media-wall/videos and /totems/videos. Leave blank to use instance/media_walls.",
+    ),
+    "media_wall_base_url": (
+        "",
+        "Base URL prepended to filenames in the Media Walls JSON API list (e.g. http://127.0.0.1:8080/apps/media-walls/content/). Leave blank to use the local server content endpoint.",
+    ),
+    "media_wall_slide_duration": (
+        "10",
+        "Default duration in seconds to display each image in slideshow totems.",
+    ),
     # ── Video Upload service ──
     # Cloudflare Stream deducts this much of the account's storage from the moment
     # an upload URL is issued until the video is either stored (at its real
@@ -105,10 +118,8 @@ DEFAULT_APP_SETTINGS = {
     ),
 }
 
-#: Keys that used to be editable here and are now environment-only. Any row
-#: still carrying one is deleted on startup, so a credential typed into an older
-#: admin form stops sitting in the database (and in its backups) rather than
-#: lingering as a dead but readable secret.
+#: Keys that used to be editable here and are now environment-only or retired.
+#: Any row still carrying one is deleted on startup.
 RETIRED_SETTING_KEYS = frozenset({
     "azure_vision_endpoint",
     "azure_vision_key",
@@ -119,6 +130,8 @@ RETIRED_SETTING_KEYS = frozenset({
     "azure_openai_key",
     "azure_openai_deployment",
     "azure_openai_api_version",
+    "media_wall_image_order",
+    "media_wall_video_order",
 })
 
 # Maps a hot setting key to the app.config key that holds its boot-time value.
@@ -179,6 +192,11 @@ def set_setting(key: str, value: str, description: str = "") -> AppSetting:
             setting.description = description
     db.session.commit()
     return setting
+
+
+#: Alias for set_setting
+save_setting = set_setting
+
 
 
 def _comma_list(raw: str) -> list[str]:
@@ -272,7 +290,7 @@ MULTILINE_SETTING_KEYS = ("font_paths",)
 BOOLEAN_SETTING_KEYS = ("azure_skip_tls_verify",)
 
 #: Settings naming a directory on the server. Blank means "use the application default".
-DIRECTORY_SETTING_KEYS = ("upload_file_folder",)
+DIRECTORY_SETTING_KEYS = ("upload_file_folder", "media_wall_folder")
 
 #: Settings holding a whole number, with the bounds each one is held to.
 #:
@@ -281,6 +299,7 @@ DIRECTORY_SETTING_KEYS = ("upload_file_folder",)
 #: either reserves an absurd amount of storage or silently rejects every upload.
 INTEGER_SETTING_KEYS = {
     "video_upload_max_duration_seconds": (60, 86400),
+    "media_wall_slide_duration": (1, 300),
     "chat_chunk_chars": (100, 10000),
     "chat_max_chunks": (1, 50),
     "email_status_report_days": (1, 365),

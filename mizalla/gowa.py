@@ -22,8 +22,28 @@ def get_mcp_base_url() -> str:
     """Get the GOWA MCP base URL from hot settings.
 
     When MANAGE_GOWA is enabled, defaults to http://127.0.0.1:{GOWA_PORT} unless
-    explicitly overridden in AppSetting.
+    explicitly overridden in AppSetting with a custom non-default value.
     """
+    try:
+        from flask import current_app, has_app_context
+
+        if has_app_context() and current_app and current_app.config.get("MANAGE_GOWA"):
+            port = current_app.config.get("GOWA_PORT", 3000)
+            managed_url = f"http://127.0.0.1:{port}"
+
+            from .extensions import db
+            from .models import AppSetting
+
+            with db.session.no_autoflush:
+                setting = db.session.scalar(db.select(AppSetting).filter_by(key="gowa_mcp_base_url"))
+                if setting and setting.value and setting.value.strip():
+                    val = setting.value.strip().rstrip("/")
+                    if val != "http://127.0.0.1:3000" or port == 3000:
+                        return val
+            return managed_url
+    except Exception:
+        pass
+
     try:
         from .extensions import db
         from .models import AppSetting
@@ -32,16 +52,6 @@ def get_mcp_base_url() -> str:
             setting = db.session.scalar(db.select(AppSetting).filter_by(key="gowa_mcp_base_url"))
             if setting and setting.value and setting.value.strip():
                 return setting.value.strip().rstrip("/")
-    except Exception:
-        pass
-
-    try:
-        from flask import current_app, has_app_context
-
-        if has_app_context() and current_app:
-            if current_app.config.get("MANAGE_GOWA"):
-                port = current_app.config.get("GOWA_PORT", 5000)
-                return f"http://127.0.0.1:{port}"
     except Exception:
         pass
 
@@ -154,6 +164,8 @@ def call_mcp(tool_name: str, params: dict | None = None, timeout: int = 30) -> d
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8", errors="replace")
         logger.error("GOWA MCP HTTP error %d: %s", e.code, error_body)
+        if "panicked" in error_body.lower() or "internal_server_error" in error_body.lower():
+            return {"error": "WhatsApp device is disconnected or session has expired in GOWA. Please check device pairing."}
         return {"error": f"HTTP {e.code}: {error_body[:200]}"}
     except Exception as exc:
         logger.error("GOWA MCP call failed: %s", exc)
@@ -184,8 +196,28 @@ def get_gowa_devices() -> list[dict]:
             return None
         seen_ids.add(dev_id)
         name = str(item.get("name") or item.get("pushName") or item.get("device_id") or item.get("phone") or f"GOWA Device ({dev_id[:8]})").strip()
-        is_active = item.get("status") in (None, "active", "connected", True) or item.get("is_connected") is True or item.get("is_logged_in") is True
-        status = "active" if is_active else str(item.get("status"))
+        
+        is_connected = item.get("is_connected")
+        is_logged_in = item.get("is_logged_in")
+        raw_status = str(item.get("status") or "").lower().strip()
+
+        if is_connected is False and is_logged_in is False:
+            status = "unpaired"
+        elif is_connected is False and is_logged_in is True:
+            status = "disconnected"
+        elif is_connected is True and (is_logged_in is True or is_logged_in is None):
+            status = "active"
+        elif raw_status in ("active", "connected", "online"):
+            status = "active"
+        elif raw_status in ("disconnected", "unpaired", "logged_out", "offline"):
+            status = raw_status
+        elif is_connected is True:
+            status = "active"
+        elif item.get("status") is None and is_connected is None and is_logged_in is None:
+            status = "active"
+        else:
+            status = "inactive"
+
         return {"device_id": dev_id, "name": name, "status": status}
 
     # Probe GOWA status

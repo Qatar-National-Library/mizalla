@@ -443,10 +443,32 @@ def export_job(job_id):
 
 # ─── Device Management (Admin only) ─────────────────────────────────────────
 
-def sync_gowa_devices(user=None):
-    """Fetch devices from GOWA service and sync with local GowaDevice database."""
+def sync_gowa_devices(user=None, remove_stale=True):
+    """Fetch devices from GOWA service and sync with local GowaDevice database.
+
+    If remove_stale is True, any locally recorded GowaDevice whose device_id is not
+    present in the fetched GOWA devices list is removed.
+    Returns (synced_devices, removed_count).
+    """
     fetched = get_gowa_devices()
     synced = []
+    removed_count = 0
+
+    fetched_dev_ids = {
+        gdev.get("device_id")
+        for gdev in fetched
+        if gdev.get("device_id") and gdev.get("device_id") != "unknown"
+    }
+
+    if remove_stale:
+        all_local = GowaDevice.query.all()
+        for loc_dev in all_local:
+            if loc_dev.device_id not in fetched_dev_ids:
+                # Remove access grants first
+                GowaDeviceAccess.query.filter_by(device_id=loc_dev.id).delete()
+                db.session.delete(loc_dev)
+                removed_count += 1
+
     for gdev in fetched:
         dev_id = gdev.get("device_id")
         if not dev_id or dev_id == "unknown":
@@ -464,12 +486,14 @@ def sync_gowa_devices(user=None):
             synced.append(device)
         else:
             existing.status = gdev.get("status", "active")
-            if gdev.get("name") and existing.name == "GOWA Device":
+            if gdev.get("name") and (existing.name == "GOWA Device" or not existing.name):
                 existing.name = gdev["name"]
             synced.append(existing)
-    if synced:
+
+    if synced or removed_count > 0:
         db.session.commit()
-    return synced
+
+    return synced, removed_count
 
 
 @bp.route("/devices")
@@ -482,7 +506,7 @@ def device_list():
     gowa_health = check_health()
     if gowa_health["online"]:
         try:
-            sync_gowa_devices(current_user)
+            sync_gowa_devices(current_user, remove_stale=True)
         except Exception as exc:
             logger.warning("Error syncing GOWA devices: %s", exc)
 
@@ -513,8 +537,11 @@ def device_fetch():
         return redirect(url_for("whatsapp.device_list"))
 
     try:
-        synced = sync_gowa_devices(current_user)
-        flash(f"Successfully fetched and synced {len(synced)} device(s) from GOWA Service.", "success")
+        synced, removed_count = sync_gowa_devices(current_user, remove_stale=True)
+        msg = f"Successfully synced {len(synced)} device(s) from GOWA."
+        if removed_count > 0:
+            msg += f" Removed {removed_count} old device(s)."
+        flash(msg, "success")
     except Exception as exc:
         flash(f"Failed to fetch devices from GOWA: {exc}", "error")
 

@@ -29,6 +29,7 @@ from .models import (
     FEATURE_UPLOAD,
     FEATURE_REMOTE_EXEC,
     FEATURE_ANALYTICS,
+    FEATURE_MEDIA_WALL,
 )
 
 #: Header order. Projects is rendered separately in the template because it is
@@ -45,6 +46,7 @@ SERVICES = (
     {"feature": FEATURE_VIDEO_UPLOAD, "label": "Upload Video", "endpoint": "video_upload.index"},
     {"feature": FEATURE_REMOTE_EXEC, "label": "Remote Exec", "endpoint": "remote_exec.dashboard"},
     {"feature": FEATURE_ANALYTICS, "label": "Analytics", "endpoint": "analytics.index"},
+    {"feature": FEATURE_MEDIA_WALL, "label": "Media Walls", "endpoint": "media_wall.index"},
 )
 
 

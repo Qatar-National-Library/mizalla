@@ -26,6 +26,15 @@ class Member(UserMixin, db.Model):
     can_add_command_items = db.Column(db.Boolean, nullable=False, default=False)
     can_add_command_groups = db.Column(db.Boolean, nullable=False, default=False)
 
+    # Password management and account lockout fields
+    must_set_password = db.Column(db.Boolean, nullable=False, default=False)
+    failed_login_attempts = db.Column(db.Integer, nullable=False, default=0)
+    is_locked = db.Column(db.Boolean, nullable=False, default=False)
+    locked_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    lock_reason = db.Column(db.String(255), nullable=True)
+    password_reset_token_hash = db.Column(db.String(128), nullable=True)
+    password_reset_sent_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
     memberships = db.relationship("ProjectMembership", back_populates="member", cascade="all, delete-orphan")
     task_assignments = db.relationship("TaskOwner", back_populates="member", cascade="all, delete-orphan")
 
@@ -33,7 +42,34 @@ class Member(UserMixin, db.Model):
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password: str) -> bool:
+        if not self.password_hash or self.password_hash.startswith("!") or self.must_set_password:
+            return False
         return check_password_hash(self.password_hash, password)
+
+    def lock(self, reason: str = "") -> None:
+        """Lock the member account."""
+        self.is_locked = True
+        self.locked_at = datetime.now(timezone.utc)
+        self.lock_reason = reason or "Manually locked by Administrator."
+
+    def unlock(self) -> None:
+        """Unlock the member account and clear failed login attempts."""
+        self.is_locked = False
+        self.locked_at = None
+        self.lock_reason = None
+        self.failed_login_attempts = 0
+
+    def record_failed_login(self, max_attempts: int = 5) -> bool:
+        """Increment failed attempts and lock account if max attempts exceeded. Returns True if locked."""
+        self.failed_login_attempts = (self.failed_login_attempts or 0) + 1
+        if self.failed_login_attempts >= max_attempts:
+            self.lock(f"Locked after {max_attempts} consecutive failed login attempts.")
+            return True
+        return False
+
+    def record_successful_login(self) -> None:
+        """Reset failed login attempts on successful authentication."""
+        self.failed_login_attempts = 0
 
     def generate_api_key(self) -> str:
         self.api_key = secrets.token_hex(32)
@@ -699,6 +735,7 @@ FEATURE_UPLOAD = "upload_file"
 FEATURE_VIDEO_UPLOAD = "video_upload"
 FEATURE_REMOTE_EXEC = "remote_exec"
 FEATURE_ANALYTICS = "analytics"
+FEATURE_MEDIA_WALL = "media_wall"
 
 #: feature_key -> human label shown in the admin UI and service cards
 FEATURE_LABELS = {
@@ -712,6 +749,7 @@ FEATURE_LABELS = {
     FEATURE_VIDEO_UPLOAD: "Video Upload",
     FEATURE_REMOTE_EXEC: "Remote Command Execution",
     FEATURE_ANALYTICS: "Google Analytics",
+    FEATURE_MEDIA_WALL: "Media Walls & Totems",
 }
 
 FEATURE_KEYS = tuple(FEATURE_LABELS)
@@ -1416,6 +1454,82 @@ class GoogleAnalyticsProperty(db.Model):
                 cls.authorized_members.any(Member.id == member.id),
             ),
         ).order_by(cls.display_name.asc()).all()
+
+
+# ─── Media Walls & Totems Service ──────────────────────────────────────────
+
+class MediaWallItem(db.Model):
+    """A managed digital signage media asset (image or video) with scheduling and priority."""
+
+    __tablename__ = "media_wall_item"
+
+    id = db.Column(db.Integer, primary_key=True)
+    friendly_name = db.Column(db.String(180), nullable=False)
+    media_type = db.Column(db.String(20), nullable=False)  # 'image' or 'video'
+    filename = db.Column(db.String(255), nullable=False)     # stored on-disk filename
+    original_filename = db.Column(db.String(255), nullable=True, default="")
+    relative_path = db.Column(db.String(500), nullable=False) # path relative to storage root
+    priority = db.Column(db.Integer, nullable=False, default=10, index=True) # display order
+    start_date = db.Column(db.Date, nullable=False, index=True)
+    end_date = db.Column(db.Date, nullable=False, index=True)
+    file_size_bytes = db.Column(db.BigInteger, nullable=False, default=0)
+    width = db.Column(db.Integer, nullable=True)   # width in pixels
+    height = db.Column(db.Integer, nullable=True)  # height in pixels
+    is_enabled = db.Column(db.Boolean, nullable=False, default=True, index=True)
+    target_wall = db.Column(db.Boolean, nullable=False, default=True, index=True)
+    target_totem = db.Column(db.Boolean, nullable=False, default=True, index=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
+    uploaded_by_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="SET NULL"), nullable=True)
+    uploaded_by_name = db.Column(db.String(120), nullable=False, default="System")
+
+    uploaded_by = db.relationship("Member", foreign_keys=[uploaded_by_id])
+
+    @property
+    def targets_list(self) -> list[str]:
+        targets = []
+        if self.target_wall:
+            targets.append("wall")
+        if self.target_totem:
+            targets.append("totem")
+        return targets
+
+    @property
+    def target_labels(self) -> list[str]:
+        labels = []
+        if self.target_wall:
+            labels.append("Media Wall")
+        if self.target_totem:
+            labels.append("Totem")
+        return labels
+
+    @property
+    def size_mb(self) -> float:
+        return round(self.file_size_bytes / (1024 * 1024), 2)
+
+    @property
+    def resolution_str(self) -> str:
+        if self.width and self.height:
+            return f"{self.width} × {self.height} px"
+        return "Unknown"
+
+    @property
+    def is_active(self) -> bool:
+        if not self.is_enabled:
+            return False
+        today = date.today()
+        return self.start_date <= today <= self.end_date
+
+    @property
+    def status_label(self) -> str:
+        if not self.is_enabled:
+            return "DISABLED"
+        today = date.today()
+        if today < self.start_date:
+            return "SCHEDULED"
+        if today > self.end_date:
+            return "EXPIRED"
+        return "ACTIVE"
+
 
 
 

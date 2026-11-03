@@ -56,6 +56,7 @@ from .settings import (
     validate_integer_setting,
     validate_label_list,
 )
+from .auth import generate_password_token, send_password_reset_email
 from .azure_ai import FEATURE_REQUIREMENTS, service_status
 from .validators import is_valid_email
 
@@ -113,9 +114,8 @@ def member_list():
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         email = request.form.get("email", "").strip().lower()
-        password = request.form.get("password", "")
-        if not name or not is_valid_email(email) or len(password) < 12:
-            flash("Enter a name, valid email, and password of at least 12 characters.", "error")
+        if not name or not is_valid_email(email):
+            flash("Enter a name and valid email address.", "error")
         elif Member.query.filter_by(email=email).first():
             flash("That email address is already registered.", "error")
         else:
@@ -127,8 +127,10 @@ def member_list():
                 department_organization=request.form.get("department_organization", "").strip(),
                 is_pm=bool(request.form.get("is_pm")),
                 can_bulk_email="bulk_email" in requested_features,
+                must_set_password=True,
+                password_hash="!UNSET!",
             )
-            member.set_password(password)
+            token = generate_password_token(member)
             db.session.add(member)
             db.session.flush()
             sync_member_features(member, requested_features, granted_by_id=current_user.id)
@@ -139,7 +141,8 @@ def member_list():
                         GowaDeviceAccess(device_id=device_id, member_id=member.id, granted_by_id=current_user.id)
                     )
             db.session.commit()
-            flash("Member account created.", "success")
+            send_password_reset_email(member, token, is_welcome=True)
+            flash(f"Member account created for '{member.name}'. A welcome magic link has been emailed to {member.email} to set their password.", "success")
             return redirect(url_for("admin.member_list"))
     members = Member.query.order_by(Member.name).all()
     # One grouped query for the whole page: N+1 grants lookups would fire on a
@@ -194,65 +197,51 @@ def member_edit(member_id):
     }
 
     if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
-        duplicate = Member.query.filter(Member.email == email, Member.id != member.id).first()
-        password = request.form.get("password", "")
-        if not request.form.get("name", "").strip() or not is_valid_email(email):
-            flash("Name and valid email are required.", "error")
-        elif duplicate:
-            flash("That email address is already registered.", "error")
-        elif password and len(password) < 12:
-            flash("A replacement password must be at least 12 characters.", "error")
+        member.designation = request.form.get("designation", "").strip()
+        member.department_organization = request.form.get("department_organization", "").strip()
+        member.is_pm = bool(request.form.get("is_pm"))
+        # Keep the legacy flag in step with the Bulk Emailer grant so the
+        # backfill stays idempotent and no access is silently lost.
+        requested_features = set(request.form.getlist("feature_ids", type=str))
+        member.can_bulk_email = "bulk_email" in requested_features
+        sync_member_features(member, requested_features, granted_by_id=current_user.id)
+
+        # Update device access: if Bulk Messenger (bulk_whatsapp) is explicitly unchecked in feature_ids, remove all device access
+        features_present = "feature_ids" in request.form or "features_submitted" in request.form
+        if features_present and "bulk_whatsapp" not in requested_features:
+            new_device_ids = set()
         else:
-            member.name = request.form["name"].strip()
-            member.email = email
-            member.designation = request.form.get("designation", "").strip()
-            member.department_organization = request.form.get("department_organization", "").strip()
-            member.is_pm = bool(request.form.get("is_pm"))
-            # Keep the legacy flag in step with the Bulk Emailer grant so the
-            # backfill stays idempotent and no access is silently lost.
-            requested_features = set(request.form.getlist("feature_ids", type=str))
-            member.can_bulk_email = "bulk_email" in requested_features
-            sync_member_features(member, requested_features, granted_by_id=current_user.id)
-            if password:
-                member.set_password(password)
+            new_device_ids = set(request.form.getlist("device_ids", type=int))
 
-            # Update device access: if Bulk Messenger (bulk_whatsapp) is explicitly unchecked in feature_ids, remove all device access
-            features_present = "feature_ids" in request.form or "features_submitted" in request.form
-            if features_present and "bulk_whatsapp" not in requested_features:
-                new_device_ids = set()
-            else:
-                new_device_ids = set(request.form.getlist("device_ids", type=int))
+        # Revoke access to devices that are no longer selected
+        for grant in GowaDeviceAccess.query.filter_by(member_id=member.id).all():
+            if grant.device_id not in new_device_ids:
+                db.session.delete(grant)
+        # Grant access to newly selected devices
+        for device_id in new_device_ids - current_device_ids:
+            db.session.add(
+                GowaDeviceAccess(device_id=device_id, member_id=member.id, granted_by_id=current_user.id)
+            )
 
-            # Revoke access to devices that are no longer selected
-            for grant in GowaDeviceAccess.query.filter_by(member_id=member.id).all():
-                if grant.device_id not in new_device_ids:
-                    db.session.delete(grant)
-            # Grant access to newly selected devices
-            for device_id in new_device_ids - current_device_ids:
-                db.session.add(
-                    GowaDeviceAccess(device_id=device_id, member_id=member.id, granted_by_id=current_user.id)
-                )
+        # Update server access: if Remote Execution (remote_exec) is explicitly unchecked in feature_ids, remove all server access
+        if features_present and "remote_exec" not in requested_features:
+            new_server_ids = set()
+        else:
+            new_server_ids = set(request.form.getlist("server_ids", type=int))
 
-            # Update server access: if Remote Execution (remote_exec) is explicitly unchecked in feature_ids, remove all server access
-            if features_present and "remote_exec" not in requested_features:
-                new_server_ids = set()
-            else:
-                new_server_ids = set(request.form.getlist("server_ids", type=int))
+        # Revoke access to servers that are no longer selected
+        for grant in ServerAccess.query.filter_by(member_id=member.id).all():
+            if grant.server_id not in new_server_ids:
+                db.session.delete(grant)
+        # Grant access to newly selected servers
+        for server_id in new_server_ids - current_server_ids:
+            db.session.add(
+                ServerAccess(server_id=server_id, member_id=member.id, granted_by_id=current_user.id)
+            )
 
-            # Revoke access to servers that are no longer selected
-            for grant in ServerAccess.query.filter_by(member_id=member.id).all():
-                if grant.server_id not in new_server_ids:
-                    db.session.delete(grant)
-            # Grant access to newly selected servers
-            for server_id in new_server_ids - current_server_ids:
-                db.session.add(
-                    ServerAccess(server_id=server_id, member_id=member.id, granted_by_id=current_user.id)
-                )
-
-            db.session.commit()
-            flash("Member updated.", "success")
-            return redirect(url_for("admin.member_list"))
+        db.session.commit()
+        flash("Member updated.", "success")
+        return redirect(url_for("admin.member_list"))
     return render_template(
         "member_form.html",
         member=member,
@@ -265,19 +254,44 @@ def member_edit(member_id):
     )
 
 
-
 @bp.post("/members/<int:member_id>/delete")
 @admin_required
 def member_delete(member_id):
+    flash("Deleting member accounts is disabled to preserve data integrity and audit history. Please lock the account instead.", "error")
+    return redirect(url_for("admin.member_list"))
+
+
+@bp.post("/members/<int:member_id>/lock")
+@admin_required
+def member_lock(member_id: int):
     member = db.get_or_404(Member, member_id)
     if member.id == current_user.id:
-        flash("You cannot delete your own administrator account.", "error")
-    elif member.memberships or member.task_assignments:
-        flash("Remove this member from project roles and task ownership before deleting the account.", "error")
+        flash("You cannot lock your own administrator account.", "error")
     else:
-        db.session.delete(member)
+        member.lock(f"Manually locked by Administrator ({current_user.name}).")
         db.session.commit()
-        flash("Member deleted.", "success")
+        flash(f"Account for '{member.name}' has been locked.", "success")
+    return redirect(url_for("admin.member_list"))
+
+
+@bp.post("/members/<int:member_id>/unlock")
+@admin_required
+def member_unlock(member_id: int):
+    member = db.get_or_404(Member, member_id)
+    member.unlock()
+    db.session.commit()
+    flash(f"Account for '{member.name}' has been unlocked.", "success")
+    return redirect(url_for("admin.member_list"))
+
+
+@bp.post("/members/<int:member_id>/resend-invite")
+@admin_required
+def member_resend_invite(member_id: int):
+    member = db.get_or_404(Member, member_id)
+    token = generate_password_token(member)
+    db.session.commit()
+    send_password_reset_email(member, token, is_welcome=member.must_set_password)
+    flash(f"Password setup link resent to {member.email}.", "success")
     return redirect(url_for("admin.member_list"))
 
 
@@ -1041,7 +1055,7 @@ def feedback_dashboard():
     target_filter = request.args.get("target", "").strip()
     status_filter = request.args.get("status", "").strip()
 
-    query = UtilityAppFeedback.query.order_by(UtilityAppFeedback.created_at.desc())
+    query = UtilityAppFeedback.query.order_by(UtilityAppFeedback.created_at.desc(), UtilityAppFeedback.id.desc())
     if app_filter:
         query = query.filter_by(feature_key=app_filter)
     if target_filter:
@@ -1148,7 +1162,7 @@ def feedback_export():
     target_filter = request.args.get("target", "").strip()
     status_filter = request.args.get("status", "").strip()
 
-    query = UtilityAppFeedback.query.order_by(UtilityAppFeedback.created_at.desc())
+    query = UtilityAppFeedback.query.order_by(UtilityAppFeedback.created_at.desc(), UtilityAppFeedback.id.desc())
     if app_filter:
         query = query.filter_by(feature_key=app_filter)
     if target_filter:

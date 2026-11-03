@@ -137,7 +137,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         JIRA_BASE_URL=os.environ.get("JIRA_BASE_URL", "https://jira.qnl.qa/").strip(),
         PROJECT_TEAM_ROLES=_load_project_team_roles(),
-        MAX_CONTENT_LENGTH=16 * 1024 * 1024,
+        MAX_CONTENT_LENGTH=int(os.environ.get("MAX_CONTENT_LENGTH", 500 * 1024 * 1024)),
         MAX_RECIPIENTS=int(os.environ.get("MAX_RECIPIENTS", "2000")),
         SENDGRID_API_KEY=os.environ.get("SENDGRID_API_KEY", "").strip(),
         UPLOAD_FOLDER=str(Path(app.instance_path) / "uploads"),
@@ -172,8 +172,10 @@ def create_app(test_config: dict | None = None) -> Flask:
     from .feedback import bp as feedback_bp
     from .remote_exec import bp as remote_exec_bp
     from .analytics import bp as analytics_bp
+    from .media_wall import bp as media_wall_bp, api_get as media_wall_api_get
 
     csrf.exempt(api_bp)
+    csrf.exempt(media_wall_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(auth_bp)
@@ -187,6 +189,11 @@ def create_app(test_config: dict | None = None) -> Flask:
     app.register_blueprint(feedback_bp)
     app.register_blueprint(remote_exec_bp)
     app.register_blueprint(analytics_bp)
+    app.register_blueprint(media_wall_bp)
+
+    @app.route("/api/get")
+    def root_media_api_get():
+        return media_wall_api_get()
     
     from .teams import is_future_teams_meeting
     app.jinja_env.globals["is_future_teams_meeting"] = is_future_teams_meeting

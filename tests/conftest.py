@@ -36,6 +36,9 @@ def pytest_configure():
 #: Flask needs one to sign the session cookie.
 SECRET_ENV_VARS = {name for names in _ENV_NAMES.values() for name in names} | {
     "SENDGRID_API_KEY",
+    "MANAGE_GOWA",
+    "GOWA_PORT",
+    "GOWA_MCP_BASE_URL",
 }
 
 
@@ -141,6 +144,7 @@ def app(tmp_path, clean_secrets):
             "SQLALCHEMY_DATABASE_URI": f"sqlite:///{tmp_path / 'test.db'}",
             "UPLOAD_FOLDER": str(tmp_path / "uploads"),
             "WTF_CSRF_ENABLED": False,
+            "MANAGE_GOWA": False,
         }
     )
     # create_app reads the real .env back in (override=False), so the isolation

@@ -114,13 +114,14 @@ def test_cleanup_old_pids(tmp_path):
 
 def test_build_command_line():
     """build_command_line should format commands for binary and shell scripts."""
-    # Binary
+    # Binary with gowa in name requires 'rest' subcommand
     cmd_exe = build_command_line(Path("/opt/gowa/gowa.exe"), 5000)
-    assert cmd_exe == [str(Path("/opt/gowa/gowa.exe")), "--port", "5000"]
+    assert cmd_exe == [str(Path("/opt/gowa/gowa.exe")), "rest", "--port", "5000"]
 
     # Shell script
     cmd_sh = build_command_line(Path("/opt/gowa/start.sh"), 5050)
     assert cmd_sh == ["sh", str(Path("/opt/gowa/start.sh")), "--port", "5050"]
+
 
 
 def test_start_gowa_service_disabled(test_app):

@@ -1,0 +1,648 @@
+{% extends "base.html" %}
+{% from "macros.html" import breadcrumb %}
+
+{% block title %}Media Walls &amp; Totems · Digital Signage{% endblock %}
+
+{% block content %}
+<div class="media-wall-app" style="max-width: 1400px; margin: 0 auto; padding-bottom: 3rem;">
+  {{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Media Walls & Totems", None)]) }}
+
+  <section class="page-heading" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1.5rem; margin-bottom: 2rem;">
+    <div>
+      <p class="eyebrow">DIGITAL SIGNAGE SERVICE</p>
+      <h1 style="margin: 0.2rem 0 0.5rem 0;">Media Walls &amp; Totems</h1>
+      <p class="intro-copy" style="max-width: 780px; color: var(--muted, #475569); margin: 0;">
+        Manage dynamic image playlists and seamless video reels for digital totems and interactive media walls across the Library.
+        Assets are scheduled with validity dates and delivered via public JSON endpoints and signage renderers.
+      </p>
+    </div>
+    <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+      <button type="button" class="button button-primary" id="open-upload-modal-btn" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+        <i data-lucide="plus" class="icon-white"></i>
+        <span>Upload Media</span>
+      </button>
+      <div class="dropdown" style="position: relative; display: inline-block;">
+        <button type="button" class="button button-secondary" id="api-dropdown-btn" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+          <i data-lucide="code" class="icon-green"></i>
+          <span>JSON API</span>
+          <i data-lucide="chevron-down" class="icon-green" style="width: 14px; height: 14px;"></i>
+        </button>
+        <div id="api-dropdown-menu" style="display: none; position: absolute; right: 0; top: 105%; background: #ffffff; border: 1px solid var(--line, #e2e8f0); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); min-width: 240px; z-index: 50; padding: 0.4rem 0;">
+          <a href="{{ url_for('media_wall.api_get', type='images', target='totem') }}" target="_blank" style="display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem; color: #1e293b; text-decoration: none; font-size: 0.85rem;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+            <i data-lucide="image" class="icon-green" style="width: 16px; height: 16px;"></i>
+            <span>Totem Images API</span>
+          </a>
+          <a href="{{ url_for('media_wall.api_get', type='videos', target='totem') }}" target="_blank" style="display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem; color: #1e293b; text-decoration: none; font-size: 0.85rem;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+            <i data-lucide="film" class="icon-green" style="width: 16px; height: 16px;"></i>
+            <span>Totem Videos API</span>
+          </a>
+          <a href="{{ url_for('media_wall.api_get', type='images', target='wall') }}" target="_blank" style="display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem; color: #1e293b; text-decoration: none; font-size: 0.85rem;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+            <i data-lucide="monitor" class="icon-green" style="width: 16px; height: 16px;"></i>
+            <span>Media Wall Images API</span>
+          </a>
+          <a href="{{ url_for('media_wall.api_get', type='videos', target='wall') }}" target="_blank" style="display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem; color: #1e293b; text-decoration: none; font-size: 0.85rem;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+            <i data-lucide="video" class="icon-green" style="width: 16px; height: 16px;"></i>
+            <span>Media Wall Videos API</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Storage Info Banner -->
+  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; padding: 0.75rem 1.25rem; background: #f8fafc; border: 1px solid var(--line, #e2e8f0); border-radius: 8px; margin-bottom: 1.5rem; font-size: 0.85rem;">
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+      <i data-lucide="hard-drive" class="icon-green" style="width: 18px; height: 18px;"></i>
+      <span><strong>Media Folder:</strong> <code style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px;">{{ storage_folder }}</code></span>
+    </div>
+    {% if base_url %}
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+      <i data-lucide="globe" class="icon-green" style="width: 18px; height: 18px;"></i>
+      <span><strong>Asset Base URL:</strong> <code style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px;">{{ base_url }}</code></span>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- 4-Tab Navigation Selector -->
+  <div class="tab-bar" role="tablist" style="display: flex; gap: 0.5rem; border-bottom: 2px solid var(--line, #e2e8f0); margin-bottom: 1.5rem; flex-wrap: wrap;">
+    <button type="button" class="tab-btn {% if active_tab == 'totem-images' %}active{% endif %}" id="tab-btn-totem-images" data-target="panel-totem-images" data-tab-name="totem-images" role="tab" style="padding: 0.75rem 1.25rem; border: none; background: transparent; font-weight: 600; font-size: 0.95rem; cursor: pointer; border-bottom: 3px solid {% if active_tab == 'totem-images' %}var(--green-dark, #103e30){% else %}transparent{% endif %}; color: {% if active_tab == 'totem-images' %}var(--green-dark, #103e30){% else %}var(--muted, #64748b){% endif %}; display: flex; align-items: center; gap: 0.5rem;">
+      <i data-lucide="image" class="icon-green"></i>
+      <span>Totem Images</span>
+      <span style="background: {% if active_tab == 'totem-images' %}var(--green-dark, #103e30){% else %}#cbd5e1{% endif %}; color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem;">{{ totem_images|length }}</span>
+    </button>
+    <button type="button" class="tab-btn {% if active_tab == 'totem-videos' %}active{% endif %}" id="tab-btn-totem-videos" data-target="panel-totem-videos" data-tab-name="totem-videos" role="tab" style="padding: 0.75rem 1.25rem; border: none; background: transparent; font-weight: 600; font-size: 0.95rem; cursor: pointer; border-bottom: 3px solid {% if active_tab == 'totem-videos' %}var(--green-dark, #103e30){% else %}transparent{% endif %}; color: {% if active_tab == 'totem-videos' %}var(--green-dark, #103e30){% else %}var(--muted, #64748b){% endif %}; display: flex; align-items: center; gap: 0.5rem;">
+      <i data-lucide="film" class="icon-green"></i>
+      <span>Totem Videos</span>
+      <span style="background: {% if active_tab == 'totem-videos' %}var(--green-dark, #103e30){% else %}#cbd5e1{% endif %}; color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem;">{{ totem_videos|length }}</span>
+    </button>
+    <button type="button" class="tab-btn {% if active_tab == 'wall-images' %}active{% endif %}" id="tab-btn-wall-images" data-target="panel-wall-images" data-tab-name="wall-images" role="tab" style="padding: 0.75rem 1.25rem; border: none; background: transparent; font-weight: 600; font-size: 0.95rem; cursor: pointer; border-bottom: 3px solid {% if active_tab == 'wall-images' %}var(--green-dark, #103e30){% else %}transparent{% endif %}; color: {% if active_tab == 'wall-images' %}var(--green-dark, #103e30){% else %}var(--muted, #64748b){% endif %}; display: flex; align-items: center; gap: 0.5rem;">
+      <i data-lucide="monitor" class="icon-green"></i>
+      <span>Media Wall Images</span>
+      <span style="background: {% if active_tab == 'wall-images' %}var(--green-dark, #103e30){% else %}#cbd5e1{% endif %}; color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem;">{{ wall_images|length }}</span>
+    </button>
+    <button type="button" class="tab-btn {% if active_tab == 'wall-videos' %}active{% endif %}" id="tab-btn-wall-videos" data-target="panel-wall-videos" data-tab-name="wall-videos" role="tab" style="padding: 0.75rem 1.25rem; border: none; background: transparent; font-weight: 600; font-size: 0.95rem; cursor: pointer; border-bottom: 3px solid {% if active_tab == 'wall-videos' %}var(--green-dark, #103e30){% else %}transparent{% endif %}; color: {% if active_tab == 'wall-videos' %}var(--green-dark, #103e30){% else %}var(--muted, #64748b){% endif %}; display: flex; align-items: center; gap: 0.5rem;">
+      <i data-lucide="video" class="icon-green"></i>
+      <span>Media Wall Videos</span>
+      <span style="background: {% if active_tab == 'wall-videos' %}var(--green-dark, #103e30){% else %}#cbd5e1{% endif %}; color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem;">{{ wall_videos|length }}</span>
+    </button>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="media-toast" style="display: none; position: fixed; bottom: 2rem; right: 2rem; background: var(--green-dark, #103e30); color: #ffffff; padding: 0.85rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.2); z-index: 1000; font-size: 0.9rem; align-items: center; gap: 0.5rem;">
+    <i data-lucide="check-circle" class="icon-white"></i>
+    <span id="toast-message">Order updated successfully</span>
+  </div>
+
+  {# Jinja Macro for Rendering Reorderable Media Table #}
+  {% macro render_signage_panel(panel_id, tab_key, title, subtitle, items, media_type, target_code, display_url, icon_name) %}
+  <div class="tab-panel" id="{{ panel_id }}" role="tabpanel" style="display: {% if active_tab == tab_key %}block{% else %}none{% endif %};">
+    <!-- Panel Header with Open Display Player -->
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; background: #ffffff; padding: 0.85rem 1.25rem; border: 1px solid var(--line, #e2e8f0); border-radius: 8px;">
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <i data-lucide="{{ icon_name }}" class="icon-green" style="width: 22px; height: 22px;"></i>
+        <div>
+          <h2 style="font-size: 1.1rem; margin: 0; font-weight: 700;">{{ title }}</h2>
+          <small style="color: var(--muted, #64748b);">{{ subtitle }}</small>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <a href="{{ display_url }}" target="_blank" class="button button-secondary" style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.85rem; font-size: 0.85rem;" title="Open full-screen digital player in a new tab">
+          <i data-lucide="play" class="icon-green" style="width: 15px; height: 15px;"></i>
+          <span>Open Display Player</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- Table -->
+    {% if items %}
+    <div style="background: #ffffff; border: 1px solid var(--line, #e2e8f0); border-radius: 8px; overflow-x: auto; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+      <table class="table media-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+        <thead>
+          <tr style="background: #f8fafc; border-bottom: 2px solid var(--line, #e2e8f0); color: #475569; font-weight: 600;">
+            <th style="padding: 0.75rem 0.5rem; width: 44px; text-align: center;" title="Drag handle">#</th>
+            <th style="padding: 0.75rem 1rem;">Asset Name</th>
+            <th style="padding: 0.75rem 1rem;">File Details</th>
+            <th style="padding: 0.75rem 1rem;">Schedule</th>
+            <th style="padding: 0.75rem 0.75rem;">Size</th>
+            <th style="padding: 0.75rem 0.75rem;">Dimensions</th>
+            <th style="padding: 0.75rem 1rem;">Uploader</th>
+            <th style="padding: 0.75rem 0.75rem; text-align: center;">Status</th>
+            <th style="padding: 0.75rem 1rem; text-align: right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="drag-container" data-type="{{ media_type }}">
+          {% for item in items %}
+          <tr class="draggable-row" data-id="{{ item.id }}" draggable="true" style="border-bottom: 1px solid var(--line, #e2e8f0); transition: background 0.15s ease;">
+            <td style="padding: 0.75rem 0.5rem; text-align: center; cursor: grab;" class="drag-handle" title="Click and drag to reorder">
+              <i data-lucide="grip-vertical" class="icon-green" style="width: 18px; height: 18px; opacity: 0.6;"></i>
+            </td>
+            <td style="padding: 0.75rem 1rem;">
+              <strong style="color: #0f172a; display: block; font-size: 0.9rem;">{{ item.friendly_name }}</strong>
+              <small style="color: var(--muted, #64748b); font-family: monospace;">{{ item.filename }}</small>
+            </td>
+            <td style="padding: 0.75rem 1rem;">
+              <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <i data-lucide="{% if item.media_type == 'video' %}film{% else %}file-image{% endif %}" class="icon-green" style="width: 16px; height: 16px;"></i>
+                <span style="font-family: monospace; font-size: 0.8rem; color: #334155;">{{ item.relative_path }}</span>
+              </div>
+            </td>
+            <td style="padding: 0.75rem 1rem; white-space: nowrap;">
+              <div style="display: flex; flex-direction: column; gap: 2px;">
+                <span><strong style="color: #334155;">From:</strong> {{ item.start_date.strftime('%Y-%m-%d') }}</span>
+                <span><strong style="color: #334155;">To:</strong> {{ item.end_date.strftime('%Y-%m-%d') }}</span>
+              </div>
+            </td>
+            <td style="padding: 0.75rem 0.75rem; white-space: nowrap;">
+              {{ item.size_mb }} MB
+            </td>
+            <td style="padding: 0.75rem 0.75rem; white-space: nowrap;">
+              {{ item.resolution_str }}
+            </td>
+            <td style="padding: 0.75rem 1rem;">
+              <span style="display: block; font-weight: 500; color: #1e293b;">{{ item.uploaded_by_name or 'System' }}</span>
+              <small style="color: var(--muted, #64748b);">{{ item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '' }}</small>
+            </td>
+            <td style="padding: 0.75rem 0.75rem; text-align: center; white-space: nowrap;">
+              {% set st = (item.status_label or '')|upper %}
+              {% if not item.is_enabled or st == 'DISABLED' %}
+                <span style="background: #f1f5f9; color: #64748b; padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 0.75rem; border: 1px solid #cbd5e1;">Disabled</span>
+              {% elif st == 'ACTIVE' %}
+                <span style="background: #ecfdf5; color: #047857; padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 0.75rem; border: 1px solid #a7f3d0;">Active</span>
+              {% elif st in ('SCHEDULED', 'UPCOMING') %}
+                <span style="background: #eff6ff; color: #1d4ed8; padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 0.75rem; border: 1px solid #bfdbfe;">Scheduled</span>
+              {% else %}
+                <span style="background: #fef2f2; color: #b91c1c; padding: 3px 8px; border-radius: 12px; font-weight: 600; font-size: 0.75rem; border: 1px solid #fecaca;">Expired</span>
+              {% endif %}
+            </td>
+            <td style="padding: 0.75rem 1rem; text-align: right; white-space: nowrap;">
+              <div style="display: inline-flex; align-items: center; gap: 0.4rem;">
+                <a href="{{ url_for('media_wall.serve_content', filename=item.filename) }}" target="_blank" class="button button-quiet button-small" title="Preview file in new tab" style="padding: 4px 8px; display: inline-flex; align-items: center; gap: 4px;">
+                  <i data-lucide="external-link" class="icon-green" style="width: 14px; height: 14px;"></i>
+                  <span>View</span>
+                </a>
+                <button type="button" class="button button-quiet button-small edit-item-btn" data-id="{{ item.id }}" data-name="{{ item.friendly_name }}" data-start="{{ item.start_date.strftime('%Y-%m-%d') }}" data-end="{{ item.end_date.strftime('%Y-%m-%d') }}" data-totem="{{ '1' if item.target_totem else '0' }}" data-wall="{{ '1' if item.target_wall else '0' }}" data-tab="{{ tab_key }}" title="Edit schedule dates" style="padding: 4px 8px; display: inline-flex; align-items: center; gap: 4px;">
+                  <i data-lucide="edit-3" class="icon-green" style="width: 14px; height: 14px;"></i>
+                  <span>Edit</span>
+                </button>
+                <form method="post" action="{{ url_for('media_wall.toggle', item_id=item.id) }}" style="display: inline; margin: 0;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="current_tab" value="{{ tab_key }}">
+                  <button type="submit" class="button button-quiet button-small" title="{% if item.is_enabled %}Disable{% else %}Enable{% endif %} item" style="padding: 4px 8px; display: inline-flex; align-items: center; gap: 4px;">
+                    <i data-lucide="power" class="icon-green" style="width: 14px; height: 14px;"></i>
+                    <span>{% if item.is_enabled %}Disable{% else %}Enable{% endif %}</span>
+                  </button>
+                </form>
+                <form method="post" action="{{ url_for('media_wall.delete', item_id=item.id) }}" style="display: inline; margin: 0;" onsubmit="return confirm('Permanently delete asset \'{{ item.friendly_name }}\'?')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="current_tab" value="{{ tab_key }}">
+                  <button type="submit" class="button button-quiet button-small" title="Delete asset" style="padding: 4px 8px; color: #dc2626; display: inline-flex; align-items: center; gap: 4px;">
+                    <i data-lucide="trash-2" class="icon-green" style="width: 14px; height: 14px;"></i>
+                    <span>Delete</span>
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div style="background: #ffffff; border: 1px dashed var(--line, #cbd5e1); border-radius: 8px; padding: 3rem 1.5rem; text-align: center;">
+      <i data-lucide="{{ icon_name }}" class="icon-green" style="width: 42px; height: 42px; margin-bottom: 0.75rem; opacity: 0.5;"></i>
+      <h3 style="margin: 0 0 0.5rem 0; font-size: 1.1rem; color: #334155;">No {{ title }}</h3>
+      <p style="color: var(--muted, #64748b); max-width: 400px; margin: 0 auto 1.25rem auto; font-size: 0.85rem;">
+        No media assets found matching this target and media type.
+      </p>
+      <button type="button" class="button button-primary" onclick="openUploadForTab('{{ tab_key }}')">
+        Upload {{ title }}
+      </button>
+    </div>
+    {% endif %}
+  </div>
+  {% endmacro %}
+
+  <!-- TAB PANELS -->
+  {{ render_signage_panel('panel-totem-images', 'totem-images', 'Totem Images', 'Supported formats: PNG, JPG, JPEG · Delivered to digital totems across the Library', totem_images, 'image', 'totem', url_for('media_wall.display_images', target='totem'), 'image') }}
+  {{ render_signage_panel('panel-totem-videos', 'totem-videos', 'Totem Videos', 'Supported formats: MP4 · Looping reels delivered to digital totems across the Library', totem_videos, 'video', 'totem', url_for('media_wall.display_videos', target='totem'), 'film') }}
+  {{ render_signage_panel('panel-wall-images', 'wall-images', 'Media Wall Images', 'Supported formats: PNG, JPG, JPEG · Delivered to high-resolution media walls', wall_images, 'image', 'wall', url_for('media_wall.display_images', target='wall'), 'monitor') }}
+  {{ render_signage_panel('panel-wall-videos', 'wall-videos', 'Media Wall Videos', 'Supported formats: MP4 · High-definition videos delivered to media walls', wall_videos, 'video', 'wall', url_for('media_wall.display_videos', target='wall'), 'video') }}
+
+  <!-- UPLOAD MODAL -->
+  <div id="upload-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000; align-items: center; justify-content: center; padding: 1rem;">
+    <div style="background: #ffffff; border-radius: 12px; width: 100%; max-width: 580px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04); overflow: hidden;">
+      <div style="background: #f8fafc; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--line, #e2e8f0); display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <i data-lucide="upload-cloud" class="icon-green" style="width: 22px; height: 22px;"></i>
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700;">Upload Media Asset</h3>
+        </div>
+        <button type="button" id="close-upload-modal-btn" style="background: transparent; border: none; cursor: pointer; color: #64748b; padding: 4px;">
+          <i data-lucide="x" class="icon-green" style="width: 20px; height: 20px;"></i>
+        </button>
+      </div>
+
+      <form id="upload-form" method="post" action="{{ url_for('media_wall.upload') }}" enctype="multipart/form-data" style="padding: 1.5rem;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="current_tab" id="upload_current_tab" value="{{ active_tab }}">
+
+        <!-- Upload Progress Alert (Hidden until submit) -->
+        <div id="upload-progress-box" style="display: none; margin-bottom: 1.25rem; padding: 0.85rem 1rem; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; color: #166534; font-size: 0.88rem;">
+          <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem;">
+            <i data-lucide="loader-2" class="spin-icon" style="width: 18px; height: 18px;"></i>
+            <strong>Uploading media file to server...</strong>
+          </div>
+          <small style="display: block; color: #15803d;">Please wait while the file is uploaded, verified, and processed.</small>
+        </div>
+
+        <div style="margin-bottom: 1.25rem;">
+          <label for="friendly_name" style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; color: #1e293b;">
+            Friendly Asset Name <span style="color: #dc2626;">*</span>
+          </label>
+          <input type="text" id="friendly_name" name="friendly_name" required placeholder="e.g. National Day Promotion 2026" class="text-input" style="width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--line, #cbd5e1); border-radius: 6px; font-size: 0.9rem;">
+          <small style="color: var(--muted, #64748b); font-size: 0.78rem;">Descriptive label shown in signage management and internal inventory.</small>
+        </div>
+
+        <div style="margin-bottom: 1.25rem;">
+          <label for="media_file" style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; color: #1e293b;">
+            Media File (Image or Video) <span style="color: #dc2626;">*</span>
+          </label>
+          <input type="file" id="media_file" name="media_file" required accept=".png,.jpg,.jpeg,.mp4" style="width: 100%; padding: 0.6rem 0.75rem; border: 1px dashed var(--line, #cbd5e1); border-radius: 6px; font-size: 0.85rem; background: #f8fafc;">
+          <small style="color: var(--muted, #64748b); font-size: 0.78rem;">Supported formats: <strong>PNG, JPG, JPEG</strong> for images; <strong>MP4</strong> for videos.</small>
+        </div>
+
+        <!-- Display Targets Checkboxes -->
+        <div style="margin-bottom: 1.25rem; background: #f8fafc; padding: 0.85rem 1rem; border: 1px solid var(--line, #e2e8f0); border-radius: 6px;">
+          <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.5rem; color: #1e293b;">
+            Display Signage Targets <span style="color: #dc2626;">*</span>
+          </label>
+          <div style="display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap;">
+            <label style="display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; font-size: 0.9rem; font-weight: 500;">
+              <input type="checkbox" name="target_totem" id="upload_target_totem" value="1" checked>
+              <span>Digital Totems</span>
+            </label>
+            <label style="display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; font-size: 0.9rem; font-weight: 500;">
+              <input type="checkbox" name="target_wall" id="upload_target_wall" value="1" checked>
+              <span>Media Wall</span>
+            </label>
+          </div>
+          <small style="color: var(--muted, #64748b); font-size: 0.78rem; display: block; margin-top: 0.35rem;">
+            Files are saved to respective folders (<code style="background:#e2e8f0; padding:1px 4px; border-radius:3px;">/totems/...</code> and/or <code style="background:#e2e8f0; padding:1px 4px; border-radius:3px;">/media-wall/...</code>).
+          </small>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
+          <div>
+            <label for="start_date" style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; color: #1e293b;">
+              Start Date <span style="color: #dc2626;">*</span>
+            </label>
+            <input type="date" id="start_date" name="start_date" required value="{{ today_str }}" class="text-input" style="width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--line, #cbd5e1); border-radius: 6px; font-size: 0.9rem;">
+          </div>
+          <div>
+            <label for="end_date" style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; color: #1e293b;">
+              End Date (Expiration) <span style="color: #dc2626;">*</span>
+            </label>
+            <input type="date" id="end_date" name="end_date" required value="2099-12-31" class="text-input" style="width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--line, #cbd5e1); border-radius: 6px; font-size: 0.9rem;">
+          </div>
+        </div>
+
+        <div style="margin-bottom: 1.5rem;">
+          <label for="priority" style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; color: #1e293b;">
+            Priority Index (Optional)
+          </label>
+          <input type="number" id="priority" name="priority" value="10" min="0" class="text-input" style="width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--line, #cbd5e1); border-radius: 6px; font-size: 0.9rem;">
+          <small style="color: var(--muted, #64748b); font-size: 0.78rem;">Lower numbers appear first. You can also drag and drop rows in the table to reorder.</small>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; padding-top: 1rem; border-top: 1px solid var(--line, #e2e8f0);">
+          <button type="button" id="cancel-upload-btn" class="button button-secondary">Cancel</button>
+          <button type="submit" id="upload-submit-btn" class="button button-primary" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i data-lucide="check" class="icon-white"></i>
+            <span>Upload and Save</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- EDIT MODAL -->
+  <div id="edit-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000; align-items: center; justify-content: center; padding: 1rem;">
+    <div style="background: #ffffff; border-radius: 12px; width: 100%; max-width: 500px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04); overflow: hidden;">
+      <div style="background: #f8fafc; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--line, #e2e8f0); display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <i data-lucide="calendar" class="icon-green" style="width: 22px; height: 22px;"></i>
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700;">Edit Schedule &amp; Targets</h3>
+        </div>
+        <button type="button" id="close-edit-modal-btn" style="background: transparent; border: none; cursor: pointer; color: #64748b; padding: 4px;">
+          <i data-lucide="x" class="icon-green" style="width: 20px; height: 20px;"></i>
+        </button>
+      </div>
+
+      <form id="edit-form" method="post" action="{{ url_for('media_wall.edit') }}" style="padding: 1.5rem;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" id="edit_item_id" name="item_id" value="">
+        <input type="hidden" id="edit_current_tab" name="current_tab" value="{{ active_tab }}">
+
+        <div style="margin-bottom: 1.25rem; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--line, #e2e8f0);">
+          <small style="color: var(--muted, #64748b); display: block; font-size: 0.75rem; text-transform: uppercase; font-weight: 700;">Asset Name</small>
+          <strong id="edit_item_name" style="font-size: 0.95rem; color: #0f172a;">-</strong>
+        </div>
+
+        <!-- Display Targets Checkboxes -->
+        <div style="margin-bottom: 1.25rem;">
+          <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; color: #1e293b;">
+            Display Targets <span style="color: #dc2626;">*</span>
+          </label>
+          <div style="display: flex; gap: 1.5rem; align-items: center;">
+            <label style="display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; font-size: 0.9rem;">
+              <input type="checkbox" name="target_totem" id="edit_target_totem" value="1">
+              <span>Digital Totems</span>
+            </label>
+            <label style="display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; font-size: 0.9rem;">
+              <input type="checkbox" name="target_wall" id="edit_target_wall" value="1">
+              <span>Media Wall</span>
+            </label>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 1.25rem;">
+          <label for="edit_start_date" style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; color: #1e293b;">
+            Start Date <span style="color: #dc2626;">*</span>
+          </label>
+          <input type="date" id="edit_start_date" name="start_date" required class="text-input" style="width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--line, #cbd5e1); border-radius: 6px; font-size: 0.9rem;">
+        </div>
+
+        <div style="margin-bottom: 1.5rem;">
+          <label for="edit_end_date" style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; color: #1e293b;">
+            End Date (Expiration) <span style="color: #dc2626;">*</span>
+          </label>
+          <input type="date" id="edit_end_date" name="end_date" required class="text-input" style="width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--line, #cbd5e1); border-radius: 6px; font-size: 0.9rem;">
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; padding-top: 1rem; border-top: 1px solid var(--line, #e2e8f0);">
+          <button type="button" id="cancel-edit-btn" class="button button-secondary">Cancel</button>
+          <button type="submit" class="button button-primary" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i data-lucide="save" class="icon-white"></i>
+            <span>Update Schedule</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons();
+  }
+
+  // API Dropdown Toggle
+  const apiBtn = document.getElementById('api-dropdown-btn');
+  const apiMenu = document.getElementById('api-dropdown-menu');
+  if (apiBtn && apiMenu) {
+    apiBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      apiMenu.style.display = apiMenu.style.display === 'block' ? 'none' : 'block';
+    });
+    document.addEventListener('click', function() {
+      apiMenu.style.display = 'none';
+    });
+  }
+
+  // 4-Tab Switching
+  const tabBtns = document.querySelectorAll('.tab-btn');
+  const tabPanels = document.querySelectorAll('.tab-panel');
+  const uploadCurrentTab = document.getElementById('upload_current_tab');
+  const editCurrentTab = document.getElementById('edit_current_tab');
+
+  function switchTab(panelId) {
+    tabPanels.forEach(p => p.style.display = 'none');
+    tabBtns.forEach(b => {
+      b.style.borderBottomColor = 'transparent';
+      b.style.color = 'var(--muted, #64748b)';
+      const badge = b.querySelector('span:last-child');
+      if (badge) badge.style.background = '#cbd5e1';
+      b.classList.remove('active');
+    });
+
+    const activePanel = document.getElementById(panelId);
+    if (activePanel) activePanel.style.display = 'block';
+
+    const activeBtn = document.querySelector(`.tab-btn[data-target="${panelId}"]`);
+    if (activeBtn) {
+      activeBtn.style.borderBottomColor = 'var(--green-dark, #103e30)';
+      activeBtn.style.color = 'var(--green-dark, #103e30)';
+      const badge = activeBtn.querySelector('span:last-child');
+      if (badge) badge.style.background = 'var(--green-dark, #103e30)';
+      activeBtn.classList.add('active');
+
+      const tabName = activeBtn.getAttribute('data-tab-name');
+      if (uploadCurrentTab) uploadCurrentTab.value = tabName;
+      if (editCurrentTab) editCurrentTab.value = tabName;
+      window.location.hash = '#' + tabName;
+    }
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  }
+
+  tabBtns.forEach(btn => {
+    btn.addEventListener('click', function() {
+      const target = this.getAttribute('data-target');
+      switchTab(target);
+    });
+  });
+
+  // Check URL hash for initial tab
+  const hash = window.location.hash.replace('#', '');
+  if (hash) {
+    const matchingBtn = document.querySelector(`.tab-btn[data-tab-name="${hash}"]`);
+    if (matchingBtn) {
+      switchTab(matchingBtn.getAttribute('data-target'));
+    }
+  }
+
+  // Upload Modal handling
+  const uploadModal = document.getElementById('upload-modal');
+  const openUploadBtn = document.getElementById('open-upload-modal-btn');
+  const closeUploadBtn = document.getElementById('close-upload-modal-btn');
+  const cancelUploadBtn = document.getElementById('cancel-upload-btn');
+  const uploadForm = document.getElementById('upload-form');
+  const uploadSubmitBtn = document.getElementById('upload-submit-btn');
+  const uploadProgressBox = document.getElementById('upload-progress-box');
+  const uploadTargetTotem = document.getElementById('upload_target_totem');
+  const uploadTargetWall = document.getElementById('upload_target_wall');
+
+  window.openUploadForTab = function(tabName) {
+    if (tabName) {
+      const matchingBtn = document.querySelector(`.tab-btn[data-tab-name="${tabName}"]`);
+      if (matchingBtn) switchTab(matchingBtn.getAttribute('data-target'));
+
+      if (tabName.startsWith('totem')) {
+        uploadTargetTotem.checked = true;
+        uploadTargetWall.checked = false;
+      } else if (tabName.startsWith('wall')) {
+        uploadTargetWall.checked = true;
+        uploadTargetTotem.checked = false;
+      }
+    }
+    uploadModal.style.display = 'flex';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  };
+
+  function openUpload() {
+    const currentTabVal = uploadCurrentTab ? uploadCurrentTab.value : 'totem-images';
+    openUploadForTab(currentTabVal);
+  }
+
+  function closeUpload() {
+    uploadModal.style.display = 'none';
+  }
+
+  if (openUploadBtn) openUploadBtn.addEventListener('click', openUpload);
+  if (closeUploadBtn) closeUploadBtn.addEventListener('click', closeUpload);
+  if (cancelUploadBtn) cancelUploadBtn.addEventListener('click', closeUpload);
+
+  // Upload Spinner & Progress on form submit
+  if (uploadForm) {
+    uploadForm.addEventListener('submit', function(e) {
+      if (uploadSubmitBtn) {
+        uploadSubmitBtn.disabled = true;
+        uploadSubmitBtn.style.opacity = '0.7';
+        uploadSubmitBtn.innerHTML = '<i data-lucide="loader-2" class="spin-icon" style="width:16px;height:16px;"></i> <span>Uploading... Please wait</span>';
+      }
+      if (uploadProgressBox) {
+        uploadProgressBox.style.display = 'block';
+      }
+      if (cancelUploadBtn) cancelUploadBtn.disabled = true;
+      if (closeUploadBtn) closeUploadBtn.style.display = 'none';
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    });
+  }
+
+  // Edit Modal handling
+  const editModal = document.getElementById('edit-modal');
+  const closeEditBtn = document.getElementById('close-edit-modal-btn');
+  const cancelEditBtn = document.getElementById('cancel-edit-btn');
+  const editItemId = document.getElementById('edit_item_id');
+  const editItemName = document.getElementById('edit_item_name');
+  const editStartDate = document.getElementById('edit_start_date');
+  const editEndDate = document.getElementById('edit_end_date');
+  const editTargetTotem = document.getElementById('edit_target_totem');
+  const editTargetWall = document.getElementById('edit_target_wall');
+
+  function openEdit(id, name, start, end, totem, wall, tabKey) {
+    editItemId.value = id;
+    editItemName.textContent = name;
+    editStartDate.value = start;
+    editEndDate.value = end;
+    if (editTargetTotem) editTargetTotem.checked = (totem === '1');
+    if (editTargetWall) editTargetWall.checked = (wall === '1');
+    if (editCurrentTab && tabKey) editCurrentTab.value = tabKey;
+    editModal.style.display = 'flex';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  }
+
+  function closeEdit() {
+    editModal.style.display = 'none';
+  }
+
+  document.querySelectorAll('.edit-item-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      openEdit(
+        this.getAttribute('data-id'),
+        this.getAttribute('data-name'),
+        this.getAttribute('data-start'),
+        this.getAttribute('data-end'),
+        this.getAttribute('data-totem'),
+        this.getAttribute('data-wall'),
+        this.getAttribute('data-tab')
+      );
+    });
+  });
+
+  if (closeEditBtn) closeEditBtn.addEventListener('click', closeEdit);
+  if (cancelEditBtn) cancelEditBtn.addEventListener('click', closeEdit);
+
+  // Close modals on clicking backdrop
+  window.addEventListener('click', function(e) {
+    if (e.target === uploadModal && !uploadSubmitBtn.disabled) closeUpload();
+    if (e.target === editModal) closeEdit();
+  });
+
+  // Drag and Drop Table Rows for Reordering
+  const dragContainers = document.querySelectorAll('.drag-container');
+  let draggedRow = null;
+
+  dragContainers.forEach(container => {
+    container.addEventListener('dragstart', function(e) {
+      const row = e.target.closest('tr.draggable-row');
+      if (!row) return;
+      draggedRow = row;
+      row.style.opacity = '0.4';
+      row.style.background = '#f1f5f9';
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', row.getAttribute('data-id'));
+    });
+
+    container.addEventListener('dragend', function(e) {
+      const row = e.target.closest('tr.draggable-row');
+      if (row) {
+        row.style.opacity = '1';
+        row.style.background = '';
+      }
+      draggedRow = null;
+    });
+
+    container.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const targetRow = e.target.closest('tr.draggable-row');
+      if (targetRow && targetRow !== draggedRow && targetRow.parentNode === container) {
+        const rect = targetRow.getBoundingClientRect();
+        const next = (e.clientY - rect.top) / (rect.bottom - rect.top) > 0.5;
+        container.insertBefore(draggedRow, next ? targetRow.nextSibling : targetRow);
+      }
+    });
+
+    container.addEventListener('drop', function(e) {
+      e.preventDefault();
+      if (!draggedRow) return;
+
+      const rows = Array.from(container.querySelectorAll('tr.draggable-row'));
+      const itemIds = rows.map(r => parseInt(r.getAttribute('data-id'), 10));
+
+      fetch("{{ url_for('media_wall.reorder') }}", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": "{{ csrf_token() }}"
+        },
+        body: JSON.stringify({ item_ids: itemIds })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.ok) {
+          showToast("Item order updated successfully");
+        } else {
+          showToast(data.error || "Failed to update order", true);
+        }
+      })
+      .catch(err => {
+        showToast("Error communicating with server", true);
+      });
+    });
+  });
+
+  function showToast(msg, isError) {
+    const toast = document.getElementById('media-toast');
+    const toastMsg = document.getElementById('toast-message');
+    if (!toast || !toastMsg) return;
+    toastMsg.textContent = msg;
+    toast.style.background = isError ? '#dc2626' : 'var(--green-dark, #103e30)';
+    toast.style.display = 'flex';
+    setTimeout(() => {
+      toast.style.display = 'none';
+    }, 3000);
+  }
+});
+</script>
+{% endblock %}

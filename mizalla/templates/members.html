@@ -7,26 +7,119 @@
 {{ admin_nav('members') }}
 <section class="detail-grid admin-grid">
   <div class="detail-section">
-    <div class="section-heading"><div><p class="eyebrow">ACCOUNT DIRECTORY / {{ members|length }}</p><h2>People</h2></div></div>
-    <div class="directory-list">{% for member in members %}<article class="directory-row"><div class="avatar-mark" aria-hidden="true">{{ member.name[:1]|upper }}</div><div class="directory-copy"><strong>{{ member.name }}{% if member.is_admin %}<span class="admin-tag">Admin</span>{% endif %}{% if member.is_pm %}<span class="pm-tag" title="May create new projects. Project authority comes from project roles.">Creates projects</span>{% endif %}{% for key in member_features.get(member.id, []) %}<span class="service-tag">{{ feature_labels[key] }}</span>{% endfor %}</strong><span>{{ member.email }}</span><small>{{ member.designation or "No designation" }} · {{ member.department_organization or "No department / organization" }}</small></div><a class="button button-quiet button-small" href="{{ url_for('admin.member_edit', member_id=member.id) }}">Edit</a><form method="post" action="{{ url_for('admin.member_delete', member_id=member.id) }}" onsubmit="return confirm('Delete this member account?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="text-button danger-text" type="submit">Delete</button></form></article>{% else %}<p class="muted empty-inline">No member accounts yet.</p>{% endfor %}</div>
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">ACCOUNT DIRECTORY / {{ members|length }}</p>
+        <h2>People</h2>
+      </div>
+    </div>
+    <div class="directory-list">
+      {% for member in members %}
+      <article class="directory-row">
+        <div style="display: flex; align-items: center; gap: 0.85rem; flex: 1; min-width: 260px;">
+          <div class="avatar-mark" aria-hidden="true">{{ member.name[:1]|upper }}</div>
+          <div class="directory-copy">
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <strong>{{ member.name }}</strong>
+              {% if member.is_admin %}
+                <span class="admin-tag">Admin</span>
+              {% endif %}
+              {% if member.is_pm %}
+                <span class="pm-tag" title="May create new projects. Project authority comes from project roles.">Creates projects</span>
+              {% endif %}
+              
+              <!-- Account Status Badge -->
+              {% if member.is_locked %}
+                <span class="status-tag" style="background: #fef2f2; color: #b91c1c; border-color: #fecaca; font-weight: 600;" title="{{ member.lock_reason or 'Account locked' }}">
+                  <i data-lucide="lock" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle;"></i> Locked
+                </span>
+              {% elif member.must_set_password %}
+                <span class="status-tag" style="background: #fffbeb; color: #b45309; border-color: #fde68a; font-weight: 600;" title="Awaiting first-time password setup">
+                  <i data-lucide="clock" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle;"></i> Pending Setup
+                </span>
+              {% else %}
+                <span class="status-tag" style="background: #ecfdf5; color: #047857; border-color: #a7f3d0; font-weight: 600;">
+                  Active
+                </span>
+              {% endif %}
+
+              {% for key in member_features.get(member.id, []) %}
+                <span class="service-tag">{{ feature_labels[key] }}</span>
+              {% endfor %}
+            </div>
+            <span>{{ member.email }}</span>
+            <small>{{ member.designation or "No designation" }} · {{ member.department_organization or "No department / organization" }}</small>
+            {% if member.is_locked and member.lock_reason %}
+              <small style="color: #b91c1c; display: block; margin-top: 0.2rem;"><strong>Lock Reason:</strong> {{ member.lock_reason }}</small>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <a class="button button-quiet button-small" href="{{ url_for('admin.member_edit', member_id=member.id) }}">
+            Edit
+          </a>
+
+          {% if member.must_set_password %}
+            <form method="post" action="{{ url_for('admin.member_resend_invite', member_id=member.id) }}" style="display: inline; margin: 0;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="button button-quiet button-small" type="submit" title="Resend password setup magic link to email">
+                Resend Invite
+              </button>
+            </form>
+          {% endif %}
+
+          {% if member.is_locked %}
+            <form method="post" action="{{ url_for('admin.member_unlock', member_id=member.id) }}" style="display: inline; margin: 0;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="button button-quiet button-small" type="submit" style="color: #047857;" title="Unlock member account">
+                Unlock
+              </button>
+            </form>
+          {% elif member.id != current_user.id %}
+            <form method="post" action="{{ url_for('admin.member_lock', member_id=member.id) }}" style="display: inline; margin: 0;" onsubmit="return confirm('Lock account for {{ member.name }}? The user will be unable to log in.')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="button button-quiet button-small" type="submit" style="color: #b91c1c;" title="Lock member account">
+                Lock
+              </button>
+            </form>
+          {% endif %}
+        </div>
+      </article>
+      {% else %}
+        <p class="muted empty-inline">No member accounts yet.</p>
+      {% endfor %}
+    </div>
   </div>
+
   <aside class="detail-section create-panel">
-    <div class="section-heading"><div><p class="eyebrow">NEW ACCOUNT</p><h2>Add member</h2></div></div>
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">NEW ACCOUNT</p>
+        <h2>Add member</h2>
+      </div>
+    </div>
+    
+    <div style="background: #f8fafc; border: 1px solid var(--line, #e2e8f0); border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1.25rem; font-size: 0.85rem; color: #475569;">
+      <div style="display: flex; align-items: flex-start; gap: 0.5rem;">
+        <i data-lucide="mail-check" class="icon-green" style="width: 18px; height: 18px; flex-shrink: 0; margin-top: 2px;"></i>
+        <span>A single-use <strong>Welcome Magic Link</strong> will be sent to the registered email address. The user will choose their password upon first login.</span>
+      </div>
+    </div>
+
     <form method="post" class="form-stack">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label>Name<input name="name" maxlength="120" required></label>
-      <label>Email<input type="email" name="email" maxlength="254" required></label>
-      <label>Designation<input name="designation" maxlength="120"></label>
-      <label>Department / organization<input name="department_organization" maxlength="160"></label>
-      <label>Initial password
-        <div class="password-input-wrapper">
-          <input type="password" name="password" minlength="12" autocomplete="new-password" required>
-          <button type="button" class="password-toggle-btn" aria-label="Show password" title="Show password" tabindex="-1">
-            <i data-lucide="eye" class="icon-green"></i>
-          </button>
-        </div>
+      <label>Name<input name="name" maxlength="120" required placeholder="Full Name"></label>
+      <label>Email<input type="email" name="email" maxlength="254" required placeholder="name@qnl.qa"></label>
+      <label>Designation<input name="designation" maxlength="120" placeholder="e.g. Systems Librarian"></label>
+      <label>Department / organization<input name="department_organization" maxlength="160" placeholder="e.g. Digital Systems"></label>
+      
+      <label class="checkbox-inline">
+        <input type="checkbox" name="is_pm" value="1" checked>
+        Project Manager <span class="muted">(may create new projects. Authority over an existing project comes from a role on it: open the project and assign Project Manager or Delegated PM.)</span>
       </label>
-      <label class="checkbox-inline"><input type="checkbox" name="is_pm" value="1" checked> Project Manager <span class="muted">(may create new projects. Authority over an existing project comes from a role on it: open the project and assign Project Manager or Delegated PM.)</span></label>
+      
       <fieldset class="checkbox-group" style="margin-top:1rem">
         <legend>Service Access</legend>
         <div class="checkbox-grid">
@@ -90,5 +183,10 @@ function toggleWhatsappDevicesCreate(cb) {
     });
   }
 }
+document.addEventListener('DOMContentLoaded', function() {
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons();
+  }
+});
 </script>
-{% endblock %}
+{% endblock %}

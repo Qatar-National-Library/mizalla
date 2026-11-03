@@ -261,10 +261,13 @@ def fetch_executive_analytics(
 
     pv_per_session_vals: List[float] = []
     session_dur_vals: List[float] = []
+    daily_sessions: List[Dict[str, Any]] = []
 
     for r in daily_rows:
+        raw_date = r.get("dimensionValues", [{}])[0].get("value", "")
         mvals = r.get("metricValues", [])
         if len(mvals) >= 4:
+            sess_cnt = int(float(mvals[1].get("value", 0) or 0))
             dur = float(mvals[2].get("value", 0) or 0)
             pv_sess = float(mvals[3].get("value", 0) or 0)
             if pv_sess > 0:
@@ -272,8 +275,32 @@ def fetch_executive_analytics(
             if dur > 0:
                 session_dur_vals.append(dur)
 
-    min_pv_per_sess = min(pv_per_session_vals) if pv_per_session_vals else screen_page_views_per_session
-    max_pv_per_sess = max(pv_per_session_vals) if pv_per_session_vals else screen_page_views_per_session
+            formatted_date = raw_date
+            if len(raw_date) == 8 and raw_date.isdigit():
+                try:
+                    from datetime import datetime
+                    dt = datetime.strptime(raw_date, "%Y%m%d")
+                    formatted_date = dt.strftime("%b %d")
+                except Exception:
+                    formatted_date = raw_date
+            elif "-" in raw_date:
+                try:
+                    from datetime import datetime
+                    dt = datetime.strptime(raw_date, "%Y-%m-%d")
+                    formatted_date = dt.strftime("%b %d")
+                except Exception:
+                    formatted_date = raw_date
+
+            daily_sessions.append({
+                "raw_date": raw_date,
+                "date": formatted_date,
+                "sessions": sess_cnt,
+            })
+
+    daily_sessions.sort(key=lambda x: x["raw_date"])
+
+    min_pv_per_sess = round(min(pv_per_session_vals) if pv_per_session_vals else screen_page_views_per_session, 2)
+    max_pv_per_sess = round(max(pv_per_session_vals) if pv_per_session_vals else screen_page_views_per_session, 2)
     min_session_dur = min(session_dur_vals) if session_dur_vals else avg_session_duration
     max_session_dur = max(session_dur_vals) if session_dur_vals else avg_session_duration
 
@@ -350,6 +377,7 @@ def fetch_executive_analytics(
         "session_length_min_formatted": format_duration(min_session_dur),
         "session_length_max_formatted": format_duration(max_session_dur),
         "top_countries": top_countries,
+        "daily_sessions": daily_sessions,
         "pages": pages,
     }
 

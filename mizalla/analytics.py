@@ -6,6 +6,7 @@ and preliminary data exploration using the configured Service Account key.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from functools import wraps
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for
@@ -58,24 +59,13 @@ def index():
     # Retrieve accessible properties for the current user
     accessible_properties = GoogleAnalyticsProperty.accessible_properties_for(current_user)
 
-    # Date range selection: 7d, 30d (default), 90d, custom
-    date_preset = request.args.get("date_preset", "30d").strip()
-    custom_start = request.args.get("start_date", "").strip()
-    custom_end = request.args.get("end_date", "").strip()
+    # Date range selection: defaults to today and 30 days prior
+    today = date.today()
+    default_end = today.strftime("%Y-%m-%d")
+    default_start = (today - timedelta(days=30)).strftime("%Y-%m-%d")
 
-    if date_preset == "7d":
-        start_date = "7daysAgo"
-        end_date = "today"
-    elif date_preset == "90d":
-        start_date = "90daysAgo"
-        end_date = "today"
-    elif date_preset == "custom" and custom_start and custom_end:
-        start_date = custom_start
-        end_date = custom_end
-    else:
-        date_preset = "30d"
-        start_date = "30daysAgo"
-        end_date = "today"
+    start_date = request.args.get("start_date", "").strip() or default_start
+    end_date = request.args.get("end_date", "").strip() or default_end
 
     # Property selection
     requested_prop_id = request.args.get("property_id", "").strip().replace("properties/", "")
@@ -118,7 +108,6 @@ def index():
         action="view_executive_dashboard",
         request_data={
             "property_id": selected_property.property_id if selected_property else None,
-            "date_preset": date_preset,
             "start_date": start_date,
             "end_date": end_date,
         },
@@ -140,11 +129,8 @@ def index():
         report_error=report_error,
         accessible_properties=accessible_properties,
         selected_property=selected_property,
-        date_preset=date_preset,
         start_date=start_date,
         end_date=end_date,
-        custom_start=custom_start,
-        custom_end=custom_end,
         report_data=report_data,
     )
 

@@ -11,18 +11,10 @@
   <div class="member-edit-layout">
     <!-- Main Form Panel (70% width) -->
     <div class="form-panel form-stack main-form-col">
-      <label>Name<input name="name" maxlength="120" value="{{ member.name }}" required></label>
-      <label>Email<input type="email" name="email" maxlength="254" value="{{ member.email }}" required></label>
+      <label>Name<input name="name" maxlength="120" value="{{ member.name }}" readonly style="background: #f1f5f9; cursor: not-allowed;" title="Member name cannot be modified by administrator"></label>
+      <label>Email<input type="email" name="email" maxlength="254" value="{{ member.email }}" readonly style="background: #f1f5f9; cursor: not-allowed;" title="Member email cannot be modified by administrator"></label>
       <label>Designation<input name="designation" maxlength="120" value="{{ member.designation }}"></label>
       <label>Department / organization<input name="department_organization" maxlength="160" value="{{ member.department_organization }}"></label>
-      <label>Replace password <span class="muted">Leave blank to keep current</span>
-        <div class="password-input-wrapper">
-          <input type="password" name="password" minlength="12" autocomplete="new-password">
-          <button type="button" class="password-toggle-btn" aria-label="Show password" title="Show password" tabindex="-1">
-            <i data-lucide="eye" class="icon-green"></i>
-          </button>
-        </div>
-      </label>
       
       <label class="checkbox-inline" style="margin-top: 0.5rem;">
         <input type="checkbox" name="is_pm" value="1" {% if member.is_pm %}checked{% endif %}>

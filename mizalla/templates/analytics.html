@@ -5,12 +5,82 @@
 {% block content %}
 <link href="https://unpkg.com/gridjs/dist/theme/mermaid.min.css" rel="stylesheet" />
 <style>
+  /* Loading Overlay */
+  .ga-loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: all;
+    cursor: wait;
+  }
+  .ga-spinner-modal {
+    background: #ffffff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 2.5rem 3rem;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.15);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    max-width: 440px;
+  }
+  .ga-large-spinner {
+    width: 80px;
+    height: 80px;
+    border: 6px solid var(--green-pale, #eef4f0);
+    border-top-color: var(--green-dark, #103e30);
+    border-radius: 50%;
+    animation: ga-spin 0.85s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    margin-bottom: 1.25rem;
+  }
+  @keyframes ga-spin {
+    to { transform: rotate(360deg); }
+  }
+  .ga-spinner-title {
+    margin: 0 0 0.35rem;
+    font-size: 1.15rem;
+    color: var(--ink);
+    font-weight: 700;
+  }
+  .ga-spinner-desc {
+    margin: 0;
+    font-size: 0.86rem;
+    color: var(--muted);
+  }
+
+  /* KPI Grid */
   .ga-kpi-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    grid-template-columns: repeat(4, 1fr);
     gap: 1.25rem;
     margin-bottom: 1.5rem;
   }
+  @media (max-width: 1100px) {
+    .ga-kpi-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  @media (max-width: 640px) {
+    .ga-kpi-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .ga-card-span-2 {
+    grid-column: span 2;
+  }
+  @media (max-width: 640px) {
+    .ga-card-span-2 {
+      grid-column: span 1;
+    }
+  }
+
   .ga-card {
     background: #ffffff;
     border: 1px solid var(--line);
@@ -44,9 +114,11 @@
     height: 36px;
     border-radius: 6px;
     background: var(--green-pale, #eef4f0);
+    border: 1px solid rgba(16, 62, 48, 0.12);
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
   }
   .ga-card-main-val {
     font-size: 2rem;
@@ -83,6 +155,7 @@
     background: var(--green-dark, #103e30);
     border-radius: 3px;
   }
+
   /* Grid.js Custom Styling */
   .gridjs-container {
     color: var(--ink);
@@ -123,6 +196,15 @@
     font-size: 0.88rem !important;
   }
 </style>
+
+<!-- Full-Page Loading Spinner Overlay -->
+<div id="ga-loading-overlay" class="ga-loading-overlay" style="display: none;">
+  <div class="ga-spinner-modal">
+    <div class="ga-large-spinner"></div>
+    <h3 class="ga-spinner-title">Fetching Google Analytics Data...</h3>
+    <p class="ga-spinner-desc">Retrieving metrics and page analytics for the selected property</p>
+  </div>
+</div>
 
 <div class="analytics-service-container" style="max-width: 1300px; margin: 0 auto; padding-bottom: 3rem;">
   {{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Google Analytics", None)]) }}
@@ -186,7 +268,7 @@
     <div style="background: #ffffff; border: 1px solid var(--line); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: var(--panel-shadow);">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
         <div style="display: flex; gap: 0.85rem; align-items: center;">
-          <div style="width: 44px; height: 44px; border-radius: 8px; background: var(--green-pale, #eef4f0); display: flex; align-items: center; justify-content: center;">
+          <div style="width: 44px; height: 44px; border-radius: 8px; background: var(--green-pale, #eef4f0); border: 1px solid rgba(16, 62, 48, 0.12); display: flex; align-items: center; justify-content: center;">
             <i data-lucide="file-key" class="icon-green" style="width: 24px; height: 24px;"></i>
           </div>
           <div>
@@ -229,16 +311,16 @@
     </div>
   {% else %}
 
-    <!-- Filter Control Bar: Property Dropdown & Date Range Selector -->
+    <!-- Filter Control Bar: Property Dropdown & Start/End Date Selectors -->
     <div style="background: #ffffff; border: 1px solid var(--line); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: var(--panel-shadow);">
-      <form method="GET" action="{{ url_for('analytics.index') }}" id="analytics-filter-form" style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 1rem;">
+      <form method="GET" action="{{ url_for('analytics.index') }}" id="analytics-filter-form" onsubmit="showLoadingOverlay()" style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 1.25rem;">
         
         <!-- Property Selector -->
-        <div style="flex: 1 1 300px;">
+        <div style="flex: 1 1 320px;">
           <label for="property-select" style="display: block; font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); margin-bottom: 0.4rem;">
             <i data-lucide="bar-chart-3" class="icon-green" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 0.25rem;"></i> Select GA Property
           </label>
-          <select id="property-select" name="property_id" onchange="document.getElementById('analytics-filter-form').submit()" style="width: 100%; padding: 0.6rem 0.85rem; border: 1px solid var(--line); border-radius: 6px; font-size: 0.92rem; font-weight: 600; background: #fafafa; color: var(--ink); cursor: pointer;">
+          <select id="property-select" name="property_id" onchange="showLoadingOverlay(); document.getElementById('analytics-filter-form').submit();" style="width: 100%; padding: 0.6rem 0.85rem; border: 1px solid var(--line); border-radius: 6px; font-size: 0.92rem; font-weight: 600; background: #fafafa; color: var(--ink); cursor: pointer;">
             {% if not accessible_properties %}
               <option value="">No properties configured</option>
             {% else %}
@@ -255,44 +337,37 @@
           </select>
         </div>
 
-        <!-- Date Range Presets -->
-        <div style="display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap;">
+        <!-- Start Date & End Date Selectors with Apply Button -->
+        <div style="display: flex; gap: 0.85rem; align-items: flex-end; flex-wrap: wrap;">
           <div>
-            <span style="display: block; font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); margin-bottom: 0.4rem;">
-              <i data-lucide="calendar" class="icon-green" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 0.25rem;"></i> Date Range
-            </span>
-            <div style="display: flex; gap: 0.35rem; background: #f1f3f0; padding: 0.25rem; border-radius: 6px;">
-              <button type="submit" name="date_preset" value="7d" class="button button-small {% if date_preset == '7d' %}button-primary{% else %}button-quiet{% endif %}" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;">
-                7 Days
-              </button>
-              <button type="submit" name="date_preset" value="30d" class="button button-small {% if date_preset == '30d' %}button-primary{% else %}button-quiet{% endif %}" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;">
-                30 Days
-              </button>
-              <button type="submit" name="date_preset" value="90d" class="button button-small {% if date_preset == '90d' %}button-primary{% else %}button-quiet{% endif %}" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;">
-                90 Days
-              </button>
-              <button type="button" onclick="toggleCustomDates()" class="button button-small {% if date_preset == 'custom' %}button-primary{% else %}button-quiet{% endif %}" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;">
-                Custom...
-              </button>
-            </div>
+            <label for="start_date" style="display: block; font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); margin-bottom: 0.4rem;">
+              <i data-lucide="calendar" class="icon-green" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 0.25rem;"></i> Start Date
+            </label>
+            <input type="date" id="start_date" name="start_date" value="{{ start_date }}" style="padding: 0.55rem 0.75rem; border: 1px solid var(--line); border-radius: 6px; font-size: 0.9rem; font-weight: 600; background: #fafafa; color: var(--ink);">
           </div>
-        </div>
 
-        <!-- Custom Date Range Picker Container (Collapsible) -->
-        <div id="custom-date-container" style="{% if date_preset != 'custom' %}display: none;{% else %}display: flex;{% endif %} gap: 0.5rem; align-items: flex-end; width: 100%; margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px dashed var(--line);">
           <div>
-            <label for="start_date" style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 0.2rem;">Start Date</label>
-            <input type="date" id="start_date" name="start_date" value="{{ custom_start }}" style="padding: 0.4rem 0.6rem; border: 1px solid var(--line); border-radius: 4px; font-size: 0.85rem;">
+            <label for="end_date" style="display: block; font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); margin-bottom: 0.4rem;">
+              <i data-lucide="calendar" class="icon-green" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 0.25rem;"></i> End Date
+            </label>
+            <input type="date" id="end_date" name="end_date" value="{{ end_date }}" style="padding: 0.55rem 0.75rem; border: 1px solid var(--line); border-radius: 6px; font-size: 0.9rem; font-weight: 600; background: #fafafa; color: var(--ink);">
           </div>
-          <div>
-            <label for="end_date" style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 0.2rem;">End Date</label>
-            <input type="date" id="end_date" name="end_date" value="{{ custom_end }}" style="padding: 0.4rem 0.6rem; border: 1px solid var(--line); border-radius: 4px; font-size: 0.85rem;">
-          </div>
-          <button type="submit" name="date_preset" value="custom" class="button button-primary button-small" style="height: 33px;">
-            Apply Custom Range
+
+          <button type="submit" class="button button-primary button-small" style="height: 38px; padding: 0 1.25rem; font-size: 0.88rem; display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i data-lucide="check" class="icon-white" style="width: 15px; height: 15px;"></i> Apply
           </button>
         </div>
       </form>
+
+      <!-- Applied Date Range Row -->
+      <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--line, #e2e8f0); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; font-size: 0.85rem;">
+        <div style="display: flex; align-items: center; gap: 0.45rem;">
+          <i data-lucide="calendar" class="icon-green" style="width: 15px; height: 15px;"></i>
+          <span style="color: var(--muted); font-weight: 600;">Applied Date Range:</span>
+          <span style="color: var(--green-dark, #103e30); font-weight: 700; letter-spacing: 0.02em;">{{ start_date }} to {{ end_date }}</span>
+        </div>
+        <span style="color: var(--muted); font-size: 0.78rem;">Active period applied to all performance cards and metrics</span>
+      </div>
     </div>
 
     {% if report_error %}
@@ -306,7 +381,7 @@
     {% endif %}
 
     {% if report_data %}
-      <!-- Section 1: Executive KPI Cards -->
+      <!-- Section 1: Executive KPI Cards & Sessions Trend -->
       <div class="ga-kpi-grid">
         <!-- Card 1: Page Views -->
         <div class="ga-card">
@@ -330,7 +405,7 @@
               <i data-lucide="users" class="icon-green" style="width: 18px; height: 18px;"></i>
             </div>
           </div>
-          <p class="ga-card-main-val">{{ "{:,}".format(report_data.sessions) }}</p>
+          <p class="ga-card-main-val" style="color: var(--green-dark, #103e30);">{{ "{:,}".format(report_data.sessions) }}</p>
           <div class="ga-card-subtext">
             <span class="ga-sub-stat">New: <strong>{{ "{:,}".format(report_data.new_sessions) }}</strong></span>
             <span>•</span>
@@ -346,11 +421,11 @@
               <i data-lucide="file-text" class="icon-green" style="width: 18px; height: 18px;"></i>
             </div>
           </div>
-          <p class="ga-card-main-val">{{ report_data.page_views_per_session_avg }}</p>
+          <p class="ga-card-main-val" style="color: var(--green-dark, #103e30);">{{ "%.2f"|format(report_data.page_views_per_session_avg) }}</p>
           <div class="ga-card-subtext">
-            <span class="ga-sub-stat">Min: <strong>{{ report_data.page_views_per_session_min }}</strong></span>
+            <span class="ga-sub-stat">Min: <strong>{{ "%.2f"|format(report_data.page_views_per_session_min) }}</strong></span>
             <span>•</span>
-            <span class="ga-sub-stat">Max: <strong>{{ report_data.page_views_per_session_max }}</strong></span>
+            <span class="ga-sub-stat">Max: <strong>{{ "%.2f"|format(report_data.page_views_per_session_max) }}</strong></span>
           </div>
         </div>
 
@@ -368,15 +443,15 @@
           </div>
         </div>
 
-        <!-- Card 5: Session Length (Avg / Min / Max) -->
+        <!-- Card 5: Average Session Length -->
         <div class="ga-card">
           <div class="ga-card-header">
-            <span class="ga-card-title">Session Length</span>
+            <span class="ga-card-title">Average Session Length</span>
             <div class="ga-card-icon-wrap">
               <i data-lucide="clock" class="icon-green" style="width: 18px; height: 18px;"></i>
             </div>
           </div>
-          <p class="ga-card-main-val">{{ report_data.avg_session_duration_formatted }}</p>
+          <p class="ga-card-main-val" style="color: var(--green-dark, #103e30);">{{ report_data.avg_session_duration_formatted }}</p>
           <div class="ga-card-subtext">
             <span class="ga-sub-stat">Min: <strong>{{ report_data.session_length_min_formatted }}</strong></span>
             <span>•</span>
@@ -384,7 +459,7 @@
           </div>
         </div>
 
-        <!-- Card 6: Top Countries Summary -->
+        <!-- Card 6: Top 5 Countries Summary -->
         <div class="ga-card">
           <div class="ga-card-header">
             <span class="ga-card-title">Top 5 Countries</span>
@@ -400,7 +475,7 @@
                 {% for c in report_data.top_countries %}
                   <div>
                     <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600;">
-                      <span style="color: var(--ink);">{{ c.country }}</span>
+                      <span style="color: {% if loop.first %}var(--green-dark, #103e30); font-weight: 700;{% else %}var(--ink);{% endif %}">{{ c.country }}</span>
                       <span style="color: var(--muted);">{{ c.users }} users ({{ c.percentage }}%)</span>
                     </div>
                     <div class="ga-progress-bar">
@@ -410,6 +485,19 @@
                 {% endfor %}
               </div>
             {% endif %}
+          </div>
+        </div>
+
+        <!-- Card 7: User Sessions Trend Chart (2-Card Width x 1-Card Height) -->
+        <div class="ga-card ga-card-span-2">
+          <div class="ga-card-header">
+            <span class="ga-card-title">User Sessions Trend</span>
+            <div class="ga-card-icon-wrap">
+              <i data-lucide="trending-up" class="icon-green" style="width: 18px; height: 18px;"></i>
+            </div>
+          </div>
+          <div style="flex: 1; min-height: 140px; position: relative;">
+            <canvas id="ga-sessions-chart"></canvas>
           </div>
         </div>
       </div>
@@ -441,13 +529,14 @@
   {% endif %}
 </div>
 
-<!-- Grid.js Library -->
+<!-- Grid.js & Chart.js Libraries -->
 <script src="https://unpkg.com/gridjs/dist/gridjs.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script>
-  function toggleCustomDates() {
-    const el = document.getElementById('custom-date-container');
-    if (el) {
-      el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'flex' : 'none';
+  function showLoadingOverlay() {
+    const overlay = document.getElementById('ga-loading-overlay');
+    if (overlay) {
+      overlay.style.display = 'flex';
     }
   }
 
@@ -456,6 +545,79 @@
     if (window.lucide) {
       window.lucide.createIcons();
     }
+
+    // Initialize Sessions Trend Chart
+    {% if report_data and report_data.daily_sessions %}
+      const chartCanvas = document.getElementById('ga-sessions-chart');
+      if (chartCanvas && window.Chart) {
+        const labels = {{ report_data.daily_sessions | map(attribute='date') | list | tojson }};
+        const sessionCounts = {{ report_data.daily_sessions | map(attribute='sessions') | list | tojson }};
+
+        const ctx = chartCanvas.getContext('2d');
+        const gradient = ctx.createLinearGradient(0, 0, 0, 160);
+        gradient.addColorStop(0, 'rgba(16, 62, 48, 0.28)');
+        gradient.addColorStop(1, 'rgba(16, 62, 48, 0.02)');
+
+        new Chart(chartCanvas, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: 'Sessions',
+              data: sessionCounts,
+              borderColor: '#103e30',
+              backgroundColor: gradient,
+              borderWidth: 2.2,
+              fill: true,
+              tension: 0.35,
+              pointRadius: labels.length > 31 ? 0 : 3,
+              pointHoverRadius: 5,
+              pointBackgroundColor: '#103e30',
+              pointBorderColor: '#ffffff',
+              pointBorderWidth: 1.5,
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                backgroundColor: '#103e30',
+                titleFont: { size: 12, weight: 'bold' },
+                bodyFont: { size: 12 },
+                padding: 8,
+                cornerRadius: 6,
+                displayColors: false,
+                callbacks: {
+                  label: (context) => ` ${context.parsed.y.toLocaleString()} sessions`
+                }
+              }
+            },
+            scales: {
+              x: {
+                grid: { display: false },
+                ticks: {
+                  font: { size: 10 },
+                  maxRotation: 0,
+                  autoSkip: true,
+                  maxTicksLimit: 7
+                }
+              },
+              y: {
+                beginAtZero: true,
+                grid: { color: 'rgba(0, 0, 0, 0.05)' },
+                ticks: {
+                  font: { size: 10 },
+                  maxTicksLimit: 4,
+                  callback: (val) => val >= 1000 ? (val / 1000).toFixed(1) + 'k' : val
+                }
+              }
+            }
+          }
+        });
+      }
+    {% endif %}
 
     // Initialize Grid.js
     {% if report_data and report_data.pages %}

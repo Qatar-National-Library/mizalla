@@ -22,6 +22,9 @@
             <i data-lucide="eye" class="icon-green"></i>
           </button>
         </div>
+        <div style="display: flex; justify-content: flex-end; margin-top: 0.35rem;">
+          <a href="{{ url_for('auth.forgot_password') }}" style="font-size: 0.85rem; color: var(--green-dark, #103e30); text-decoration: underline;">Forgot password?</a>
+        </div>
       </label>
       <button class="button button-primary" type="submit">Continue <span aria-hidden="true">→</span></button>
     </form>

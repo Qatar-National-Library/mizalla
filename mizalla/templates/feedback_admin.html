@@ -114,120 +114,127 @@
     {% endif %}
   </form>
 
-  <!-- Feedback Stream List -->
+  <!-- Feedback Accordion Stream List -->
   {% if feedbacks|length == 0 %}
     <div style="background: var(--surface-bg, #fff); border: 1px dashed var(--border-color, #ccc); border-radius: 8px; padding: 3rem; text-align: center;">
       <p class="muted" style="margin: 0; font-size: 1.05rem;">No feedback or suggestions match the selected filters.</p>
     </div>
   {% else %}
-    <div class="feedback-card-list" style="display: flex; flex-direction: column; gap: 1.2rem;">
+    <div class="feedback-accordion-list" style="display: flex; flex-direction: column; gap: 0.85rem;">
       {% for fb in feedbacks %}
-        <div id="feedback-card-{{ fb.id }}" class="feedback-item-card" style="background: var(--surface-bg, #fff); border: 1px solid {% if fb.is_hidden %}#ffcdd2{% else %}var(--border-color, #e0e0e0){% endif %}; border-radius: 8px; padding: 1.3rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); opacity: {% if fb.is_hidden %}0.78{% else %}1{% endif %};">
-          <!-- Card Header -->
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.8rem; margin-bottom: 0.8rem;">
-            <div style="display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap;">
-              <h4 style="margin: 0; font-size: 1.15rem; font-weight: 600;">
+        <div id="feedback-card-{{ fb.id }}" class="feedback-accordion-card" style="background: var(--surface-bg, #fff); border: 1px solid {% if fb.is_hidden %}#ffcdd2{% else %}var(--border-color, #e0e0e0){% endif %}; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.03); opacity: {% if fb.is_hidden %}0.82{% else %}1{% endif %}; transition: border-color 0.2s ease, box-shadow 0.2s ease;">
+          
+          <!-- Accordion Header: Always visible, click to toggle body -->
+          <div class="feedback-accordion-header" onclick="toggleFeedbackAccordion({{ fb.id }})" style="padding: 1.1rem 1.4rem; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; background: {% if fb.is_hidden %}#fffbfa{% else %}#ffffff{% endif %}; user-select: none;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='{% if fb.is_hidden %}#fffbfa{% else %}#ffffff{% endif %}'">
+            
+            <!-- Left Info: App Name & Category / Status Badges -->
+            <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+              <h4 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: #0f172a;">
                 {{ feature_labels.get(fb.feature_key, fb.app_title) }}
               </h4>
+
               {% if fb.target_type == 'new' %}
-                <span class="badge" style="background: #e65100; color: #fff; font-size: 0.75rem; text-transform: uppercase; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.25rem;">
-                  <i data-lucide="rocket" class="icon-white"></i> New App Proposal
+                <span class="badge" style="background: #e65100; color: #fff; font-size: 0.72rem; text-transform: uppercase; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem;">
+                  <i data-lucide="rocket" class="icon-white" style="width:12px; height:12px;"></i> New App Proposal
                 </span>
               {% else %}
-                <span class="badge" style="background: #e8f0fe; color: #1967d2; font-size: 0.75rem; text-transform: uppercase; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 3px;">
+                <span class="badge" style="background: #eff6ff; color: #1d4ed8; font-size: 0.72rem; text-transform: uppercase; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px; border: 1px solid #bfdbfe;">
                   Utility Review
                 </span>
               {% endif %}
 
               {% if fb.is_hidden %}
-                <span id="badge-status-{{ fb.id }}" class="badge" style="background: #d32f2f; color: #fff; font-size: 0.75rem; text-transform: uppercase; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 3px;">
+                <span id="badge-status-{{ fb.id }}" class="badge" style="background: #fef2f2; color: #b91c1c; font-size: 0.72rem; text-transform: uppercase; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px; border: 1px solid #fecaca;">
                   Hidden
                 </span>
               {% else %}
-                <span id="badge-status-{{ fb.id }}" class="badge" style="background: #e8f5e9; color: #2e7d32; font-size: 0.75rem; text-transform: uppercase; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 3px;">
+                <span id="badge-status-{{ fb.id }}" class="badge" style="background: #ecfdf5; color: #047857; font-size: 0.72rem; text-transform: uppercase; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px; border: 1px solid #a7f3d0;">
                   Active
                 </span>
               {% endif %}
             </div>
 
-            <!-- Rating badge if existing app -->
-            {% if fb.rating is not none %}
-              <div style="display: flex; align-items: center; gap: 0.4rem;">
-                <span style="font-size: 0.85rem; color: var(--muted-color, #666);">User Rating:</span>
-                <span class="badge" style="background: {% if fb.rating >= 8 %}#2e7d32{% elif fb.rating >= 5 %}#f57c00{% else %}#c62828{% endif %}; color: #fff; font-size: 1rem; font-weight: 700; padding: 0.25rem 0.6rem; border-radius: 4px;">
+            <!-- Center Info: Feedback Provider & Date -->
+            <div style="display: flex; align-items: center; gap: 1.25rem; font-size: 0.85rem; color: #475569; flex-wrap: wrap;">
+              <div>
+                <strong style="color: #1e293b;">User:</strong>
+                {{ fb.member_name or (fb.member.name if fb.member else 'Unknown User') }}
+                {% if fb.member_email or (fb.member and fb.member.email) %}
+                  <span style="color: #64748b; font-size: 0.8rem;">({{ fb.member_email or fb.member.email }})</span>
+                {% endif %}
+              </div>
+              <div>
+                <strong style="color: #1e293b;">Submitted:</strong>
+                {{ fb.created_at.strftime('%Y-%m-%d %H:%M') if fb.created_at else '' }}
+              </div>
+            </div>
+
+            <!-- Right Info: Rating & Chevron Toggle -->
+            <div style="display: flex; align-items: center; gap: 1rem;">
+              {% if fb.rating is not none %}
+                <span class="badge" style="background: {% if fb.rating >= 8 %}#ecfdf5; color: #047857; border: 1px solid #a7f3d0;{% elif fb.rating >= 5 %}#fffbeb; color: #b45309; border: 1px solid #fde68a;{% else %}#fef2f2; color: #b91c1c; border: 1px solid #fecaca;{% endif %} font-size: 0.9rem; font-weight: 700; padding: 0.3rem 0.65rem; border-radius: 14px;">
                   ★ {{ fb.rating }} / 10
                 </span>
-              </div>
-            {% endif %}
-          </div>
-
-          <!-- Member info and timestamp -->
-          <div style="font-size: 0.85rem; color: var(--muted-color, #666); margin-bottom: 1rem; display: flex; gap: 1.5rem; flex-wrap: wrap;">
-            <div>
-              <strong>User:</strong> {{ fb.member_name or (fb.member.name if fb.member else 'Unknown User') }}
-              {% if fb.member_email or (fb.member and fb.member.email) %}
-                <span style="color: #888;">({{ fb.member_email or fb.member.email }})</span>
               {% endif %}
-            </div>
-            <div>
-              <strong>Submitted:</strong> {{ fb.created_at.strftime('%Y-%m-%d %H:%M') if fb.created_at else '' }}
-            </div>
-            {% if fb.updated_at and fb.created_at and fb.updated_at != fb.created_at %}
-              <div>
-                <strong>Updated:</strong> {{ fb.updated_at.strftime('%Y-%m-%d %H:%M') }}
+              <div class="chevron-wrapper" style="color: var(--green-dark, #103e30); display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: #f1f5f9;">
+                <i data-lucide="chevron-down" id="chevron-{{ fb.id }}" class="accordion-chevron icon-green" style="width: 18px; height: 18px; transition: transform 0.25s ease;"></i>
               </div>
-            {% endif %}
-          </div>
-
-          <!-- User Comments -->
-          <div style="background: var(--panel-sub-bg, #f8f9fa); border-left: 3px solid #1a73e8; padding: 0.8rem 1rem; border-radius: 0 4px 4px 0; margin-bottom: 1.2rem;">
-            <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--muted-color, #666); font-weight: 600; margin-bottom: 0.3rem;">
-              User Comments & Suggestions:
-            </div>
-            <div style="white-space: pre-wrap; font-size: 0.95rem; line-height: 1.5; color: var(--text-color, #222);">
-              {% if fb.comments %}{{ fb.comments }}{% else %}<em class="muted">No written comments provided.</em>{% endif %}
             </div>
           </div>
 
-          <!-- Admin Moderation & Notes Section -->
-          <div style="border-top: 1px dashed var(--border-color, #e0e0e0); padding-top: 1rem; display: flex; flex-direction: column; gap: 0.8rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.8rem;">
-              <span style="font-weight: 600; font-size: 0.9rem; color: var(--text-color, #333);">
-                Admin Workflow & Moderation Notes:
-              </span>
+          <!-- Accordion Body: Collapsible, initially hidden -->
+          <div id="accordion-body-{{ fb.id }}" class="feedback-accordion-body" style="display: none; padding: 1.25rem 1.4rem; border-top: 1px solid var(--border-color, #e0e0e0); background: #fafafa;">
+            
+            <!-- User Comments Box -->
+            <div style="background: #ffffff; border-left: 3px solid #1a73e8; border: 1px solid var(--border-color, #e0e0e0); border-left-width: 4px; padding: 1rem 1.2rem; border-radius: 6px; margin-bottom: 1.25rem;">
+              <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--muted-color, #666); font-weight: 700; margin-bottom: 0.4rem; letter-spacing: 0.04em;">
+                User Comments &amp; Suggestions:
+              </div>
+              <div style="white-space: pre-wrap; font-size: 0.95rem; line-height: 1.55; color: #1e293b;">
+                {% if fb.comments %}{{ fb.comments }}{% else %}<em class="muted" style="color: #94a3b8;">No written comments provided.</em>{% endif %}
+              </div>
+            </div>
 
-              <!-- Hide / Keep toggle button (Deletion is prohibited) -->
-              <form method="POST" action="{{ url_for('admin.feedback_toggle_status', feedback_id=fb.id) }}" style="margin: 0; display: inline-flex;" onsubmit="return handleToggleStatus(event, {{ fb.id }});">
+            <!-- Admin Moderation & Notes Section -->
+            <div style="background: #ffffff; border: 1px solid var(--border-color, #e0e0e0); border-radius: 6px; padding: 1rem 1.2rem; display: flex; flex-direction: column; gap: 0.85rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.8rem;">
+                <span style="font-weight: 600; font-size: 0.9rem; color: #1e293b;">
+                  Admin Workflow &amp; Moderation Notes:
+                </span>
+
+                <!-- Hide / Restore Feedback Toggle -->
+                <form method="POST" action="{{ url_for('admin.feedback_toggle_status', feedback_id=fb.id) }}" style="margin: 0; display: inline-flex;" onsubmit="return handleToggleStatus(event, {{ fb.id }});">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  {% if fb.is_hidden %}
+                    <input type="hidden" name="status" value="active">
+                    <button type="submit" class="button button-small" style="background: #047857; color: #fff; border: none; font-size: 0.82rem; padding: 0.35rem 0.85rem; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
+                      <i data-lucide="eye" class="icon-white" style="width:14px; height:14px;"></i> Restore Feedback
+                    </button>
+                  {% else %}
+                    <input type="hidden" name="status" value="hidden">
+                    <button type="submit" class="button button-small" style="background: #b91c1c; color: #fff; border: none; font-size: 0.82rem; padding: 0.35rem 0.85rem; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
+                      <i data-lucide="eye-off" class="icon-white" style="width:14px; height:14px;"></i> Hide Feedback
+                    </button>
+                  {% endif %}
+                </form>
+              </div>
+
+              <!-- Admin Notes Form -->
+              <form method="POST" action="{{ url_for('admin.feedback_save_notes', feedback_id=fb.id) }}" style="display: flex; flex-direction: column; gap: 0.6rem; margin: 0;" onsubmit="return handleSaveNotes(event, {{ fb.id }});">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                {% if fb.is_hidden %}
-                  <input type="hidden" name="status" value="active">
-                  <button type="submit" class="button button-small" style="background: #2e7d32; color: #fff; border: none; font-size: 0.85rem; padding: 0.3rem 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem;">
-                    <i data-lucide="eye" class="icon-white"></i> Unhide & Keep Active
+                <textarea name="admin_notes" id="admin-notes-{{ fb.id }}" rows="2" placeholder="Record internal administrator notes, follow-up actions, or remarks..." style="width: 100%; padding: 0.5rem 0.75rem; border-radius: 4px; border: 1px solid var(--border-color, #cbd5e1); font-family: inherit; font-size: 0.9rem; box-sizing: border-box;">{{ fb.admin_notes }}</textarea>
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                  <span id="notes-status-{{ fb.id }}" style="font-size: 0.8rem; color: #64748b;">
+                    {% if fb.admin_reviewer and fb.admin_reviewed_at %}
+                      Reviewed by {{ fb.admin_reviewer.name }} on {{ fb.admin_reviewed_at.strftime('%Y-%m-%d %H:%M') }}
+                    {% endif %}
+                  </span>
+                  <button type="submit" class="button button-small button-primary" style="font-size: 0.82rem;">
+                    Save Admin Notes
                   </button>
-                {% else %}
-                  <input type="hidden" name="status" value="hidden">
-                  <button type="submit" class="button button-small" style="background: #d32f2f; color: #fff; border: none; font-size: 0.85rem; padding: 0.3rem 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem;">
-                    <i data-lucide="eye-off" class="icon-white"></i> Hide Feedback
-                  </button>
-                {% endif %}
+                </div>
               </form>
             </div>
-
-            <!-- Admin Notes Form -->
-            <form method="POST" action="{{ url_for('admin.feedback_save_notes', feedback_id=fb.id) }}" style="display: flex; flex-direction: column; gap: 0.5rem; margin: 0;" onsubmit="return handleSaveNotes(event, {{ fb.id }});">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <textarea name="admin_notes" id="admin-notes-{{ fb.id }}" rows="2" placeholder="Record internal administrator notes, follow-up actions, or remarks against this feedback..." style="width: 100%; padding: 0.5rem 0.75rem; border-radius: 4px; border: 1px solid var(--border-color, #ccc); font-family: inherit; font-size: 0.9rem; box-sizing: border-box;">{{ fb.admin_notes }}</textarea>
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span id="notes-status-{{ fb.id }}" style="font-size: 0.8rem; color: var(--muted-color, #666);">
-                  {% if fb.admin_reviewer and fb.admin_reviewed_at %}
-                    Reviewed by {{ fb.admin_reviewer.name }} on {{ fb.admin_reviewed_at.strftime('%Y-%m-%d %H:%M') }}
-                  {% endif %}
-                </span>
-                <button type="submit" class="button button-small button-quiet" style="align-self: flex-end; font-size: 0.85rem;">
-                  Save Admin Notes
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       {% endfor %}
@@ -236,6 +243,24 @@
 </div>
 
 <script>
+function toggleFeedbackAccordion(feedbackId) {
+  const body = document.getElementById('accordion-body-' + feedbackId);
+  const chevron = document.getElementById('chevron-' + feedbackId);
+  if (!body) return;
+
+  const isExpanded = body.style.display !== 'none';
+  if (isExpanded) {
+    body.style.display = 'none';
+    if (chevron) chevron.style.transform = 'rotate(0deg)';
+  } else {
+    body.style.display = 'block';
+    if (chevron) chevron.style.transform = 'rotate(180deg)';
+  }
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons();
+  }
+}
+
 async function handleToggleStatus(event, feedbackId) {
   event.preventDefault();
   const form = event.target;
@@ -276,7 +301,8 @@ async function handleSaveNotes(event, feedbackId) {
     if (data.success) {
       if (statusEl) {
         statusEl.textContent = `Reviewed by ${data.reviewer_name} on ${data.reviewed_at} (Saved!)`;
-        statusEl.style.color = "#2e7d32";
+        statusEl.style.color = "#047857";
+        statusEl.style.fontWeight = "600";
       }
     } else {
       alert(data.error || "Failed to save admin notes");
@@ -285,5 +311,11 @@ async function handleSaveNotes(event, feedbackId) {
     form.submit();
   }
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons();
+  }
+});
 </script>
 {% endblock %}

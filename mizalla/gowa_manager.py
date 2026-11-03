@@ -221,17 +221,24 @@ def _resolve_executable_path(executable: str, root_path: Path | None = None) -> 
 
 
 def build_command_line(executable_path: Path | str, port: int) -> list[str]:
-    """Build the command list to spawn GOWA."""
+    """Build the command list to spawn GOWA.
+
+    GOWA (go-whatsapp-web-multidevice) uses Cobra CLI with the 'rest' subcommand
+    to launch the REST and MCP HTTP daemon. Running without 'rest' prints the
+    help message and exits immediately.
+    """
     p_str = str(executable_path)
     is_shell_script = p_str.lower().endswith(".sh")
 
     if is_shell_script:
-        if sys.platform == "win32":
-            # On Windows, invoke via sh
-            return ["sh", p_str, "--port", str(port)]
         return ["sh", p_str, "--port", str(port)]
 
+    file_name = Path(p_str).name.lower()
+    if "gowa" in file_name:
+        return [p_str, "rest", "--port", str(port)]
+
     return [p_str, "--port", str(port)]
+
 
 
 def register_shutdown_hooks(instance_path: Path) -> None:
@@ -243,7 +250,8 @@ def register_shutdown_hooks(instance_path: Path) -> None:
     _last_instance_path = instance_path
 
     def _shutdown_handler(*args: Any) -> None:
-        stop_gowa_service(_last_instance_path)
+        if _gowa_process is not None:
+            stop_gowa_service(_last_instance_path)
 
     atexit.register(_shutdown_handler)
 
