@@ -3,67 +3,200 @@
 {% block title %}Edit member{% endblock %}
 {% block content %}
 {{ breadcrumb([("Mizalla", url_for('main.project_list')), ("Admin", url_for('admin.member_list')), ("Edit member", None)]) }}
-<div class="page-heading"><h1>Edit member</h1></div>
+<div class="page-heading" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+  <div>
+    <h1 style="margin: 0;">{% if member.id == current_user.id %}Your Profile{% else %}Edit member{% endif %}</h1>
+    <p class="muted" style="margin: 0.25rem 0 0; font-size: 0.9rem;">{{ member.name }} &middot; {{ member.email }}</p>
+  </div>
 
-<form method="post" id="member-edit-form">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <!-- Replicated Lock / Unlock / Delete action buttons -->
+  <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+    {% if member.id == current_user.id %}
+      <button type="button" class="button button-quiet button-small" disabled style="opacity: 0.45; cursor: not-allowed;" title="You cannot lock your own account.">
+        <i data-lucide="lock" class="icon-green"></i> <span>Lock</span>
+      </button>
+      <button type="button" class="button button-quiet button-small" disabled style="opacity: 0.45; cursor: not-allowed;" title="You cannot delete your own account.">
+        <i data-lucide="trash-2" style="color: #b91c1c;"></i> <span>Delete</span>
+      </button>
+    {% else %}
+      {% if member.is_locked %}
+        <form method="post" action="{{ url_for('admin.member_unlock', member_id=member.id) }}" style="display: inline; margin: 0;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="button button-quiet button-small" type="submit" style="color: #047857;" title="Unlock member account">
+            <i data-lucide="unlock" class="icon-green"></i> <span>Unlock account</span>
+          </button>
+        </form>
+      {% else %}
+        <form method="post" action="{{ url_for('admin.member_lock', member_id=member.id) }}" style="display: inline; margin: 0;" onsubmit="return confirm('Lock account for {{ member.name }}? The user will be unable to log in.')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="button button-quiet button-small" type="submit" style="color: #b91c1c;" title="Lock member account">
+            <i data-lucide="lock" style="color: #b91c1c;"></i> <span>Lock account</span>
+          </button>
+        </form>
+      {% endif %}
 
-  <div class="member-edit-layout">
-    <!-- Main Form Panel (70% width) -->
-    <div class="form-panel form-stack main-form-col">
-      <label>Name<input name="name" maxlength="120" value="{{ member.name }}" readonly style="background: #f1f5f9; cursor: not-allowed;" title="Member name cannot be modified by administrator"></label>
-      <label>Email<input type="email" name="email" maxlength="254" value="{{ member.email }}" readonly style="background: #f1f5f9; cursor: not-allowed;" title="Member email cannot be modified by administrator"></label>
-      <label>Designation<input name="designation" maxlength="120" value="{{ member.designation }}"></label>
-      <label>Department / organization<input name="department_organization" maxlength="160" value="{{ member.department_organization }}"></label>
-      
-      <label class="checkbox-inline" style="margin-top: 0.5rem;">
-        <input type="checkbox" name="is_pm" value="1" {% if member.is_pm %}checked{% endif %}>
-        <span><strong>Project Manager</strong> <span class="muted">(may create new projects. Authority over an existing project comes from a role on it: open the project and assign Project Manager or Delegated PM.)</span></span>
-      </label>
-      
-      <fieldset class="checkbox-group" style="margin-top:1.25rem;">
-        <input type="hidden" name="features_submitted" value="1">
-        <legend>Service Access</legend>
-        <p class="muted" style="margin-bottom: 0.6rem;">Tick every service this member may open. Untick to revoke.</p>
-        <div class="checkbox-grid">
-          {% for card in feature_cards %}
-            {% if card.key == 'bulk_whatsapp' %}
-              <label class="checkbox-row">
-                <input type="checkbox" name="feature_ids" value="bulk_whatsapp" id="cb-bulk-whatsapp" {% if 'bulk_whatsapp' in current_feature_ids %}checked{% endif %} onchange="updatePanelStates()">
-                <span>{{ card.label }}</span>
-                <p class="checkbox-note">{{ card.note }}</p>
-                {% if not card.configured %}
-                <span class="pm-tag">not configured: {{ card.missing | join(', ') }}</span>
-                {% endif %}
-              </label>
-            {% elif card.key == 'remote_exec' %}
-              <label class="checkbox-row">
-                <input type="checkbox" name="feature_ids" value="remote_exec" id="cb-remote-exec" {% if 'remote_exec' in current_feature_ids %}checked{% endif %} onchange="updatePanelStates()">
-                <span>{{ card.label }}</span>
-                <p class="checkbox-note">{{ card.note }}</p>
-                {% if not card.configured %}
-                <span class="pm-tag">not configured: {{ card.missing | join(', ') }}</span>
-                {% endif %}
-              </label>
-            {% else %}
-              <label class="checkbox-row">
-                <input type="checkbox" name="feature_ids" value="{{ card.key }}" {% if card.key in current_feature_ids %}checked{% endif %}>
-                <span>{{ card.label }}</span>
-                <p class="checkbox-note">{{ card.note }}</p>
-                {% if not card.configured %}
-                <span class="pm-tag">not configured: {{ card.missing | join(', ') }}</span>
-                {% endif %}
-              </label>
-            {% endif %}
-          {% endfor %}
+      <form method="post" action="{{ url_for('admin.member_delete', member_id=member.id) }}" style="display: inline; margin: 0;" onsubmit="return confirm('Are you sure you want to permanently delete the account for {{ member.name }} ({{ member.email }})? This action cannot be undone.')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="button button-quiet button-small" type="submit" style="color: #b91c1c;" title="Delete member account">
+          <i data-lucide="trash-2" style="color: #b91c1c;"></i> <span>Delete account</span>
+        </button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="member-edit-layout">
+  <!-- Main Form Panel (70% width) -->
+  <div class="main-form-col">
+    {% if member.id == current_user.id %}
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1.25rem; font-size: 0.88rem; color: #475569;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <i data-lucide="info" class="icon-green" style="width: 18px; height: 18px; flex-shrink: 0;"></i>
+          <span>To prevent accidental administrative lockout, you cannot edit, lock, or delete your own account from here. You may update your password below.</span>
         </div>
-      </fieldset>
-
-      <div class="form-actions" style="margin-top: 1.5rem;">
-        <a class="button button-quiet" href="{{ url_for('admin.member_list') }}">Cancel</a>
-        <button class="button button-primary" type="submit">Save member</button>
       </div>
+    {% endif %}
+
+    <div class="form-panel form-stack">
+      <form method="post" id="member-edit-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Name<input name="name" maxlength="120" value="{{ member.name }}" readonly style="background: #f1f5f9; cursor: not-allowed;" title="Member name cannot be modified by administrator"></label>
+        <label>Email<input type="email" name="email" maxlength="254" value="{{ member.email }}" readonly style="background: #f1f5f9; cursor: not-allowed;" title="Member email cannot be modified by administrator"></label>
+        
+        {% if member.id == current_user.id %}
+          <label>Designation<input name="designation" maxlength="120" value="{{ member.designation }}" readonly style="background: #f1f5f9; cursor: not-allowed;" title="Self-account details cannot be edited here"></label>
+          <label>Department / organization<input name="department_organization" maxlength="160" value="{{ member.department_organization }}" readonly style="background: #f1f5f9; cursor: not-allowed;" title="Self-account details cannot be edited here"></label>
+          
+          <label class="checkbox-inline" style="margin-top: 0.5rem;">
+            <input type="checkbox" name="is_admin" value="1" id="edit-is-admin-cb" checked disabled style="cursor: not-allowed;">
+            <span><strong>Administrator</strong> <span class="muted">(Full access to all applications and system settings.)</span></span>
+          </label>
+
+          <label class="checkbox-inline" style="margin-top: 0.5rem;">
+            <input type="checkbox" name="is_pm" value="1" id="edit-is-pm-cb" checked disabled style="cursor: not-allowed;">
+            <span><strong>Project Manager</strong> <span class="muted">(Creates new projects.)</span></span>
+          </label>
+        {% else %}
+          <label>Designation<input name="designation" maxlength="120" value="{{ member.designation }}"></label>
+          <label>Department / organization<input name="department_organization" maxlength="160" value="{{ member.department_organization }}"></label>
+          
+          <label class="checkbox-inline" style="margin-top: 0.5rem;">
+            <input type="checkbox" name="is_admin" value="1" id="edit-is-admin-cb" {% if member.is_admin %}checked{% endif %} onchange="toggleAdminEdit(this)">
+            <span><strong>Administrator</strong> <span class="muted">(Full access to all applications and system settings.)</span></span>
+          </label>
+
+          <label class="checkbox-inline" style="margin-top: 0.5rem;">
+            <input type="checkbox" name="is_pm" value="1" id="edit-is-pm-cb" {% if member.is_pm %}checked{% endif %}>
+            <span><strong>Project Manager</strong> <span class="muted">(may create new projects. Authority over an existing project comes from a role on it: open the project and assign Project Manager or Delegated PM.)</span></span>
+          </label>
+        {% endif %}
+
+        <div id="edit-admin-notice" style="display: none; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 0.75rem 1rem; color: #166534; font-size: 0.88rem; margin-top: 1.25rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <i data-lucide="shield-check" class="icon-green" style="width: 20px; height: 20px; flex-shrink: 0;"></i>
+            <span><strong>Full Administrator Access:</strong> This user automatically has unrestricted access to all applications and system settings. Individual service access grants and device/server panels are hidden.</span>
+          </div>
+        </div>
+        
+        <fieldset class="checkbox-group" id="edit-service-access-section" style="margin-top:1.25rem;">
+          <input type="hidden" name="features_submitted" value="1">
+          <legend>Service Access</legend>
+          <p class="muted" style="margin-bottom: 0.6rem;">Tick every service this member may open. Untick to revoke.</p>
+          <div class="checkbox-grid">
+            {% for card in feature_cards %}
+              {% if card.key == 'bulk_whatsapp' %}
+                <label class="checkbox-row">
+                  <input type="checkbox" name="feature_ids" value="bulk_whatsapp" id="cb-bulk-whatsapp" {% if 'bulk_whatsapp' in current_feature_ids %}checked{% endif %} onchange="updatePanelStates()">
+                  <span>{{ card.label }}</span>
+                  <p class="checkbox-note">{{ card.note }}</p>
+                  {% if not card.configured %}
+                  <span class="pm-tag">not configured: {{ card.missing | join(', ') }}</span>
+                  {% endif %}
+                </label>
+              {% elif card.key == 'remote_exec' %}
+                <label class="checkbox-row">
+                  <input type="checkbox" name="feature_ids" value="remote_exec" id="cb-remote-exec" {% if 'remote_exec' in current_feature_ids %}checked{% endif %} onchange="updatePanelStates()">
+                  <span>{{ card.label }}</span>
+                  <p class="checkbox-note">{{ card.note }}</p>
+                  {% if not card.configured %}
+                  <span class="pm-tag">not configured: {{ card.missing | join(', ') }}</span>
+                  {% endif %}
+                </label>
+              {% else %}
+                <label class="checkbox-row">
+                  <input type="checkbox" name="feature_ids" value="{{ card.key }}" {% if card.key in current_feature_ids %}checked{% endif %}>
+                  <span>{{ card.label }}</span>
+                  <p class="checkbox-note">{{ card.note }}</p>
+                  {% if not card.configured %}
+                  <span class="pm-tag">not configured: {{ card.missing | join(', ') }}</span>
+                  {% endif %}
+                </label>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </fieldset>
+
+        <div class="form-actions" style="margin-top: 1.5rem;">
+          <a class="button button-quiet" href="{{ url_for('admin.member_list') }}">Cancel</a>
+          {% if member.id == current_user.id %}
+            <button class="button button-primary" type="button" disabled style="opacity: 0.45; cursor: not-allowed;" title="You cannot modify your own administrator permissions or profile from here.">Save member</button>
+          {% else %}
+            <button class="button button-primary" type="submit">Save member</button>
+          {% endif %}
+        </div>
+      </form>
     </div>
+
+    {% if member.id == current_user.id %}
+      <!-- Change Password Panel (exclusively for logged-in user) -->
+      <section class="detail-section" id="change-password" style="background: #ffffff; border: 1px solid var(--line, #e2e8f0); border-radius: 6px; padding: 1.5rem; margin-top: 1.5rem;">
+        <div class="section-heading" style="margin-bottom: 0.75rem;">
+          <div>
+            <p class="eyebrow" style="margin-bottom: 0.15rem;">SECURITY</p>
+            <h2 style="font-size: 1.2rem; margin: 0;">Change Your Password</h2>
+          </div>
+        </div>
+        <p class="muted" style="font-size: 0.88rem; margin: 0 0 1rem;">Enter your current password and choose a new secure password of at least 12 characters.</p>
+
+        <form method="post" class="form-stack" style="max-width: 480px;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="change_password" value="1">
+
+          <label>Current Password
+            <div class="password-input-wrapper">
+              <input type="password" name="current_password" required autocomplete="current-password" placeholder="Enter current password">
+              <button type="button" class="password-toggle-btn" aria-label="Show password" tabindex="-1">
+                <i data-lucide="eye" class="icon-green"></i>
+              </button>
+            </div>
+          </label>
+
+          <label>New Password (min. 12 characters)
+            <div class="password-input-wrapper">
+              <input type="password" name="new_password" minlength="12" required autocomplete="new-password" placeholder="Enter at least 12 characters">
+              <button type="button" class="password-toggle-btn" aria-label="Show password" tabindex="-1">
+                <i data-lucide="eye" class="icon-green"></i>
+              </button>
+            </div>
+          </label>
+
+          <label>Confirm New Password
+            <div class="password-input-wrapper">
+              <input type="password" name="confirm_password" minlength="12" required autocomplete="new-password" placeholder="Re-type new password">
+              <button type="button" class="password-toggle-btn" aria-label="Show password" tabindex="-1">
+                <i data-lucide="eye" class="icon-green"></i>
+              </button>
+            </div>
+          </label>
+
+          <button class="button button-primary" type="submit" style="margin-top: 0.5rem; display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i data-lucide="check" class="icon-white"></i>
+            <span>Update Password</span>
+          </button>
+        </form>
+      </section>
+    {% endif %}
+  </div>
 
     <!-- Side Panels Column (30% width) -->
     <div class="side-panels-col">
@@ -291,6 +424,11 @@
   width: 70%;
   box-sizing: border-box;
 }
+.member-edit-layout.admin-mode .main-form-col {
+  flex: 0 0 100%;
+  max-width: 720px;
+  width: 100%;
+}
 .side-panels-col {
   flex: 0 0 calc(30% - 1.5rem);
   max-width: calc(30% - 1.5rem);
@@ -385,6 +523,55 @@
 </style>
 
 <script>
+var isSelfMember = {{ 'true' if member.id == current_user.id else 'false' }};
+
+function toggleAdminEdit(cb) {
+  if (isSelfMember && !cb.checked) {
+    alert("You cannot revoke your own administrator privileges.");
+    cb.checked = true;
+    return;
+  }
+  if (cb.checked) {
+    var confirmed = window.confirm("Are you sure you want to make this user an Administrator?\n\nAdministrators have full, unrestricted access to all applications, settings, and account management.");
+    if (!confirmed) {
+      cb.checked = false;
+      return;
+    }
+  } else {
+    var confirmed = window.confirm("Are you sure you want to revoke Administrator privileges from this user?");
+    if (!confirmed) {
+      cb.checked = true;
+      return;
+    }
+  }
+  updateAdminServiceVisibility();
+}
+
+function updateAdminServiceVisibility() {
+  var adminCb = document.getElementById('edit-is-admin-cb');
+  var serviceSection = document.getElementById('edit-service-access-section');
+  var sidePanelsCol = document.querySelector('.side-panels-col');
+  var notice = document.getElementById('edit-admin-notice');
+  var layout = document.querySelector('.member-edit-layout');
+  var isAdmin = adminCb && adminCb.checked;
+
+  if (serviceSection) {
+    serviceSection.style.display = isAdmin ? 'none' : '';
+  }
+  if (sidePanelsCol) {
+    sidePanelsCol.style.display = isAdmin ? 'none' : '';
+  }
+  if (notice) {
+    notice.style.display = isAdmin ? 'block' : 'none';
+  }
+  if (layout) {
+    layout.classList.toggle('admin-mode', isAdmin);
+  }
+  if (window.lucide) {
+    lucide.createIcons();
+  }
+}
+
 // State toggling for Registered Devices and Registered Servers panels
 function updatePanelStates() {
   // 1. Bulk Messenger -> Registered Devices Panel
@@ -526,6 +713,7 @@ function startPollingForServer(serverId) {
 
 // Initial initialization on load
 document.addEventListener('DOMContentLoaded', function() {
+  updateAdminServiceVisibility();
   updatePanelStates();
   if (window.lucide) {
     lucide.createIcons();

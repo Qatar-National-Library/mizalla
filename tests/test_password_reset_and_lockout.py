@@ -241,18 +241,24 @@ def test_admin_lock_and_unlock_member(app, client):
     assert "You cannot lock your own administrator account" in res_self.text
 
 
-def test_admin_cannot_delete_member(app, client):
+def test_admin_delete_member_allowed_for_others_prevented_for_self(app, client):
     with app.app_context():
-        create_member("admin_del@example.com", is_admin=True)
+        admin = create_member("admin_del@example.com", is_admin=True)
         victim = create_member("victim@example.com")
+        admin_id = admin.id
         victim_id = victim.id
 
     client.post("/apps/login", data={"email": "admin_del@example.com", "password": TEST_PASSWORD})
 
-    res = client.post(f"/apps/admin/members/{victim_id}/delete", follow_redirects=True)
-    assert res.status_code == 200
-    assert "Deleting member accounts is disabled" in res.text
+    # Cannot delete self
+    res_self = client.post(f"/apps/admin/members/{admin_id}/delete", follow_redirects=True)
+    assert "You cannot delete your own administrator account" in res_self.text
 
-    # Verify member is still in database
+    # Can delete other member
+    res_other = client.post(f"/apps/admin/members/{victim_id}/delete", follow_redirects=True)
+    assert res_other.status_code == 200
+    assert "permanently deleted" in res_other.text
+
     with app.app_context():
-        assert db.session.get(Member, victim_id) is not None
+        assert db.session.get(Member, victim_id) is None
+        assert db.session.get(Member, admin_id) is not None

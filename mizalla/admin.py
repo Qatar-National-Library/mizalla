@@ -119,13 +119,16 @@ def member_list():
         elif Member.query.filter_by(email=email).first():
             flash("That email address is already registered.", "error")
         else:
+            is_admin = bool(request.form.get("is_admin"))
+            is_pm = bool(request.form.get("is_pm")) or is_admin
             requested_features = set(request.form.getlist("feature_ids", type=str))
             member = Member(
                 name=name,
                 email=email,
                 designation=request.form.get("designation", "").strip(),
                 department_organization=request.form.get("department_organization", "").strip(),
-                is_pm=bool(request.form.get("is_pm")),
+                is_admin=is_admin,
+                is_pm=is_pm,
                 can_bulk_email="bulk_email" in requested_features,
                 must_set_password=True,
                 password_hash="!UNSET!",
@@ -197,9 +200,33 @@ def member_edit(member_id):
     }
 
     if request.method == "POST":
+        if member.id == current_user.id:
+            # Self-account: only password change is allowed
+            if "change_password" in request.form:
+                current_pwd = request.form.get("current_password", "")
+                new_pwd = request.form.get("new_password", "")
+                confirm_pwd = request.form.get("confirm_password", "")
+                if not member.check_password(current_pwd):
+                    flash("Incorrect current password.", "error")
+                elif len(new_pwd) < 12:
+                    flash("New password must be at least 12 characters long.", "error")
+                elif new_pwd != confirm_pwd:
+                    flash("New passwords do not match.", "error")
+                else:
+                    member.set_password(new_pwd)
+                    db.session.commit()
+                    flash("Your password has been successfully updated.", "success")
+                return redirect(url_for("admin.member_edit", member_id=member.id))
+            else:
+                flash("You cannot revoke your own administrator privileges or modify your account details from here.", "error")
+                return redirect(url_for("admin.member_list"))
+
+        new_is_admin = bool(request.form.get("is_admin"))
+        member.is_admin = new_is_admin
+
         member.designation = request.form.get("designation", "").strip()
         member.department_organization = request.form.get("department_organization", "").strip()
-        member.is_pm = bool(request.form.get("is_pm"))
+        member.is_pm = bool(request.form.get("is_pm")) or member.is_admin
         # Keep the legacy flag in step with the Bulk Emailer grant so the
         # backfill stays idempotent and no access is silently lost.
         requested_features = set(request.form.getlist("feature_ids", type=str))
@@ -257,7 +284,15 @@ def member_edit(member_id):
 @bp.post("/members/<int:member_id>/delete")
 @admin_required
 def member_delete(member_id):
-    flash("Deleting member accounts is disabled to preserve data integrity and audit history. Please lock the account instead.", "error")
+    member = db.get_or_404(Member, member_id)
+    if member.id == current_user.id:
+        flash("You cannot delete your own administrator account.", "error")
+        return redirect(url_for("admin.member_list"))
+
+    name = member.name
+    db.session.delete(member)
+    db.session.commit()
+    flash(f"Account for '{name}' has been permanently deleted.", "success")
     return redirect(url_for("admin.member_list"))
 
 
@@ -271,6 +306,9 @@ def member_lock(member_id: int):
         member.lock(f"Manually locked by Administrator ({current_user.name}).")
         db.session.commit()
         flash(f"Account for '{member.name}' has been locked.", "success")
+    next_url = request.referrer or url_for("admin.member_list")
+    if "/apps/admin/members" in next_url:
+        return redirect(next_url)
     return redirect(url_for("admin.member_list"))
 
 
@@ -281,6 +319,9 @@ def member_unlock(member_id: int):
     member.unlock()
     db.session.commit()
     flash(f"Account for '{member.name}' has been unlocked.", "success")
+    next_url = request.referrer or url_for("admin.member_list")
+    if "/apps/admin/members" in next_url:
+        return redirect(next_url)
     return redirect(url_for("admin.member_list"))
 
 

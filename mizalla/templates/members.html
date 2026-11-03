@@ -23,8 +23,7 @@
               <strong>{{ member.name }}</strong>
               {% if member.is_admin %}
                 <span class="admin-tag">Admin</span>
-              {% endif %}
-              {% if member.is_pm %}
+              {% elif member.is_pm %}
                 <span class="pm-tag" title="May create new projects. Project authority comes from project roles.">Creates projects</span>
               {% endif %}
               
@@ -43,9 +42,11 @@
                 </span>
               {% endif %}
 
-              {% for key in member_features.get(member.id, []) %}
-                <span class="service-tag">{{ feature_labels[key] }}</span>
-              {% endfor %}
+              {% if not member.is_admin %}
+                {% for key in member_features.get(member.id, []) %}
+                  <span class="service-tag">{{ feature_labels[key] }}</span>
+                {% endfor %}
+              {% endif %}
             </div>
             <span>{{ member.email }}</span>
             <small>{{ member.designation or "No designation" }} · {{ member.department_organization or "No department / organization" }}</small>
@@ -57,31 +58,53 @@
 
         <!-- Action Buttons -->
         <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-          <a class="button button-quiet button-small" href="{{ url_for('admin.member_edit', member_id=member.id) }}">
-            Edit
-          </a>
+          {% if member.id == current_user.id %}
+            <button class="button button-quiet button-small" disabled style="opacity: 0.45; cursor: not-allowed;" title="You cannot edit your own account from the directory.">
+              Edit
+            </button>
+            <button class="button button-quiet button-small" disabled style="opacity: 0.45; cursor: not-allowed;" title="You cannot lock your own account.">
+              Lock
+            </button>
+            <button class="button button-quiet button-small" disabled style="opacity: 0.45; cursor: not-allowed;" title="You cannot delete your own account.">
+              Delete
+            </button>
+            <a class="button button-quiet button-small" href="{{ url_for('admin.member_edit', member_id=member.id) }}#change-password" style="color: var(--green-dark, #103e30); font-weight: 600;" title="Change your account password">
+              Change password
+            </a>
+          {% else %}
+            <a class="button button-quiet button-small" href="{{ url_for('admin.member_edit', member_id=member.id) }}">
+              Edit
+            </a>
 
-          {% if member.must_set_password %}
-            <form method="post" action="{{ url_for('admin.member_resend_invite', member_id=member.id) }}" style="display: inline; margin: 0;">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="button button-quiet button-small" type="submit" title="Resend password setup magic link to email">
-                Resend Invite
-              </button>
-            </form>
-          {% endif %}
+            {% if member.must_set_password %}
+              <form method="post" action="{{ url_for('admin.member_resend_invite', member_id=member.id) }}" style="display: inline; margin: 0;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="button button-quiet button-small" type="submit" title="Resend password setup magic link to email">
+                  Resend Invite
+                </button>
+              </form>
+            {% endif %}
 
-          {% if member.is_locked %}
-            <form method="post" action="{{ url_for('admin.member_unlock', member_id=member.id) }}" style="display: inline; margin: 0;">
+            {% if member.is_locked %}
+              <form method="post" action="{{ url_for('admin.member_unlock', member_id=member.id) }}" style="display: inline; margin: 0;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="button button-quiet button-small" type="submit" style="color: #047857;" title="Unlock member account">
+                  Unlock
+                </button>
+              </form>
+            {% else %}
+              <form method="post" action="{{ url_for('admin.member_lock', member_id=member.id) }}" style="display: inline; margin: 0;" onsubmit="return confirm('Lock account for {{ member.name }}? The user will be unable to log in.')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="button button-quiet button-small" type="submit" style="color: #b91c1c;" title="Lock member account">
+                  Lock
+                </button>
+              </form>
+            {% endif %}
+
+            <form method="post" action="{{ url_for('admin.member_delete', member_id=member.id) }}" style="display: inline; margin: 0;" onsubmit="return confirm('Are you sure you want to permanently delete the account for {{ member.name }} ({{ member.email }})? This action cannot be undone.')">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="button button-quiet button-small" type="submit" style="color: #047857;" title="Unlock member account">
-                Unlock
-              </button>
-            </form>
-          {% elif member.id != current_user.id %}
-            <form method="post" action="{{ url_for('admin.member_lock', member_id=member.id) }}" style="display: inline; margin: 0;" onsubmit="return confirm('Lock account for {{ member.name }}? The user will be unable to log in.')">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="button button-quiet button-small" type="submit" style="color: #b91c1c;" title="Lock member account">
-                Lock
+              <button class="button button-quiet button-small" type="submit" style="color: #b91c1c;" title="Delete member account">
+                Delete
               </button>
             </form>
           {% endif %}
@@ -115,12 +138,24 @@
       <label>Designation<input name="designation" maxlength="120" placeholder="e.g. Systems Librarian"></label>
       <label>Department / organization<input name="department_organization" maxlength="160" placeholder="e.g. Digital Systems"></label>
       
-      <label class="checkbox-inline">
-        <input type="checkbox" name="is_pm" value="1" checked>
-        Project Manager <span class="muted">(may create new projects. Authority over an existing project comes from a role on it: open the project and assign Project Manager or Delegated PM.)</span>
+      <label class="checkbox-inline" style="margin-bottom: 0.5rem;">
+        <input type="checkbox" name="is_admin" value="1" id="create-is-admin-cb" onchange="toggleAdminCreate(this)">
+        <span><strong>Administrator</strong> <span class="muted">(Full access to all applications and system settings.)</span></span>
       </label>
+
+      <label class="checkbox-inline">
+        <input type="checkbox" name="is_pm" value="1" checked id="create-is-pm-cb">
+        <span>Project Manager <span class="muted">(may create new projects. Authority over an existing project comes from a role on it: open the project and assign Project Manager or Delegated PM.)</span></span>
+      </label>
+
+      <div id="create-admin-notice" style="display: none; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 0.75rem 1rem; color: #166534; font-size: 0.85rem; margin-top: 1rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <i data-lucide="shield-check" class="icon-green" style="width: 18px; height: 18px; flex-shrink: 0;"></i>
+          <span><strong>Full Administrator Access:</strong> This user will have unrestricted access to all applications and system settings. Individual service access grants are not needed.</span>
+        </div>
+      </div>
       
-      <fieldset class="checkbox-group" style="margin-top:1rem">
+      <fieldset class="checkbox-group" id="create-service-access-section" style="margin-top:1rem">
         <legend>Service Access</legend>
         <div class="checkbox-grid">
           {% for card in feature_cards %}
@@ -170,6 +205,27 @@
 </section>
 
 <script>
+function toggleAdminCreate(cb) {
+  if (cb.checked) {
+    var confirmed = window.confirm("Are you sure you want to make this user an Administrator?\n\nAdministrators have full, unrestricted access to all applications, settings, and account management.");
+    if (!confirmed) {
+      cb.checked = false;
+      return;
+    }
+  }
+  var serviceSection = document.getElementById('create-service-access-section');
+  var notice = document.getElementById('create-admin-notice');
+  if (serviceSection) {
+    serviceSection.style.display = cb.checked ? 'none' : '';
+  }
+  if (notice) {
+    notice.style.display = cb.checked ? 'block' : 'none';
+  }
+  if (window.lucide) {
+    lucide.createIcons();
+  }
+}
+
 function toggleWhatsappDevicesCreate(cb) {
   var fieldset = document.getElementById('whatsapp-device-fieldset-create');
   if (!fieldset) return;
