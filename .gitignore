@@ -11,3 +11,6 @@ pytest_output.txt
 *.sqlite3
 .vscode/
 apikey_*
+gowa/storages/*
+gowa/statics/*
+.github/*
