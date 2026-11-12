@@ -32,3 +32,6 @@ openai>=1.0.0
 
 # Testing
 pytest>=8.4.2
+
+# gunicorn for azure
+gunicorn
