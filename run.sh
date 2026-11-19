@@ -24,16 +24,6 @@ else
     exit 1
 fi
 
-FLASK_FLAGS="--debug"
-
-# Check if --production flag was passed
-if [ "$1" = "--production" ]; then
-    FLASK_FLAGS=""
-    echo "Starting Mizalla Flask App in PRODUCTION mode..."
-else
-    echo "Starting Mizalla Flask App in DEBUG mode..."
-fi
-
 # Detect python executable in active environment
 if [ -x "venv/bin/python" ]; then
     PYTHON_CMD="venv/bin/python"
@@ -52,4 +42,56 @@ else
     exit 1
 fi
 
-exec "$PYTHON_CMD" -m flask --app mizalla run $FLASK_FLAGS
+# Default configuration
+PORT="8080"
+THREADS="1"
+POSITIONAL_ARGS=()
+
+# Parse CLI arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -p|--port)
+            PORT="$2"
+            shift 2
+            ;;
+        --port=*)
+            PORT="${1#*=}"
+            shift
+            ;;
+        -t|--threads)
+            THREADS="$2"
+            shift 2
+            ;;
+        --threads=*)
+            THREADS="${1#*=}"
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: ./run.sh [-p|--port PORT] [-t|--threads THREADS]"
+            echo "       ./run.sh [PORT] [THREADS]"
+            echo "Options:"
+            echo "  -p, --port PORT       Port to bind (default: 8080)"
+            echo "  -t, --threads THREADS Number of worker threads (default: 1)"
+            exit 0
+            ;;
+        *)
+            POSITIONAL_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+# Support positional parameters: run.sh [PORT] [THREADS]
+if [ ${#POSITIONAL_ARGS[@]} -ge 1 ]; then
+    PORT="${POSITIONAL_ARGS[0]}"
+fi
+if [ ${#POSITIONAL_ARGS[@]} -ge 2 ]; then
+    THREADS="${POSITIONAL_ARGS[1]}"
+fi
+
+echo "Starting Mizalla with Gunicorn on 0.0.0.0:${PORT} (threads: ${THREADS})..."
+
+exec "$PYTHON_CMD" -m gunicorn \
+    --bind "0.0.0.0:${PORT}" \
+    --threads "${THREADS}" \
+    "mizalla:create_app()"
