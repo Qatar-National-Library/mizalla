@@ -1,7 +1,10 @@
 import pytest
 from bs4 import BeautifulSoup
 from mizalla.extensions import db
-from mizalla.models import Member
+from mizalla.feature_access import sync_member_features
+from mizalla.models import FEATURE_MEDIA_WALL, Member
+
+PASSWORD = "member-password-long"
 
 @pytest.fixture
 def auth_client(client, app):
@@ -13,19 +16,18 @@ def auth_client(client, app):
                 name="Test User",
                 is_admin=True,
             )
-            member.set_password("Secret123!")
+            member.set_password(PASSWORD)
             db.session.add(member)
+            sync_member_features(member, [FEATURE_MEDIA_WALL])
             db.session.commit()
         member_id = member.id
 
-    with client.session_transaction() as sess:
-        sess["_user_id"] = str(member_id)
-        sess["_fresh"] = True
+    client.post("/apps/login", data={"email": "testuser@example.com", "password": PASSWORD})
     return client
 
 def test_media_wall_removes_file_details_and_inlines_icons(auth_client, app):
     """Verify that File Details column is removed and media icon is rendered in Asset Name cell."""
-    res = auth_client.get("/media-walls")
+    res = auth_client.get("/apps/media-walls")
     assert res.status_code == 200
     html = res.data.decode("utf-8")
     soup = BeautifulSoup(html, "html.parser")
@@ -40,7 +42,7 @@ def test_media_wall_removes_file_details_and_inlines_icons(auth_client, app):
 def test_navbar_about_and_user_guide_relocated_to_user_dropdown(auth_client, client):
     """Verify About and User guide are moved to user dropdown when authenticated, and in public nav when guest."""
     # 1. Authenticated
-    res = auth_client.get("/remote-exec")
+    res = auth_client.get("/apps/remote-exec/", follow_redirects=True)
     assert res.status_code == 200
     html = res.data.decode("utf-8")
     soup = BeautifulSoup(html, "html.parser")
@@ -60,7 +62,7 @@ def test_navbar_about_and_user_guide_relocated_to_user_dropdown(auth_client, cli
     assert "User guide" in dropdown_links
 
     # 2. Unauthenticated (Guest)
-    res_guest = client.get("/login")
+    res_guest = client.get("/apps/login")
     assert res_guest.status_code == 200
     html_guest = res_guest.data.decode("utf-8")
     soup_guest = BeautifulSoup(html_guest, "html.parser")
@@ -72,9 +74,10 @@ def test_navbar_about_and_user_guide_relocated_to_user_dropdown(auth_client, cli
 
 def test_remote_exec_in_step_file_upload_present(auth_client):
     """Verify remote exec dashboard template contains in-step upload rendering for upload steps."""
-    res = auth_client.get("/remote-exec")
+    res = auth_client.get("/apps/remote-exec/", follow_redirects=True)
     assert res.status_code == 200
     html = res.data.decode("utf-8")
     # Verify the JS contains the in-step upload container rendering
-    assert "upload-step-file-container" in html
+    assert 'Select Files to Upload' in html
     assert 'item.command_type === "upload"' in html
+    assert 'uploadBox.style.border = "1px dashed' in html
