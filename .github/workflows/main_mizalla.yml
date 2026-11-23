@@ -63,4 +63,4 @@ jobs:
         with:
           app-name: 'mizalla'
           slot-name: 'Production'
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_6B50911AD32349F497898D7F5F88CA35 }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_1CA8F81D383E449C87C8B5011FDF779B }}
