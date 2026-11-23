@@ -9,6 +9,7 @@ python-dotenv>=1.0.0
 mcp>=1.30.0,<2.0.0
 cryptography>=42.0.0
 asyncssh>=2.17.0
+waitress>=3.0.0
 
 # Bulk Messaging & Data Processing
 sendgrid>=6.11.0,<7
@@ -30,6 +31,6 @@ azure-ai-vision-imageanalysis>=1.0.0
 azure-cognitiveservices-speech>=1.52.0
 openai>=1.0.0
 
-# Testing
+# Testing & Production Server
 pytest>=8.4.2
 gunicorn
