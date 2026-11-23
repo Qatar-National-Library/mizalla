@@ -1176,7 +1176,12 @@ async function openRunModal(entryType, targetId) {
     typeEyebrow.textContent = (entryType === "group") ? "RUN COMMAND GROUP" : "RUN COMMAND ITEM";
     title.textContent = data.title;
     server.textContent = "Target Server: " + data.server_name;
-    uploadContainer.style.display = data.has_upload ? "block" : "none";
+    // For groups, file inputs are embedded directly in the upload step fieldsets below
+    if (entryType === "group") {
+      uploadContainer.style.display = "none";
+    } else {
+      uploadContainer.style.display = data.has_upload ? "block" : "none";
+    }
 
     container.innerHTML = "";
 
@@ -1205,14 +1210,45 @@ async function openRunModal(entryType, targetId) {
         fieldsetContent.style.flexDirection = "column";
         fieldsetContent.style.gap = "0.75rem";
 
-        if (!item.variables || item.variables.length === 0) {
+        const hasVars = (item.variables && item.variables.length > 0);
+        const isUpload = (item.command_type === "upload");
+
+        if (isUpload) {
+          const uploadBox = document.createElement("div");
+          uploadBox.style.padding = "0.75rem 0.85rem";
+          uploadBox.style.background = "#fff";
+          uploadBox.style.border = "1px dashed var(--green-dark, #103e30)";
+          uploadBox.style.borderRadius = "6px";
+
+          const uploadLabel = document.createElement("label");
+          uploadLabel.style.display = "block";
+          uploadLabel.style.fontWeight = "600";
+          uploadLabel.style.fontSize = "0.83rem";
+          uploadLabel.style.marginBottom = "0.35rem";
+          uploadLabel.style.color = "var(--ink, #1f2937)";
+          uploadLabel.innerHTML = `Select Files to Upload <span style="font-size:0.75rem; font-weight:normal; color:#666;">(will land in target server current directory)</span>`;
+
+          const fileInput = document.createElement("input");
+          fileInput.type = "file";
+          fileInput.name = "files";
+          fileInput.multiple = true;
+          fileInput.style.fontSize = "0.85rem";
+          fileInput.style.width = "100%";
+          fileInput.style.boxSizing = "border-box";
+
+          uploadBox.appendChild(uploadLabel);
+          uploadBox.appendChild(fileInput);
+          fieldsetContent.appendChild(uploadBox);
+        }
+
+        if (!hasVars && !isUpload) {
           const noVars = document.createElement("p");
           noVars.style.margin = "0";
           noVars.style.fontSize = "0.8rem";
           noVars.style.color = "#888";
           noVars.textContent = "No runtime variables required for this step.";
           fieldsetContent.appendChild(noVars);
-        } else {
+        } else if (hasVars) {
           item.variables.forEach(v => {
             const row = document.createElement("div");
             row.style.display = "flex";

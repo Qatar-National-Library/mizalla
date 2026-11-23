@@ -35,6 +35,7 @@ SQLITE_ADDITIONS = {
     },
     "command_item": {
         "target_os": "VARCHAR(30) NOT NULL DEFAULT 'all'",
+        "updated_on": "DATETIME",
     },
     "command_item_permission": {
         "can_view": "BOOLEAN NOT NULL DEFAULT 1",
@@ -199,6 +200,11 @@ def upgrade_schema() -> bool:
                     connection.exec_driver_sql(
                         f'ALTER TABLE "{table_name}" ADD COLUMN "{column_name}" {definition}'
                     )
+        # Ensure command_item.updated_on defaults to created_on for existing records
+        if "command_item" in existing_tables:
+            connection.exec_driver_sql(
+                'UPDATE "command_item" SET "updated_on" = "created_on" WHERE "updated_on" IS NULL'
+            )
         # Runs after the column additions above, so the copy picks up any column
         # that was just added and the rebuilt table already carries it.
         return rebuild_membership_role_constraint(connection)

@@ -23,9 +23,6 @@
     {% if current_user.is_authenticated %}
     <nav class="navigation" aria-label="Main navigation">
       {{ app_switcher(current_user) }}
-      <span class="nav-separator" aria-hidden="true"></span>
-      <a href="{{ url_for('main.about') }}">About</a>
-      <a href="{{ url_for('main.user_guide') }}">User guide</a>
       {% if current_user.is_admin %}
       <span class="nav-separator" aria-hidden="true"></span>
       <a href="{{ url_for('admin.member_list') }}">Administration</a>
@@ -51,6 +48,9 @@
           {% if current_user.is_admin %}
           <a href="{{ url_for('admin.feedback_dashboard') }}" class="dropdown-item">Feedback Moderation</a>
           {% endif %}
+          <div class="dropdown-divider"></div>
+          <a href="{{ url_for('main.about') }}" class="dropdown-item">About</a>
+          <a href="{{ url_for('main.user_guide') }}" class="dropdown-item">User guide</a>
           <div class="dropdown-divider"></div>
           <form method="post" action="{{ url_for('auth.logout') }}" class="dropdown-logout">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

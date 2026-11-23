@@ -121,7 +121,6 @@
           <tr style="background: #f8fafc; border-bottom: 2px solid var(--line, #e2e8f0); color: #475569; font-weight: 600;">
             <th style="padding: 0.75rem 0.5rem; width: 44px; text-align: center;" title="Drag handle">#</th>
             <th style="padding: 0.75rem 1rem;">Asset Name</th>
-            <th style="padding: 0.75rem 1rem;">File Details</th>
             <th style="padding: 0.75rem 1rem;">Schedule</th>
             <th style="padding: 0.75rem 0.75rem;">Size</th>
             <th style="padding: 0.75rem 0.75rem;">Dimensions</th>
@@ -138,12 +137,9 @@
             </td>
             <td style="padding: 0.75rem 1rem;">
               <strong style="color: #0f172a; display: block; font-size: 0.9rem;">{{ item.friendly_name }}</strong>
-              <small style="color: var(--muted, #64748b); font-family: monospace;">{{ item.filename }}</small>
-            </td>
-            <td style="padding: 0.75rem 1rem;">
-              <div style="display: flex; align-items: center; gap: 0.4rem;">
-                <i data-lucide="{% if item.media_type == 'video' %}film{% else %}file-image{% endif %}" class="icon-green" style="width: 16px; height: 16px;"></i>
-                <span style="font-family: monospace; font-size: 0.8rem; color: #334155;">{{ item.relative_path }}</span>
+              <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 2px;">
+                <i data-lucide="{% if item.media_type == 'video' %}film{% else %}file-image{% endif %}" class="icon-green" style="width: 14px; height: 14px; flex-shrink: 0;"></i>
+                <small style="color: var(--muted, #64748b); font-family: monospace; word-break: break-all;">{{ item.filename }}</small>
               </div>
             </td>
             <td style="padding: 0.75rem 1rem; white-space: nowrap;">

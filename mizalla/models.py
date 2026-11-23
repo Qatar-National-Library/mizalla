@@ -844,8 +844,10 @@ class CommandItem(db.Model):
 
     @property
     def last_modified_timestamp(self) -> float:
-        """Returns unix timestamp of the last edit or creation."""
-        ts_obj = self.updated_on or self.created_on
+        """Returns unix timestamp of the last edit or creation.
+        Where updated_on is missing or None, falls back to created_on.
+        """
+        ts_obj = getattr(self, "updated_on", None) or getattr(self, "created_on", None)
         if not ts_obj:
             return 0.0
         if ts_obj.tzinfo is None:
