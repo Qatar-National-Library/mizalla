@@ -1428,6 +1428,7 @@ async def run_single_remote_command(
     private_key: str,
     command: str,
     os_type: str = "linux",
+    on_connection_open: Optional[Callable[[Any], None]] = None,
 ) -> Tuple[int, str, Optional[int]]:
     """Runs a single remote command, returning (exit_code, full_output, remote_pid)."""
     opts = _build_client_options(username, password, private_key)
@@ -1435,6 +1436,11 @@ async def run_single_remote_command(
 
     try:
         async with asyncssh.connect(ip, port=port or 22, **opts) as conn:
+            if on_connection_open:
+                try:
+                    on_connection_open(conn)
+                except Exception:
+                    pass
             # On Linux wrap with echo $$ to capture the PID
             if os_type.lower() != "windows":
                 wrapped = f"echo MIZALLA_PID:$$; exec {clean_cmd}"
@@ -1501,6 +1507,7 @@ async def execute_sequential_command_group(
     stop_on_error: bool = True,
     os_type: str = "linux",
     on_step_change: Optional[Callable[[int, dict, str, Optional[int], str], Awaitable[None]]] = None,
+    on_connection_open: Optional[Callable[[Any], None]] = None,
 ) -> Tuple[int, str, Optional[int]]:
     """Runs a sequence of CommandItems in a SINGLE persistent SSH session.
     
@@ -1536,6 +1543,11 @@ async def execute_sequential_command_group(
 
     try:
         async with asyncssh.connect(ip, port=port or 22, **opts) as conn:
+            if on_connection_open:
+                try:
+                    on_connection_open(conn)
+                except Exception:
+                    pass
             # Track current remote working directory across sequential commands
             current_cwd = "."
 
@@ -1638,6 +1650,7 @@ async def execute_parallel_command_group(
     stop_on_error: bool = False,
     os_type: str = "linux",
     on_step_change: Optional[Callable[[int, dict, str, Optional[int], str], Awaitable[None]]] = None,
+    on_connection_open: Optional[Callable[[Any], None]] = None,
 ) -> Tuple[int, str, Optional[int]]:
     """Runs items in a CommandGroup concurrently in parallel."""
     opts = _build_client_options(username, password, private_key)
@@ -1666,6 +1679,11 @@ async def execute_parallel_command_group(
             try:
                 clean_cmd = normalize_line_endings(item_cmd, os_type)
                 async with asyncssh.connect(ip, port=port or 22, **opts) as conn:
+                    if on_connection_open:
+                        try:
+                            on_connection_open(conn)
+                        except Exception:
+                            pass
                     res = await conn.run(clean_cmd, check=False)
                     ec = res.exit_status or 0
                     out = res.stdout or ""

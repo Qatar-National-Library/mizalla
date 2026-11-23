@@ -834,12 +834,23 @@ class CommandItem(db.Model):
     target_os = db.Column(db.String(30), nullable=False, default="all")  # all, linux, ubuntu, rhel, windows
     created_by_id = db.Column(db.Integer, db.ForeignKey("member.id", ondelete="CASCADE"), nullable=False, index=True)
     created_on = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
+    updated_on = db.Column(db.DateTime(timezone=True), nullable=True, onupdate=lambda: datetime.now(timezone.utc), index=True)
 
     server = db.relationship("Server", backref=db.backref("command_items", lazy="dynamic"))
     creator = db.relationship("Member", backref=db.backref("created_command_items", cascade="all, delete-orphan", lazy="dynamic"))
     variables = db.relationship("CommandVariable", back_populates="command_item", cascade="all, delete-orphan")
     permissions = db.relationship("CommandItemPermission", back_populates="command_item", cascade="all, delete-orphan")
     group_links = db.relationship("CommandGroupItem", back_populates="command_item", cascade="all, delete-orphan")
+
+    @property
+    def last_modified_timestamp(self) -> float:
+        """Returns unix timestamp of the last edit or creation."""
+        ts_obj = self.updated_on or self.created_on
+        if not ts_obj:
+            return 0.0
+        if ts_obj.tzinfo is None:
+            ts_obj = ts_obj.replace(tzinfo=timezone.utc)
+        return ts_obj.timestamp()
 
     @property
     def effective_target_os(self) -> str:

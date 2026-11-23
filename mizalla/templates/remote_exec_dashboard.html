@@ -271,6 +271,10 @@
 
             <!-- Action Buttons & Running State -->
             <div class="action-btn-group" id="group-btns-{{ grp.id }}" style="display:flex; align-items:center; gap:0.35rem;" onclick="event.stopPropagation();">
+              <button type="button" class="button button-small group-abort-btn" id="group-abort-btn-{{ grp.id }}" onclick="abortCommandGroup({{ grp.id }})" title="Abort running Command Group and close SSH connection" style="font-weight:600; background: #c62828; color: #fff; display:{% if is_grp_running %}inline-flex{% else %}none{% endif %}; align-items:center; gap:0.3rem;" {% if not is_grp_running %}disabled{% endif %}>
+                <i data-lucide="square" class="icon-white" style="width:12px; height:12px; fill:currentColor;"></i> Stop
+              </button>
+
               <button type="button" class="button button-small run-trigger-btn" onclick="openRunModal('group', {{ grp.id }})" style="font-weight:600; background: #1a73e8; color: #fff; display:inline-flex; align-items:center; gap:0.3rem; {% if is_grp_running %}pointer-events:none; opacity:0.5;{% endif %}" {% if is_grp_running %}disabled{% endif %}>
                 <i data-lucide="play" class="icon-white"></i> Run
               </button>
@@ -1715,6 +1719,67 @@ function closeItemModal() {
   document.getElementById("item-modal").close();
 }
 
+// ─── Abort Command Group Execution ─────────────────────────────────────────
+async function abortCommandGroup(groupId) {
+  if (!confirm("Are you sure you want to abort the running Command Group and close the SSH connection?")) {
+    return;
+  }
+  const btn = document.getElementById("group-abort-btn-" + groupId);
+  if (btn) {
+    btn.setAttribute("disabled", "true");
+    btn.innerHTML = `<span class="status-spinner" style="display:inline-block; width:10px; height:10px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span> Stopping...`;
+  }
+
+  // Immediately reset steps under this group back to normal / Ready state
+  resetGroupStepsState(groupId);
+
+  try {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content")
+      || document.querySelector('input[name="csrf_token"]')?.value || "";
+    const resp = await fetch(`/apps/remote-exec/groups/${groupId}/abort`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": csrfToken,
+      },
+      body: JSON.stringify({ csrf_token: csrfToken }),
+    });
+    const data = await resp.json();
+    if (!resp.ok && data.error) {
+      alert("Abort failed: " + data.error);
+    }
+  } catch (err) {
+    alert("Error sending abort request: " + err);
+  } finally {
+    // Instantly poll to refresh states
+    pollActiveStatus();
+  }
+}
+
+// Reset steps under a command group card back to normal
+function resetGroupStepsState(groupId) {
+  const container = document.getElementById("group-items-container-" + groupId);
+  if (!container) return;
+  container.querySelectorAll(".nested-item-accordion").forEach(itemCard => {
+    itemCard.style.opacity = "1";
+    itemCard.style.background = "#fff";
+    itemCard.style.borderColor = "#e0e0e0";
+
+    const runningBadge = itemCard.querySelector(".step-running-badge");
+    const successBadge = itemCard.querySelector(".step-success-badge");
+    const failureBadge = itemCard.querySelector(".step-failure-badge");
+    const pendingBadge = itemCard.querySelector(".step-pending-badge");
+
+    if (runningBadge) runningBadge.style.display = "none";
+    if (successBadge) successBadge.style.display = "none";
+    if (failureBadge) failureBadge.style.display = "none";
+    if (pendingBadge) {
+      pendingBadge.style.display = "inline";
+      pendingBadge.textContent = "Ready";
+    }
+  });
+}
+
 // ─── Live Polling: Spinner with RUNNING and Disabled Buttons ──────────────
 async function pollActiveStatus() {
   try {
@@ -1735,14 +1800,26 @@ async function pollActiveStatus() {
 
       if (btnGroup) {
         btnGroup.querySelectorAll("button, a").forEach(el => {
-          if (isRunning) {
-            el.setAttribute("disabled", "true");
-            el.style.pointerEvents = "none";
-            el.style.opacity = "0.5";
+          if (el.classList.contains("group-abort-btn")) {
+            if (isRunning) {
+              el.removeAttribute("disabled");
+              el.style.pointerEvents = "";
+              el.style.opacity = "";
+              el.style.display = "inline-flex";
+            } else {
+              el.setAttribute("disabled", "true");
+              el.style.display = "none";
+            }
           } else {
-            el.removeAttribute("disabled");
-            el.style.pointerEvents = "";
-            el.style.opacity = "";
+            if (isRunning) {
+              el.setAttribute("disabled", "true");
+              el.style.pointerEvents = "none";
+              el.style.opacity = "0.5";
+            } else {
+              el.removeAttribute("disabled");
+              el.style.pointerEvents = "";
+              el.style.opacity = "";
+            }
           }
         });
       }
@@ -1758,6 +1835,9 @@ async function pollActiveStatus() {
           const chev = document.getElementById("group-chevron-" + gid);
           if (chev) chev.style.transform = "rotate(180deg)";
         }
+      } else {
+        // When not running, ensure step cards return to normal / ready state
+        resetGroupStepsState(gid);
       }
 
       // Update per-step status within this group listing if step data is available
@@ -1832,6 +1912,17 @@ async function pollActiveStatus() {
     });
 
     // Update Execution History for running audits
+    const runningAuditIds = new Set((data.running_audits || []).map(a => a.id));
+    document.querySelectorAll("[id^='audit-status-badge-']").forEach(badge => {
+      const aid = parseInt(badge.id.replace("audit-status-badge-", ""), 10);
+      if (!runningAuditIds.has(aid)) {
+        // If this audit was showing a running spinner but is no longer running, mark as terminated or finished
+        if (badge.innerHTML.includes("RUNNING") || badge.innerHTML.includes("status-spinner")) {
+          badge.innerHTML = `<span style="font-weight:600; font-size:0.8rem; color:#c62828; background:#ffebee; padding:0.18rem 0.45rem; border-radius:3px;">TERMINATED</span>`;
+        }
+      }
+    });
+
     if (data.running_audits && data.running_audits.length > 0) {
       data.running_audits.forEach(aud => {
         // Update audit row status badge

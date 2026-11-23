@@ -733,7 +733,32 @@ def get_audit_full_log(audit_id: int):
     return render_template("command_full_log.html", audit=audit)
 
 
-# ─── Process Termination ──────────────────────────────────────────────────────
+# ─── Process & Group Termination ──────────────────────────────────────────────
+
+@bp.post("/groups/<int:group_id>/abort")
+@remote_exec_required
+def abort_group(group_id: int):
+    """Aborts an active Command Group execution and closes the SSH connection."""
+    group = CommandGroup.query.get_or_404(group_id)
+    if not (current_user.is_admin or user_can_run_group(current_user, group)):
+        return jsonify(error="Unauthorized to abort this command group execution."), 403
+
+    # Find active audit for this group
+    active_audit = CommandAudit.query.filter(
+        CommandAudit.group_id == group_id,
+        CommandAudit.status.in_([COMMAND_STATUS_PENDING, COMMAND_STATUS_RUNNING]),
+    ).order_by(CommandAudit.id.desc()).first()
+
+    if not active_audit:
+        return jsonify(success=False, message="No active execution found for this command group.")
+
+    ok = terminate_running_audit(active_audit.id)
+    return jsonify(
+        success=ok,
+        audit_id=active_audit.id,
+        message="Command Group execution aborted and SSH connection closed." if ok else "Execution already ended.",
+    )
+
 
 @bp.post("/commands/<int:audit_id>/terminate")
 @remote_exec_required
@@ -936,6 +961,7 @@ def save_item():
         item.name = name
         item.command_type = command_type
         item.target_os = target_os
+        item.updated_on = datetime.now(timezone.utc)
         if command_type != COMMAND_TYPE_UPLOAD:
             item.command_content = command_content
     else:
@@ -1043,6 +1069,7 @@ def save_item():
                 "creator_name": item.creator.name if item.creator else "Unknown",
                 "can_edit": user_can_edit_item(current_user, item),
                 "variables": [v.name for v in item.variables],
+                "last_modified": item.last_modified_timestamp,
             }
         )
 

@@ -177,6 +177,48 @@
         Available items you created or have access to. Click <strong>+</strong> to append to the group, or click expand to inspect the script.
       </p>
 
+      <!-- 1. Recently Added or Edited Section (Always above search, last 10m) -->
+      <div id="avail-items-recent-section" style="display:none; margin-bottom: 1rem; padding-bottom: 0.85rem; border-bottom: 2px dashed #e2e8f0;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.45rem;">
+          <span style="font-size:0.8rem; font-weight:700; color:#1e293b; display:inline-flex; align-items:center; gap:0.35rem;">
+            <i data-lucide="clock" class="icon-green" style="width:13px; height:13px;"></i>
+            Recently Added or Edited
+          </span>
+          <span class="tag" style="background:#dcfce7; color:#166534; font-size:0.65rem; padding:0.1rem 0.35rem; border-radius:10px; font-weight:700;">
+            Last 10m
+          </span>
+        </div>
+        <div id="avail-items-recent-list" style="display:flex; flex-direction:column; gap:0.5rem;">
+          <!-- Dynamically populated or rendered -->
+        </div>
+      </div>
+
+      <!-- 2. Search & OS Filter Controls -->
+      <div id="avail-items-controls" style="display:flex; flex-direction:column; gap:0.5rem; margin-bottom:0.75rem;">
+        <!-- Search Field -->
+        <div style="position:relative; display:flex; align-items:center;">
+          <i data-lucide="search" class="icon-green" style="position:absolute; left:0.65rem; width:14px; height:14px; pointer-events:none;"></i>
+          <input type="text" id="avail-items-search-input" placeholder="Search command name or script... (>3 chars)" autocomplete="off" oninput="onSearchInputChanged()" style="width:100%; padding:0.45rem 1.8rem 0.45rem 2rem; font-size:0.82rem; border:1px solid #cbd5e1; border-radius:6px; background:#fff; outline:none; transition:border-color 0.15s ease;">
+          <button type="button" id="avail-items-search-clear" onclick="clearSearchInput()" title="Clear search" style="position:absolute; right:0.5rem; background:none; border:none; padding:0; cursor:pointer; color:#94a3b8; display:none;">
+            <i data-lucide="x" class="icon-green" style="width:14px; height:14px;"></i>
+          </button>
+        </div>
+
+        <!-- OS Filter Dropdown -->
+        <div style="display:flex; align-items:center; gap:0.4rem;">
+          <span style="font-size:0.75rem; color:var(--muted); font-weight:600; white-space:nowrap; display:inline-flex; align-items:center; gap:0.25rem;">
+            <i data-lucide="cpu" class="icon-green" style="width:12px; height:12px;"></i> OS:
+          </span>
+          <select id="avail-items-os-filter-select" onchange="onOsFilterChanged()" style="flex:1; padding:0.35rem 0.5rem; font-size:0.78rem; border:1px solid #cbd5e1; border-radius:5px; background:#fff; color:var(--ink);">
+            <option value="any">Any Operating System</option>
+            <option value="ubuntu">Ubuntu / Debian</option>
+            <option value="windows">Windows</option>
+            <option value="rhel">RHEL / CentOS / Rocky</option>
+            <option value="linux">Linux (Generic)</option>
+          </select>
+        </div>
+      </div>
+
       <!-- Target OS Filter Banner Indicator -->
       <div id="avail-items-os-filter-indicator" style="display:none; align-items:center; gap:0.4rem; padding:0.45rem 0.65rem; background:#f0f9ff; border:1px solid #b9e6fe; border-radius:6px; font-size:0.75rem; color:#0369a1; margin-bottom:0.75rem;">
         <i data-lucide="filter" class="icon-green" style="width:14px; height:14px; flex-shrink:0;"></i>
@@ -184,18 +226,25 @@
       </div>
 
       <!-- Accordion Items List -->
-      <div class="available-items-list" style="display:flex; flex-direction:column; gap:0.65rem; max-height: calc(100vh - 220px); overflow-y:auto; padding-right:0.25rem;">
-        <!-- Fallback when items exist but none match server OS -->
-        <div id="avail-items-no-matches-msg" style="display:none; text-align:center; padding:1.75rem 1rem; background:#fafafa; border:1px dashed #d0d7de; border-radius:6px;">
-          <i data-lucide="alert-circle" class="icon-green" style="width:28px; height:28px; margin-bottom:0.35rem;"></i>
-          <p style="margin:0; font-size:0.85rem; font-weight:600; color:var(--ink);">No compatible Command Items</p>
-          <p class="muted" style="margin:0.25rem 0 0; font-size:0.78rem;">No items match the operating system of the selected target server.</p>
+      <div class="available-items-list" style="display:flex; flex-direction:column; gap:0.65rem; max-height: calc(100vh - 280px); overflow-y:auto; padding-right:0.25rem;">
+        <!-- Search Prompt state when query length <= 3 -->
+        <div id="avail-items-search-prompt" style="text-align:center; padding:1.5rem 1rem; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:6px;">
+          <i data-lucide="search" class="icon-green" style="width:24px; height:24px; margin-bottom:0.35rem; color:#64748b;"></i>
+          <p style="margin:0; font-size:0.83rem; font-weight:600; color:#334155;">Type more than 3 characters to search</p>
+          <p class="muted" style="margin:0.25rem 0 0; font-size:0.75rem;">Search filters across Command Item names and script content.</p>
+        </div>
+
+        <!-- Fallback when >3 chars typed but 0 matches found -->
+        <div id="avail-items-no-matches-msg" style="display:none; text-align:center; padding:1.5rem 1rem; background:#fafafa; border:1px dashed #d0d7de; border-radius:6px;">
+          <i data-lucide="alert-circle" class="icon-green" style="width:24px; height:24px; margin-bottom:0.35rem;"></i>
+          <p style="margin:0; font-size:0.83rem; font-weight:600; color:var(--ink);">No matching Command Items found</p>
+          <p class="muted" style="margin:0.25rem 0 0; font-size:0.75rem;">Try another keyword or change the Operating System filter.</p>
         </div>
 
         {% for item in available_items %}
         {% set type_label = 'On Remote Server' if item.command_type == 'remote' else ('On Local Server' if item.command_type == 'local' else ('Upload File(s)' if item.command_type == 'upload' else item.command_type)) %}
         {% set can_edit_this = can_edit_item(item) if can_edit_item is defined else false %}
-        <div class="avail-item-accordion" id="avail-item-{{ item.id }}" data-item-id="{{ item.id }}" data-item-name="{{ item.name }}" data-item-type="{{ type_label }}" data-command-type="{{ item.command_type }}" data-item-target-os="{{ item.effective_target_os }}" data-item-creator="{{ item.creator.name if item.creator else (item.creator.email if item.creator else 'Unknown') }}" data-can-edit="{{ 'true' if can_edit_this else 'false' }}" draggable="true" style="border: 1px solid #e0e0e0; border-radius: 6px; overflow:hidden; background:#fafafa; transition: border-color 0.15s ease; cursor:grab;" title="Drag into Command Group or click + to add">
+        <div class="avail-item-accordion" id="avail-item-{{ item.id }}" data-item-id="{{ item.id }}" data-item-name="{{ item.name }}" data-item-type="{{ type_label }}" data-command-type="{{ item.command_type }}" data-item-target-os="{{ item.effective_target_os }}" data-last-modified="{{ item.last_modified_timestamp }}" data-item-creator="{{ item.creator.name if item.creator else (item.creator.email if item.creator else 'Unknown') }}" data-can-edit="{{ 'true' if can_edit_this else 'false' }}" draggable="true" style="display:none; border: 1px solid #e0e0e0; border-radius: 6px; overflow:hidden; background:#fafafa; transition: border-color 0.15s ease; cursor:grab;" title="Drag into Command Group or click + to add">
           
           <!-- Accordion Header -->
           <div class="avail-item-header" style="padding: 0.65rem 0.8rem; display:flex; justify-content:space-between; align-items:center; gap:0.5rem; background:#fff;">
@@ -417,6 +466,31 @@ function initDragAndDrop() {
     });
 
     availList.addEventListener("dragend", (e) => {
+      const card = e.target.closest(".avail-item-accordion");
+      if (card) card.style.opacity = "1";
+      draggedAvailData = null;
+    });
+  }
+
+  // Dragging from Recent Items list
+  const recentList = document.getElementById("avail-items-recent-list");
+  if (recentList) {
+    recentList.addEventListener("dragstart", (e) => {
+      const card = e.target.closest(".avail-item-accordion");
+      if (!card) return;
+      draggedAvailData = {
+        itemId: card.getAttribute("data-item-id"),
+        itemName: card.getAttribute("data-item-name"),
+        itemType: card.getAttribute("data-item-type"),
+        creatorName: card.getAttribute("data-item-creator"),
+        canEdit: card.getAttribute("data-can-edit") === "true",
+      };
+      card.style.opacity = "0.5";
+      e.dataTransfer.effectAllowed = "copy";
+      e.dataTransfer.setData("text/plain", card.getAttribute("data-item-id"));
+    });
+
+    recentList.addEventListener("dragend", (e) => {
       const card = e.target.closest(".avail-item-accordion");
       if (card) card.style.opacity = "1";
       draggedAvailData = null;
@@ -976,6 +1050,7 @@ async function submitItemForm(event) {
       availCard.setAttribute("data-item-type", item.type_label);
       availCard.setAttribute("data-command-type", item.command_type);
       availCard.setAttribute("data-item-target-os", item.target_os || "any");
+      availCard.setAttribute("data-last-modified", item.last_modified || (Date.now() / 1000));
 
       // Update onclick of + button with new name
       const addBtn = availCard.querySelector(".btn-add-avail-item");
@@ -997,10 +1072,11 @@ async function submitItemForm(event) {
         newCard.setAttribute("data-item-type", item.type_label);
         newCard.setAttribute("data-command-type", item.command_type);
         newCard.setAttribute("data-item-target-os", item.target_os || "any");
+        newCard.setAttribute("data-last-modified", item.last_modified || (Date.now() / 1000));
         newCard.setAttribute("data-item-creator", item.creator_name || 'Unknown');
         newCard.setAttribute("data-can-edit", item.can_edit ? "true" : "false");
         newCard.setAttribute("draggable", "true");
-        newCard.style.cssText = "border: 1px solid #e0e0e0; border-radius: 6px; overflow:hidden; background:#fafafa; transition: border-color 0.15s ease; cursor:grab;";
+        newCard.style.cssText = "display:none; border: 1px solid #e0e0e0; border-radius: 6px; overflow:hidden; background:#fafafa; transition: border-color 0.15s ease; cursor:grab;";
         newCard.title = "Drag into Command Group or click + to add";
 
         newCard.innerHTML = `
@@ -1033,7 +1109,8 @@ async function submitItemForm(event) {
       }
     }
 
-    // Re-run OS filter to update counts and visibility
+    // Re-render recent section and re-apply search/OS filters
+    renderRecentItems();
     filterAvailableItemsByServerOS();
 
     // 2. Also update all cards currently added in the left column
@@ -1248,124 +1325,215 @@ function displayGroupWarnings(warnings) {
   }
 }
 
-// ─── Filter Available Command Items by Target Server OS ──────────────────────
-function isItemCompatibleWithServerOS(card, serverOS, serverOsType) {
-  // 1. File uploads and local server commands are always compatible
+// ─── Recent Items (Added or Edited in last 10 minutes) ────────────────────────
+function renderRecentItems() {
+  const recentSection = document.getElementById("avail-items-recent-section");
+  const recentList = document.getElementById("avail-items-recent-list");
+  if (!recentSection || !recentList) return;
+
+  const now = Date.now() / 1000;
+  const cards = document.querySelectorAll(".available-items-list .avail-item-accordion");
+  const recentItems = [];
+
+  cards.forEach(card => {
+    const lastMod = parseFloat(card.getAttribute("data-last-modified") || "0");
+    // within 10 minutes = 600 seconds
+    if (lastMod > 0 && (now - lastMod) <= 600) {
+      recentItems.push({ card, lastMod });
+    }
+  });
+
+  // Sort newest first
+  recentItems.sort((a, b) => b.lastMod - a.lastMod);
+
+  if (recentItems.length === 0) {
+    recentSection.style.display = "none";
+    recentList.innerHTML = "";
+    return;
+  }
+
+  recentSection.style.display = "block";
+  recentList.innerHTML = "";
+
+  recentItems.forEach(({ card }) => {
+    const itemId = card.getAttribute("data-item-id");
+    const itemName = card.getAttribute("data-item-name") || "";
+    const itemType = card.getAttribute("data-item-type") || "";
+    const canEdit = card.getAttribute("data-can-edit") === "true";
+    const creatorName = card.getAttribute("data-item-creator") || "Unknown";
+    const scriptEl = card.querySelector(".avail-item-script-pre");
+    const scriptContent = scriptEl ? scriptEl.textContent : "";
+    const varsText = card.querySelector(".avail-item-vars-text")?.textContent || "";
+
+    const recentCard = document.createElement("div");
+    recentCard.className = "avail-item-accordion avail-recent-item-card";
+    recentCard.id = `recent-avail-item-${itemId}`;
+    recentCard.setAttribute("data-item-id", itemId);
+    recentCard.setAttribute("data-item-name", itemName);
+    recentCard.setAttribute("data-item-type", itemType);
+    recentCard.setAttribute("data-item-creator", creatorName);
+    recentCard.setAttribute("data-can-edit", canEdit ? "true" : "false");
+    recentCard.setAttribute("draggable", "true");
+    recentCard.title = "Drag into Command Group or click + to add";
+    recentCard.style.cssText = "border: 1px solid #bbf7d0; border-left: 3px solid #16a34a; border-radius: 6px; overflow:hidden; background:#f0fdf4; transition: border-color 0.15s ease; cursor:grab;";
+
+    recentCard.innerHTML = `
+      <div class="avail-item-header" style="padding: 0.55rem 0.75rem; display:flex; justify-content:space-between; align-items:center; gap:0.4rem; background:#fff;">
+        <div style="display:flex; align-items:center; gap:0.4rem; min-width:0; flex:1;">
+          <strong class="avail-item-name" style="font-size:0.85rem; color:var(--ink); word-break:break-word;">${escapeHtml(itemName)}</strong>
+          <span class="tag" style="background:#dcfce7; color:#166534; font-size:0.62rem; padding:0.1rem 0.35rem; border-radius:8px; font-weight:700; flex-shrink:0;">RECENT</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:0.25rem; flex-shrink:0;">
+          ${canEdit ? `
+          <button type="button" class="button button-quiet button-small" onclick="openEditItemModal(${itemId})" title="Edit Command Item" style="padding:0.2rem 0.35rem;">
+            <i data-lucide="pencil" class="icon-green" style="width:13px; height:13px;"></i>
+          </button>` : ''}
+          <button type="button" class="button button-quiet button-small" onclick="toggleRecentScript(${itemId})" title="View script" style="padding:0.2rem 0.35rem;">
+            <i data-lucide="chevron-down" id="recent-chevron-${itemId}" class="icon-green" style="width:13px; height:13px; transition:transform 0.2s ease;"></i>
+          </button>
+          <button type="button" class="button button-primary button-small" onclick="appendItemToGroup(${itemId}, '${escapeJs(itemName)}', '${escapeJs(itemType)}', '${escapeJs(creatorName)}', ${canEdit})" title="Append to Command Group" style="padding:0.2rem 0.45rem; display:inline-flex; align-items:center; gap:0.2rem;">
+            <i data-lucide="plus" class="icon-white" style="width:13px; height:13px;"></i>
+          </button>
+        </div>
+      </div>
+      <div id="recent-body-${itemId}" style="display:none; padding: 0.55rem 0.75rem; border-top:1px solid #dcfce7; background:#fafafa;">
+        <div style="font-size:0.7rem; font-weight:600; color:var(--muted); margin-bottom:0.25rem; text-transform:uppercase;">Script / Content</div>
+        <pre style="margin:0; font-family:monospace; font-size:0.73rem; background:#1e1e1e; color:#dcdcdc; padding:0.5rem; border-radius:4px; max-height:120px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;">${escapeHtml(scriptContent)}</pre>
+        ${varsText ? `<div style="margin-top:0.35rem; font-size:0.72rem; color:var(--muted);"><strong style="color:var(--ink);">Variables:</strong> ${escapeHtml(varsText)}</div>` : ''}
+      </div>
+    `;
+
+    recentList.appendChild(recentCard);
+  });
+
+  if (window.lucide) {
+    lucide.createIcons();
+  }
+}
+
+function toggleRecentScript(itemId) {
+  const body = document.getElementById("recent-body-" + itemId);
+  const chev = document.getElementById("recent-chevron-" + itemId);
+  if (!body) return;
+  const isHidden = (body.style.display === "none" || body.style.display === "");
+  body.style.display = isHidden ? "block" : "none";
+  if (chev) {
+    chev.style.transform = isHidden ? "rotate(180deg)" : "rotate(0deg)";
+  }
+}
+
+// ─── Search & OS Filter Logic ────────────────────────────────────────────────
+function onSearchInputChanged() {
+  const input = document.getElementById("avail-items-search-input");
+  const clearBtn = document.getElementById("avail-items-search-clear");
+  const query = (input?.value || "").trim();
+  if (clearBtn) {
+    clearBtn.style.display = query ? "inline-block" : "none";
+  }
+  applyAvailableItemsFilter();
+}
+
+function clearSearchInput() {
+  const input = document.getElementById("avail-items-search-input");
+  if (input) {
+    input.value = "";
+  }
+  onSearchInputChanged();
+  if (input) input.focus();
+}
+
+function onOsFilterChanged() {
+  applyAvailableItemsFilter();
+}
+
+function isItemCompatibleWithSelectedOS(card, os) {
+  if (!os || os === "any") return true;
   const commandType = (card.getAttribute("data-command-type") || "").toLowerCase();
   const itemType = (card.getAttribute("data-item-type") || "").toLowerCase();
   if (commandType === "upload" || commandType === "local" || itemType.includes("upload") || itemType.includes("local")) {
     return true;
   }
 
-  // 2. Explicit target_os setting check
-  const itemTargetOs = (card.getAttribute("data-item-target-os") || "any").toLowerCase();
+  const itemTargetOs = (card.getAttribute("data-item-target-os") || "all").toLowerCase();
   const scriptEl = card.querySelector(".avail-item-script-pre");
-  const script = scriptEl ? scriptEl.textContent || "" : "";
+  const script = scriptEl ? (scriptEl.textContent || "") : "";
 
-  const isWindows = serverOS.includes("windows") || serverOS.includes("win") || serverOsType === "windows";
-  const isUbuntu = serverOS.includes("ubuntu") || serverOS.includes("debian") || serverOsType.includes("ubuntu") || serverOsType.includes("debian");
-  const isRhel = serverOS.includes("rhel") || serverOS.includes("redhat") || serverOS.includes("centos") || serverOS.includes("rocky") || serverOS.includes("alma") || serverOS.includes("fedora") || serverOS.includes("oracle") || serverOsType.includes("rhel") || serverOsType.includes("redhat") || serverOsType.includes("centos");
-
-  if (isWindows) {
-    if (itemTargetOs === "linux" || itemTargetOs === "ubuntu" || itemTargetOs === "rhel") {
-      return false;
-    }
-    // Linux package managers and shell-specific commands on Windows
-    if (/\b(apt|apt-get|yum|dnf|dpkg|rpm|pacman|zypper|sudo|systemctl|journalctl|chown|chmod|uname)\b/i.test(script)) {
-      return false;
-    }
+  if (os === "windows") {
+    if (itemTargetOs === "linux" || itemTargetOs === "ubuntu" || itemTargetOs === "rhel") return false;
+    if (/\b(apt|apt-get|yum|dnf|dpkg|rpm|pacman|zypper|sudo|systemctl|journalctl|chown|chmod|uname)\b/i.test(script)) return false;
     return true;
   }
 
-  if (isUbuntu) {
-    if (itemTargetOs === "windows" || itemTargetOs === "rhel") {
-      return false;
-    }
-    // RHEL package tools or Windows batch/PowerShell commands on Ubuntu
-    if (/\b(yum|dnf|rpm|powershell\.exe|cmd\.exe|\.bat|\.cmd)\b/i.test(script)) {
-      return false;
-    }
+  if (os === "ubuntu") {
+    if (itemTargetOs === "windows" || itemTargetOs === "rhel") return false;
+    if (/\b(yum|dnf|rpm|powershell\.exe|cmd\.exe|\.bat|\.cmd)\b/i.test(script)) return false;
     return true;
   }
 
-  if (isRhel) {
-    if (itemTargetOs === "windows" || itemTargetOs === "ubuntu") {
-      return false;
-    }
-    // Debian/Ubuntu package tools or Windows batch/PowerShell commands on RHEL
-    if (/\b(apt|apt-get|dpkg|powershell\.exe|cmd\.exe|\.bat|\.cmd)\b/i.test(script)) {
-      return false;
-    }
+  if (os === "rhel") {
+    if (itemTargetOs === "windows" || itemTargetOs === "ubuntu") return false;
+    if (/\b(apt|apt-get|dpkg|powershell\.exe|cmd\.exe|\.bat|\.cmd)\b/i.test(script)) return false;
     return true;
   }
 
-  // Generic or other Linux server
-  if (itemTargetOs === "windows") {
-    return false;
+  if (os === "linux") {
+    if (itemTargetOs === "windows") return false;
+    if (/(\.bat|\.cmd|cmd\.exe|dir\s+[a-z]:|[a-z]:\\)/i.test(script)) return false;
+    return true;
   }
-  if (/(\.bat|\.cmd|cmd\.exe|dir\s+[a-z]:|[a-z]:\\)/i.test(script)) {
-    return false;
-  }
+
   return true;
 }
 
-function filterAvailableItemsByServerOS() {
-  const serverSelect = document.getElementById("group-target-server-select") || document.querySelector("select[name='server_id']");
-  const cards = document.querySelectorAll(".available-items-list .avail-item-accordion");
-  const countBadge = document.getElementById("avail-items-count-badge");
-  const indicator = document.getElementById("avail-items-os-filter-indicator");
-  const filterText = document.getElementById("avail-items-filter-text");
+function applyAvailableItemsFilter() {
+  const searchInput = document.getElementById("avail-items-search-input");
+  const osSelect = document.getElementById("avail-items-os-filter-select");
+  const promptEl = document.getElementById("avail-items-search-prompt");
   const noMatchesMsg = document.getElementById("avail-items-no-matches-msg");
+  const countBadge = document.getElementById("avail-items-count-badge");
+  const cards = document.querySelectorAll(".available-items-list .avail-item-accordion");
 
-  let serverOS = "";
-  let serverOsType = "";
-  let serverName = "";
+  const query = (searchInput?.value || "").trim().toLowerCase();
+  const selectedOS = (osSelect?.value || "any").toLowerCase();
 
-  if (serverSelect) {
-    const selectedOpt = serverSelect.options[serverSelect.selectedIndex];
-    if (selectedOpt && selectedOpt.value) {
-      serverOS = (selectedOpt.getAttribute("data-os") || "").toLowerCase();
-      serverOsType = (selectedOpt.getAttribute("data-os-type") || "").toLowerCase();
-      serverName = selectedOpt.textContent.trim();
-    }
-  }
-
-  // If no server selected yet, show all items
-  if (!serverOS && !serverOsType) {
-    let visibleCount = 0;
-    cards.forEach(card => {
-      card.style.display = "";
-      visibleCount++;
-    });
-    if (countBadge) countBadge.textContent = visibleCount.toString();
-    if (indicator) indicator.style.display = "none";
+  // If query length <= 3 characters: hide non-recent items, show search prompt
+  if (query.length <= 3) {
+    cards.forEach(card => card.style.display = "none");
+    if (promptEl) promptEl.style.display = "block";
     if (noMatchesMsg) noMatchesMsg.style.display = "none";
+    if (countBadge) {
+      const recentCount = document.querySelectorAll("#avail-items-recent-list .avail-item-accordion").length;
+      countBadge.textContent = recentCount > 0 ? `${recentCount} recent` : "0";
+    }
     return;
   }
 
-  let visibleCount = 0;
+  // More than 3 characters typed: evaluate matching items
+  if (promptEl) promptEl.style.display = "none";
+
+  let matchCount = 0;
   cards.forEach(card => {
-    const compatible = isItemCompatibleWithServerOS(card, serverOS, serverOsType);
-    if (compatible) {
+    const itemName = (card.getAttribute("data-item-name") || "").toLowerCase();
+    const scriptEl = card.querySelector(".avail-item-script-pre");
+    const script = (scriptEl ? scriptEl.textContent : "").toLowerCase();
+
+    const textMatches = itemName.includes(query) || script.includes(query);
+    const osMatches = isItemCompatibleWithSelectedOS(card, selectedOS);
+
+    if (textMatches && osMatches) {
       card.style.display = "";
-      visibleCount++;
+      matchCount++;
     } else {
       card.style.display = "none";
     }
   });
 
   if (countBadge) {
-    countBadge.textContent = visibleCount.toString();
-  }
-
-  if (indicator && filterText) {
-    const osDisplay = serverOS ? serverOS.toUpperCase() : (serverOsType ? serverOsType.toUpperCase() : "Target Server");
-    filterText.innerHTML = `Showing items compatible with <strong>${escapeHtml(osDisplay)}</strong>`;
-    indicator.style.display = "flex";
+    countBadge.textContent = matchCount.toString();
   }
 
   if (noMatchesMsg) {
-    noMatchesMsg.style.display = (cards.length > 0 && visibleCount === 0) ? "block" : "none";
+    noMatchesMsg.style.display = (matchCount === 0) ? "block" : "none";
   }
 
   if (window.lucide) {
@@ -1373,9 +1541,53 @@ function filterAvailableItemsByServerOS() {
   }
 }
 
+function filterAvailableItemsByServerOS() {
+  const serverSelect = document.getElementById("group-target-server-select") || document.querySelector("select[name='server_id']");
+  const indicator = document.getElementById("avail-items-os-filter-indicator");
+  const filterText = document.getElementById("avail-items-filter-text");
+  const osSelect = document.getElementById("avail-items-os-filter-select");
+
+  let serverOS = "";
+  let serverOsType = "";
+
+  if (serverSelect) {
+    const selectedOpt = serverSelect.options[serverSelect.selectedIndex];
+    if (selectedOpt && selectedOpt.value) {
+      serverOS = (selectedOpt.getAttribute("data-os") || "").toLowerCase();
+      serverOsType = (selectedOpt.getAttribute("data-os-type") || "").toLowerCase();
+    }
+  }
+
+  if (indicator && filterText) {
+    if (serverOS || serverOsType) {
+      const osDisplay = serverOS ? serverOS.toUpperCase() : serverOsType.toUpperCase();
+      filterText.innerHTML = `Showing items compatible with <strong>${escapeHtml(osDisplay)}</strong>`;
+      indicator.style.display = "flex";
+
+      // If OS dropdown is currently "any", suggest server's detected OS
+      if (osSelect && osSelect.value === "any") {
+        if (serverOS.includes("ubuntu") || serverOsType.includes("ubuntu") || serverOS.includes("debian")) {
+          osSelect.value = "ubuntu";
+        } else if (serverOS.includes("windows") || serverOsType.includes("windows")) {
+          osSelect.value = "windows";
+        } else if (serverOS.includes("rhel") || serverOS.includes("centos") || serverOS.includes("redhat") || serverOsType.includes("rhel")) {
+          osSelect.value = "rhel";
+        } else if (serverOS || serverOsType) {
+          osSelect.value = "linux";
+        }
+      }
+    } else {
+      indicator.style.display = "none";
+    }
+  }
+
+  applyAvailableItemsFilter();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   initDragAndDrop();
   updateSequenceBadges();
+  renderRecentItems();
   filterAvailableItemsByServerOS();
 
   const groupForm = document.getElementById("group-builder-form");
@@ -1389,6 +1601,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // Also trigger immediately in case script runs after DOM is ready
+renderRecentItems();
 filterAvailableItemsByServerOS();
 </script>
 {% endblock %}

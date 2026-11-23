@@ -47,6 +47,10 @@ logger = logging.getLogger("mizalla.remote_exec_client")
 
 # Active execution threads: task_id -> threading.Thread
 _active_threads: Dict[str, threading.Thread] = {}
+# Active asyncio loops: audit_id -> asyncio.AbstractEventLoop
+_active_loops: Dict[int, asyncio.AbstractEventLoop] = {}
+# Active SSH connections: audit_id -> set of asyncssh.SSHClientConnection
+_active_connections: Dict[int, Set[Any]] = {}
 _threads_lock = threading.Lock()
 
 
@@ -321,6 +325,14 @@ def dispatch_command_item(
 
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
+                with _threads_lock:
+                    _active_loops[audit_id] = loop
+                    _active_connections.setdefault(audit_id, set())
+
+                def _on_conn_open(conn):
+                    with _threads_lock:
+                        _active_connections.setdefault(audit_id, set()).add(conn)
+
                 try:
                     exit_code, output, pid = loop.run_until_complete(
                         run_single_remote_command(
@@ -331,9 +343,13 @@ def dispatch_command_item(
                             private_key=cred.private_key,
                             command=executed_cmd,
                             os_type=os_type,
+                            on_connection_open=_on_conn_open,
                         )
                     )
                 finally:
+                    with _threads_lock:
+                        _active_loops.pop(audit_id, None)
+                        _active_connections.pop(audit_id, None)
                     loop.close()
 
             a.status = COMMAND_STATUS_COMPLETED if exit_code == 0 else COMMAND_STATUS_FAILED
@@ -469,6 +485,14 @@ def dispatch_command_group(
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            with _threads_lock:
+                _active_loops[audit_id] = loop
+                _active_connections.setdefault(audit_id, set())
+
+            def _on_conn_open(conn):
+                with _threads_lock:
+                    _active_connections.setdefault(audit_id, set()).add(conn)
+
             try:
                 if run_in_parallel:
                     runner_coro = execute_parallel_command_group(
@@ -482,6 +506,7 @@ def dispatch_command_group(
                         stop_on_error=stop_on_error,
                         os_type=os_type,
                         on_step_change=_on_step_change,
+                        on_connection_open=_on_conn_open,
                     )
                 else:
                     runner_coro = execute_sequential_command_group(
@@ -495,10 +520,27 @@ def dispatch_command_group(
                         stop_on_error=stop_on_error,
                         os_type=os_type,
                         on_step_change=_on_step_change,
+                        on_connection_open=_on_conn_open,
                     )
                 exit_code, output, pid = loop.run_until_complete(runner_coro)
+            except asyncio.CancelledError:
+                exit_code = 130
+                output = f"[{group_name}] Execution cancelled."
+                pid = None
+            except Exception as e:
+                exit_code = 1
+                output = f"[{group_name}] Execution interrupted: {e}"
+                pid = None
             finally:
+                with _threads_lock:
+                    _active_loops.pop(audit_id, None)
+                    _active_connections.pop(audit_id, None)
                 loop.close()
+
+            cur = db.session.get(CommandAudit, audit_id)
+            if cur and cur.status == COMMAND_STATUS_TERMINATED:
+                # Audit was already terminated/aborted by user request; do not overwrite
+                return
 
             a.status = COMMAND_STATUS_COMPLETED if exit_code == 0 else COMMAND_STATUS_FAILED
             a.end_time = datetime.now(timezone.utc)
@@ -517,7 +559,7 @@ def dispatch_command_group(
 # ─── Process Termination Helper ──────────────────────────────────────────────
 
 def terminate_running_audit(audit_id: int, app=None) -> bool:
-    """Terminates an in-flight command audit and remote process."""
+    """Terminates an in-flight command audit and closes active SSH connections immediately."""
     app = app or current_app._get_current_object()
     with app.app_context():
         audit = db.session.get(CommandAudit, audit_id)
@@ -527,7 +569,7 @@ def terminate_running_audit(audit_id: int, app=None) -> bool:
         server = db.session.get(Server, audit.server_id)
         cred = get_effective_credential(audit.server_id, audit.user_id)
 
-        # Terminate remote PID if recorded
+        # 1. Terminate remote PID if recorded
         if audit.remote_pid and server and cred:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -543,12 +585,50 @@ def terminate_running_audit(audit_id: int, app=None) -> bool:
                         os_type=server.os_type,
                     )
                 )
+            except Exception as e:
+                logger.warning(f"Error terminating remote PID {audit.remote_pid}: {e}")
             finally:
                 loop.close()
 
+        # 2. Immediately close and abort all active SSH connections for this audit
+        with _threads_lock:
+            conns = list(_active_connections.get(audit_id, []))
+            active_loop = _active_loops.get(audit_id)
+
+        for conn in conns:
+            try:
+                if hasattr(conn, "abort"):
+                    conn.abort()
+                elif hasattr(conn, "close"):
+                    conn.close()
+            except Exception as e:
+                logger.warning(f"Error closing active SSH connection: {e}")
+
+        # 3. Cancel any pending asyncio tasks on the active execution loop
+        if active_loop and not active_loop.is_closed():
+            try:
+                def _cancel_tasks():
+                    for t in asyncio.all_tasks(active_loop):
+                        t.cancel()
+                active_loop.call_soon_threadsafe(_cancel_tasks)
+            except Exception as e:
+                logger.warning(f"Error cancelling asyncio tasks: {e}")
+
+        # 4. Mark audit and current steps as terminated
         audit.status = COMMAND_STATUS_TERMINATED
         audit.end_time = datetime.now(timezone.utc)
-        audit.full_output += "\n[Execution Terminated by User]"
+        audit.exit_code = 130
+        audit.full_output = (audit.full_output or "") + "\n[Execution Aborted and SSH Connection Closed by User]"
+
+        if audit.steps_data:
+            steps = list(audit.steps_data)
+            for s in steps:
+                if s.get("status") == "running":
+                    s["status"] = "terminated"
+                    s["exit_code"] = 130
+                    s["output"] = (s.get("output", "") + "\n[Step Aborted]").strip()
+            audit.steps_data = steps
+
         db.session.commit()
         return True
 
