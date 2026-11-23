@@ -12,7 +12,6 @@ def auth_client(client, app):
                 email="testuser@example.com",
                 name="Test User",
                 is_admin=True,
-                is_active=True,
             )
             member.set_password("Secret123!")
             db.session.add(member)
