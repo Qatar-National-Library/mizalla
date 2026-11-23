@@ -81,6 +81,6 @@ echo   -t, --threads THREADS Number of worker threads (default: 1)
 exit /b 0
 
 :RUN_APP
-echo Starting Mizalla with Gunicorn on 0.0.0.0:%PORT% (threads: %THREADS%)...
+echo Starting Mizalla with Waitress on 0.0.0.0:%PORT% (threads: %THREADS%)...
 
-python -m gunicorn --bind 0.0.0.0:%PORT% --threads %THREADS% "mizalla:create_app()"
+python -m waitress --port=%PORT% --threads=%THREADS% --call mizalla:create_app

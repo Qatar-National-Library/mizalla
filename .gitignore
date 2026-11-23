@@ -1,4 +1,4 @@
-.venv/
+venv/*
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -14,3 +14,6 @@ apikey_*
 gowa/storages/*
 gowa/statics/*
 .github/*
+.env/*
+plans/*
+

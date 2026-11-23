@@ -1,7 +1,7 @@
 {
-  "tag": "v1.8.0",
+  "tag": "v1.9.0",
   "asset_name": "gowa-ui.html",
-  "sha256": "59e9fa617744b7745a4da6ea491ea1218135858e7a3236585e05e646b0db5d55",
-  "etag": "W/\"8b8252d057efd948f0010b39b1d16c09139593918d78fcb816a4d5507fe5cdaa\"",
-  "downloaded_at": "2026-11-16T08:12:30.038983Z"
+  "sha256": "a076cca6987224c023ac27193d61562361110cf1bec28b8df64d8dea3d631d51",
+  "etag": "W/\"6f66d67b972c0c2e32023b581469e2189df7f22a4fcd93f17e6fe10bf6617036\"",
+  "downloaded_at": "2026-11-23T06:38:15.532833Z"
 }
