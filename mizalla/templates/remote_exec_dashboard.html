@@ -573,6 +573,52 @@
   </div>
 </dialog>
 
+<!-- ─── Live Execution Terminal Modal (Option B) ────────────────────────── -->
+<dialog id="live-terminal-modal" class="modal-dialog modal-large" style="border:1px solid #30363d; border-radius:8px; padding:0; max-width:920px; width:92vw; box-shadow:0 20px 50px rgba(0,0,0,0.7); background:#0d1117; color:#f0f6fc; overflow:hidden;">
+  <div style="display:flex; flex-direction:column; max-height:85vh; background:#0d1117;">
+    <!-- Terminal Header -->
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:0.75rem 1.25rem; background:#161b22; border-bottom:1px solid #30363d;">
+      <div style="display:flex; align-items:center; gap:0.65rem; min-width:0;">
+        <i data-lucide="terminal" style="width:18px; height:18px; color:#00e676; flex-shrink:0;"></i>
+        <div style="min-width:0;">
+          <h3 id="live-terminal-title" style="margin:0; font-size:1rem; color:#fff; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Live Execution</h3>
+          <p id="live-terminal-server" style="margin:0.15rem 0 0; font-size:0.75rem; color:#8b949e;"></p>
+        </div>
+        <span id="live-terminal-status-badge" style="display:inline-flex; align-items:center; gap:0.3rem; font-size:0.72rem; font-weight:700; padding:0.15rem 0.55rem; border-radius:4px; background:#ef6c00; color:#fff; margin-left:0.4rem; flex-shrink:0;">
+          <span class="status-spinner" style="display:inline-block; width:8px; height:8px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
+          RUNNING
+        </span>
+      </div>
+      <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
+        <button type="button" id="live-terminal-abort-btn" onclick="abortFromLiveTerminal()" style="display:none; background:#c62828; color:#fff; border:none; padding:0.25rem 0.65rem; border-radius:4px; font-weight:600; font-size:0.78rem; cursor:pointer;">
+          <i data-lucide="square" class="icon-white" style="width:11px; height:11px; fill:currentColor; vertical-align:middle;"></i> Stop Run
+        </button>
+        <button type="button" onclick="closeLiveTerminalModal()" style="background:transparent; border:none; color:#8b949e; cursor:pointer; font-size:1.3rem; padding:0.2rem 0.4rem; border-radius:4px; line-height:1;" title="Close terminal">&times;</button>
+      </div>
+    </div>
+
+    <!-- Terminal Output Body (Black background, Consolas font, white text, green scripts) -->
+    <div id="live-terminal-body" style="background:#000000; padding:1.25rem; flex:1; min-height:350px; max-height:560px; overflow-y:auto; font-family:Consolas, 'Courier New', monospace; font-size:0.85rem; line-height:1.55; color:#f0f6fc; box-sizing:border-box;">
+      <div id="live-terminal-steps" style="display:flex; flex-direction:column; gap:1rem;">
+        <!-- Injected step items with green commands and white outputs -->
+      </div>
+    </div>
+
+    <!-- Terminal Footer -->
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem 1.25rem; background:#161b22; border-top:1px solid #30363d; font-size:0.75rem; color:#8b949e;">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <label style="display:inline-flex; align-items:center; gap:0.35rem; cursor:pointer; user-select:none;">
+          <input type="checkbox" id="live-terminal-autoscroll" checked style="cursor:pointer;"> Auto-scroll
+        </label>
+        <span id="live-terminal-duration">Duration: 0.0s</span>
+      </div>
+      <div>
+        <button type="button" class="button button-quiet button-small" onclick="closeLiveTerminalModal()" style="font-size:0.78rem; color:#c9d1d9; border-color:#30363d;">Close Terminal</button>
+      </div>
+    </div>
+  </div>
+</dialog>
+
 <!-- ─── New / Edit Command Item Modal ────────────────────────────────────── -->
 <dialog id="item-modal" class="modal-dialog" style="border:none; border-radius:8px; padding:0; max-width:620px; width:90%; box-shadow:0 10px 30px rgba(0,0,0,0.25);">
   <div style="padding: 1.5rem; background:#fff; border-radius:8px;">
@@ -1161,7 +1207,10 @@ async function openRunModal(entryType, targetId) {
         const runData = await runResp.json();
         if (runData.success) {
           pollActiveStatus();
-          setTimeout(() => { window.location.reload(); }, 1200);
+          // Launch Live Execution Terminal Modal directly (no reload)
+          if (runData.audit_id) {
+            openLiveTerminalModal(runData.audit_id, entryType, targetId);
+          }
         } else {
           alert(runData.error || "Failed to dispatch command.");
         }
@@ -1452,10 +1501,13 @@ async function submitRunModal(e) {
     const data = await resp.json();
     if (data.success) {
       closeRunModal();
-      // Instantly trigger live polling refresh
+      // Instantly trigger background polling refresh
       pollActiveStatus();
-      // Reload page after brief delay to show the new accordion row
-      setTimeout(() => { window.location.reload(); }, 1200);
+
+      // Launch Live Execution Terminal Modal (Option B) - no page reload
+      if (data.audit_id) {
+        openLiveTerminalModal(data.audit_id, entryType, targetId);
+      }
     } else {
       err.textContent = data.error || "Failed to dispatch command.";
       err.style.display = "block";
@@ -1467,6 +1519,215 @@ async function submitRunModal(e) {
     btn.disabled = false;
     btn.innerHTML = 'Run Now <i data-lucide="rocket" class="icon-white"></i>';
     if (window.lucide) lucide.createIcons();
+  }
+}
+
+// ─── Live Execution Terminal Modal Controller ──────────────────────────────
+let liveTerminalAuditId = null;
+let liveTerminalGroupId = null;
+let liveTerminalTimer = null;
+let liveTerminalAutoScroll = true;
+
+function openLiveTerminalModal(auditId, entryType, targetId) {
+  liveTerminalAuditId = auditId;
+  liveTerminalGroupId = (entryType === "group") ? targetId : null;
+
+  const modal = document.getElementById("live-terminal-modal");
+  if (!modal) return;
+
+  const titleEl = document.getElementById("live-terminal-title");
+  const serverEl = document.getElementById("live-terminal-server");
+  const badgeEl = document.getElementById("live-terminal-status-badge");
+  const abortBtn = document.getElementById("live-terminal-abort-btn");
+  const stepsContainer = document.getElementById("live-terminal-steps");
+  const autoscrollChk = document.getElementById("live-terminal-autoscroll");
+
+  if (autoscrollChk) {
+    liveTerminalAutoScroll = autoscrollChk.checked;
+    autoscrollChk.onchange = (e) => { liveTerminalAutoScroll = e.target.checked; };
+  }
+
+  // Initial UI state
+  if (titleEl) titleEl.textContent = "Live Execution #" + auditId;
+  if (serverEl) serverEl.textContent = "Initializing connection...";
+  if (badgeEl) {
+    badgeEl.style.background = "#ef6c00";
+    badgeEl.innerHTML = `<span class="status-spinner" style="display:inline-block; width:8px; height:8px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span> RUNNING`;
+  }
+  if (abortBtn) {
+    abortBtn.style.display = liveTerminalGroupId ? "inline-flex" : "none";
+    abortBtn.disabled = false;
+    abortBtn.innerHTML = `<i data-lucide="square" class="icon-white" style="width:11px; height:11px; fill:currentColor; vertical-align:middle;"></i> Stop Run`;
+  }
+  if (stepsContainer) {
+    stepsContainer.innerHTML = '<div style="color:#8b949e; font-style:italic; padding:0.5rem 0;">Connecting to host and streaming execution...</div>';
+  }
+
+  modal.showModal();
+  if (window.lucide) lucide.createIcons();
+
+  // Clear any existing timer
+  if (liveTerminalTimer) clearInterval(liveTerminalTimer);
+
+  // Poll immediately, then every 800ms
+  pollLiveTerminalStream();
+  liveTerminalTimer = setInterval(pollLiveTerminalStream, 800);
+}
+
+function closeLiveTerminalModal() {
+  if (liveTerminalTimer) {
+    clearInterval(liveTerminalTimer);
+    liveTerminalTimer = null;
+  }
+  const modal = document.getElementById("live-terminal-modal");
+  if (modal && modal.open) {
+    modal.close();
+  }
+  liveTerminalAuditId = null;
+  liveTerminalGroupId = null;
+  // Trigger background poll to sync main page badges
+  pollActiveStatus();
+}
+
+async function abortFromLiveTerminal() {
+  if (!liveTerminalGroupId) return;
+  if (!confirm("Are you sure you want to stop this running execution and close the SSH connection?")) {
+    return;
+  }
+  const btn = document.getElementById("live-terminal-abort-btn");
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="status-spinner" style="display:inline-block; width:8px; height:8px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span> Stopping...`;
+  }
+  await abortCommandGroup(liveTerminalGroupId);
+  pollLiveTerminalStream();
+}
+
+async function pollLiveTerminalStream() {
+  if (!liveTerminalAuditId) return;
+
+  try {
+    const resp = await fetch("/apps/remote-exec/commands/" + liveTerminalAuditId + "/live-stream");
+    if (!resp.ok) {
+      if (resp.status === 404 || resp.status === 403) {
+        if (liveTerminalTimer) clearInterval(liveTerminalTimer);
+      }
+      return;
+    }
+
+    const data = await resp.json();
+    renderLiveTerminalData(data);
+
+    if (!data.is_running) {
+      if (liveTerminalTimer) {
+        clearInterval(liveTerminalTimer);
+        liveTerminalTimer = null;
+      }
+    }
+  } catch (err) {
+    console.error("Live terminal polling error:", err);
+  }
+}
+
+function renderLiveTerminalData(data) {
+  const titleEl = document.getElementById("live-terminal-title");
+  const serverEl = document.getElementById("live-terminal-server");
+  const badgeEl = document.getElementById("live-terminal-status-badge");
+  const abortBtn = document.getElementById("live-terminal-abort-btn");
+  const stepsContainer = document.getElementById("live-terminal-steps");
+  const durationEl = document.getElementById("live-terminal-duration");
+  const bodyEl = document.getElementById("live-terminal-body");
+
+  if (titleEl && data.title) {
+    titleEl.textContent = data.title;
+  }
+  if (serverEl && data.server_name) {
+    serverEl.textContent = "Target: " + data.server_name;
+  }
+  if (durationEl && data.duration_seconds !== null && data.duration_seconds !== undefined) {
+    durationEl.textContent = "Duration: " + data.duration_seconds + "s";
+  }
+
+  // Update Status Badge
+  if (badgeEl) {
+    if (data.is_running) {
+      badgeEl.style.background = "#ef6c00";
+      badgeEl.innerHTML = `<span class="status-spinner" style="display:inline-block; width:8px; height:8px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span> RUNNING`;
+      if (abortBtn) abortBtn.style.display = data.group_id ? "inline-flex" : "none";
+    } else if (data.status === "completed" || data.exit_code === 0) {
+      badgeEl.style.background = "#238636";
+      badgeEl.textContent = "COMPLETED";
+      if (abortBtn) abortBtn.style.display = "none";
+    } else if (data.status === "terminated") {
+      badgeEl.style.background = "#6e7681";
+      badgeEl.textContent = "TERMINATED";
+      if (abortBtn) abortBtn.style.display = "none";
+    } else {
+      badgeEl.style.background = "#da3633";
+      badgeEl.textContent = "FAILED (Exit " + (data.exit_code || 1) + ")";
+      if (abortBtn) abortBtn.style.display = "none";
+    }
+  }
+
+  // Render Steps & Terminal Output with distinct Green Script Highlighting
+  if (stepsContainer && data.steps) {
+    let html = "";
+    data.steps.forEach((step, idx) => {
+      const isRunning = (step.status === "running");
+      const isSuccess = (step.status === "completed" || (step.exit_code === 0 && step.status !== "pending"));
+      const isFailed = (step.status === "failed" || (step.exit_code !== null && step.exit_code !== undefined && step.exit_code !== 0));
+
+      let stepBadgeHtml = `<span style="color:#8b949e; font-size:0.75rem;">Ready</span>`;
+      let borderColor = "#30363d";
+
+      if (isRunning) {
+        stepBadgeHtml = `<span style="color:#ef6c00; font-size:0.75rem; font-weight:700;"><span class="status-spinner" style="display:inline-block; width:8px; height:8px; border:2px solid #ef6c00; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span> RUNNING</span>`;
+        borderColor = "#f59f00";
+      } else if (isSuccess) {
+        stepBadgeHtml = `<span style="color:#00e676; font-size:0.75rem; font-weight:700;">&#10003; Exit 0</span>`;
+        borderColor = "#238636";
+      } else if (isFailed) {
+        stepBadgeHtml = `<span style="color:#ff5252; font-size:0.75rem; font-weight:700;">&#10007; Exit ${step.exit_code || 1}</span>`;
+        borderColor = "#da3633";
+      }
+
+      // Script command in distinct Green (#00e676), output in crisp White (#f0f6fc)
+      const scriptCode = step.script ? escapeHtml(step.script) : "(File Upload / Step)";
+      const rawOutput = (step.output || "").trim();
+
+      html += `
+        <div style="border:1px solid ${borderColor}; border-radius:6px; background:#0d1117; overflow:hidden; transition:border-color 0.2s ease;">
+          <!-- Step Header -->
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:0.45rem 0.8rem; background:#161b22; border-bottom:1px solid #30363d;">
+            <div style="display:flex; align-items:center; gap:0.5rem;">
+              <span style="color:#8b949e; font-size:0.75rem; font-weight:600;">#${idx + 1}</span>
+              <strong style="color:#c9d1d9; font-size:0.85rem;">${escapeHtml(step.name || "Step " + (idx + 1))}</strong>
+              <span style="font-size:0.68rem; text-transform:uppercase; background:#21262d; color:#8b949e; padding:0.1rem 0.35rem; border-radius:3px;">${escapeHtml(step.command_type || "script")}</span>
+            </div>
+            <div>${stepBadgeHtml}</div>
+          </div>
+
+          <!-- Executed Script Block: HIGHLIGHTED IN BRIGHT TERMINAL GREEN -->
+          <div style="padding:0.6rem 0.85rem; background:#050505; border-bottom:1px solid #21262d;">
+            <div style="font-size:0.68rem; text-transform:uppercase; color:#58a6ff; font-weight:700; margin-bottom:0.25rem; letter-spacing:0.04em;">Script Executed:</div>
+            <pre style="margin:0; font-family:Consolas, 'Courier New', monospace; font-size:0.82rem; color:#00e676; font-weight:600; white-space:pre-wrap; word-break:break-all; line-height:1.45;">$ ${scriptCode}</pre>
+          </div>
+
+          <!-- Execution Output Block: CRISP WHITE OUTPUT ON PURE BLACK -->
+          <div style="padding:0.65rem 0.85rem; background:#000000;">
+            <div style="font-size:0.68rem; text-transform:uppercase; color:#8b949e; font-weight:700; margin-bottom:0.25rem; letter-spacing:0.04em;">Output:</div>
+            <pre style="margin:0; font-family:Consolas, 'Courier New', monospace; font-size:0.82rem; color:#f0f6fc; white-space:pre-wrap; word-break:break-all; line-height:1.5;">${rawOutput ? escapeHtml(rawOutput) : (isRunning ? '<span style="color:#8b949e; font-style:italic;">Executing on remote host...</span>' : '<span style="color:#6e7681; font-style:italic;">(No standard output recorded)</span>')}</pre>
+          </div>
+        </div>
+      `;
+    });
+
+    stepsContainer.innerHTML = html;
+    if (window.lucide) lucide.createIcons();
+
+    if (liveTerminalAutoScroll && bodyEl) {
+      bodyEl.scrollTop = bodyEl.scrollHeight;
+    }
   }
 }
 

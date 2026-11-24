@@ -733,6 +733,63 @@ def get_audit_full_log(audit_id: int):
     return render_template("command_full_log.html", audit=audit)
 
 
+@bp.get("/commands/<int:audit_id>/live-stream")
+@remote_exec_required
+def get_audit_live_stream(audit_id: int):
+    """Returns real-time execution status and logs for the live terminal modal."""
+    audit = CommandAudit.query.get_or_404(audit_id)
+
+    can_view = False
+    if current_user.is_admin:
+        can_view = True
+    elif audit.group_id and audit.group:
+        can_view = user_can_view_group_logs(current_user, audit.group)
+    elif audit.command_item_id and audit.command_item:
+        can_view = user_can_view_item_logs(current_user, audit.command_item)
+    elif audit.user_id == current_user.id:
+        can_view = True
+
+    if not can_view:
+        return jsonify(error="Permission denied."), 403
+
+    steps = []
+    if audit.entry_type == "group":
+        for s in audit.get_step_items():
+            steps.append({
+                "item_id": s.get("item_id"),
+                "name": s.get("name"),
+                "command_type": s.get("command_type"),
+                "status": s.get("status"),
+                "exit_code": s.get("exit_code"),
+                "script": s.get("script") or s.get("command_content") or "",
+                "output": s.get("output") or "",
+            })
+    else:
+        steps.append({
+            "item_id": audit.command_item_id,
+            "name": audit.title,
+            "command_type": "script",
+            "status": audit.status,
+            "exit_code": audit.exit_code,
+            "script": audit.command_content or "",
+            "output": audit.full_output or "",
+        })
+
+    is_running = audit.status in (COMMAND_STATUS_PENDING, COMMAND_STATUS_RUNNING)
+    return jsonify(
+        audit_id=audit.id,
+        title=audit.title,
+        status=audit.status,
+        is_running=is_running,
+        exit_code=audit.exit_code,
+        group_id=audit.group_id,
+        server_name=audit.server.name if audit.server else "Unknown Server",
+        duration_seconds=round(audit.duration_seconds, 1) if audit.duration_seconds is not None else None,
+        steps=steps,
+        full_output=audit.full_output or "",
+    )
+
+
 # ─── Process & Group Termination ──────────────────────────────────────────────
 
 @bp.post("/groups/<int:group_id>/abort")

@@ -198,7 +198,11 @@ def cleanup_old_pids(instance_path: str | Path) -> list[int]:
 
 
 def _resolve_executable_path(executable: str, root_path: Path | None = None) -> Path:
-    """Resolve executable path, handling relative paths and root-relative paths cleanly."""
+    """Resolve executable path, handling relative paths and root-relative paths cleanly.
+    
+    Also handles OS-specific binary resolution (e.g. falling back between 'gowa.exe'
+    and 'gowa' on Linux/Unix systems if the exact configured binary is not found).
+    """
     clean = executable.strip()
     p = Path(clean)
     if p.is_absolute() and p.exists():
@@ -210,11 +214,27 @@ def _resolve_executable_path(executable: str, root_path: Path | None = None) -> 
         candidate = root_path / rel
         if candidate.exists():
             return candidate
+        # On Linux/Unix, if gowa.exe was specified, try gowa
+        if sys.platform != "win32" and candidate.name.lower() == "gowa.exe":
+            linux_cand = candidate.with_name("gowa")
+            if linux_cand.exists():
+                return linux_cand
 
     if root_path:
         candidate = root_path / clean
         if candidate.exists():
             return candidate
+        # On Linux/Unix, if gowa.exe was specified, try gowa
+        if sys.platform != "win32" and candidate.name.lower() == "gowa.exe":
+            linux_cand = candidate.with_name("gowa")
+            if linux_cand.exists():
+                return linux_cand
+
+    # On non-Windows platforms, if p ends with .exe, try without .exe
+    if sys.platform != "win32" and p.name.lower().endswith(".exe"):
+        no_ext = p.with_name(p.stem)
+        if no_ext.exists():
+            return no_ext
 
     # Return as Path object for caller
     return p

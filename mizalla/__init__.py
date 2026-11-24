@@ -127,6 +127,9 @@ def _load_project_team_roles() -> list[str]:
 
 
 def create_app(test_config: dict | None = None) -> Flask:
+    # Suppress verbose "Task queue depth is X" warnings from waitress.queue
+    logging.getLogger("waitress.queue").setLevel(logging.ERROR)
+
     app = Flask(__name__, instance_relative_config=True)
     # Ahead of from_mapping: SECRET_KEY and the Azure credential checks both read
     # os.environ, and .env is where those values live.

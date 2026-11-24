@@ -1353,6 +1353,12 @@ progress::-moz-progress-bar { background: var(--green); }
   backdrop-filter: blur(2px);
 }
 
+#live-terminal-modal::backdrop {
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
 .feedback-dialog-content {
   padding: 1.5rem;
 }
